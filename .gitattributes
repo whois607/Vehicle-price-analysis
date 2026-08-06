@@ -1,0 +1,11 @@
+# Normalise line endings so the repo is identical whoever clones it.
+* text=auto eol=lf
+
+# Windows-only files keep CRLF or they will not run when checked out.
+*.bat text eol=crlf
+
+# Binary
+*.png binary
+*.ico binary
+*.xlsx binary
+*.db binary

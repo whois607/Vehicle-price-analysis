@@ -1,0 +1,19 @@
+# Core — needed for everything (import, storage, analysis, the app, Excel).
+pandas>=2.2
+numpy>=1.26
+openpyxl>=3.1
+
+# Forecasting ladder (vpa/forecast.py). Without these the app still runs;
+# forecasts fall back to simpler methods or refuse with a stated reason.
+statsmodels>=0.14
+scipy>=1.11
+
+# CLI report charts only (`vpa report`). The in-app charts are hand-rolled
+# inline SVG and need nothing.
+matplotlib>=3.8
+plotly>=5.20
+
+# Optional, Windows only: draws the icon for the desktop shortcut created by
+# `tools/make_launcher.py`. Everything works without it; the shortcut just
+# gets no custom icon.
+# Pillow>=10.0

@@ -1,0 +1,53 @@
+# Your data and your results - never shared. The code is the shareable part;
+# every file below is either private to this machine or regenerated on demand.
+
+# Database, its journals, snapshots, and the raw saved listing pages.
+# data/raw/ matters twice over: those files are YOUR captures AND they are
+# copies of someone else's pages. They must never be redistributed.
+# NOTE the trailing /* rather than a bare `data/`. Git cannot re-include a
+# file inside an EXCLUDED DIRECTORY, so `data/` plus `!data/.gitkeep` silently
+# drops the placeholder; excluding the directory's CONTENTS lets the negation
+# work. (The app creates data/ on first run either way.)
+data/*
+!data/.gitkeep
+
+# Reports, exports and the Excel workbook (rebuild: python -m vpa report --all)
+output/
+
+# Generated test fixtures and their report tree
+tests/synthetic/
+
+# Windows shortcut created by Setup Import App.bat (per-machine paths)
+*.lnk
+
+# Belt and braces: these must not be committed from anywhere in the tree,
+# whatever directory they end up in.
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.xlsx
+*.htm
+*.html
+!vpa/**/*.html
+
+# Local tool/editor state
+.claude/
+.vscode/
+.idea/
+*.bak
+*.tmp
+
+# OS clutter
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/

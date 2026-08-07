@@ -430,6 +430,23 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
+        # NEVER let a browser cache anything this app serves.
+        #
+        # The pages carry their JavaScript inline, so a cached page pins an
+        # OLD copy of the client code against today's API. It renders the
+        # shell — picker, headings, tab strip — then throws part-way through
+        # and leaves every panel blank, with no console error to explain it
+        # and a server that answers every request perfectly when probed. That
+        # cost a long diagnosis on 06/08/2026; the page served was
+        # byte-identical to source and the same URL rendered fine in another
+        # browser, which is the signature of a stale cache and nothing else.
+        #
+        # There is no upside to caching here: it is localhost, the payloads
+        # are small, and the code changes often.
+        self.send_header("Cache-Control",
+                         "no-store, no-cache, must-revalidate, max-age=0")
+        self.send_header("Pragma", "no-cache")
+        self.send_header("Expires", "0")
         self.end_headers()
         self.wfile.write(body)
 

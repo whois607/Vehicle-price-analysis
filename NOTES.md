@@ -852,6 +852,18 @@ Keep these — each one was a bug that took a while to find.
   last-sighting deletion rolled back — correctly, because the invariant caught
   the disagreement.
 
+* **Never let a browser cache anything this app serves.** The pages carry
+  their JavaScript inline, so a cached page pins an OLD copy of the client
+  code against today's API: the shell renders — picker, headings, tab strip —
+  then throws part-way through, leaving every panel blank with NO console
+  error. The server meanwhile answers every probe perfectly, the served HTML
+  is byte-identical to source, and the same URL renders fine in a different
+  browser. That combination is the signature of a stale cache and nothing
+  else; it cost a long diagnosis on 06/08/2026 (checked stale process, wrong
+  database, payload shape and JS exceptions first). `_send` now sets
+  `Cache-Control: no-store, no-cache, must-revalidate` on everything, with a
+  test per page.
+
 * **The app is a long-lived process; it does not hot-reload.** After an
   upgrade, the page it serves can call an endpoint the *running* process has
   never heard of, which surfaced as `alert("unknown endpoint")` and read like

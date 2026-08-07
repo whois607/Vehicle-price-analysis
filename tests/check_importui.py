@@ -465,6 +465,28 @@ def run_checks() -> int:
           "SOURCES.push(f.name)" in _IU.PAGE and "res.files>1" in _IU.PAGE,
           "the preview breaks the count down per file")
 
+    print("\n== nothing this app serves may be cached ==")
+    # A cached page pins an OLD copy of the inline JavaScript against today's
+    # API: the shell renders, the panels stay blank, no console error, and the
+    # server answers every probe correctly. Diagnosed 06/08/2026 - the served
+    # page was byte-identical to source and the same URL rendered fine in a
+    # different browser, which is the signature of a stale cache.
+    def headers_for(path):
+        try:
+            with urllib.request.urlopen(
+                    f"http://127.0.0.1:{PORT}{path}", timeout=30) as r:
+                r.read()
+                return {k.lower(): v for k, v in r.headers.items()}
+        except Exception:
+            return {}
+
+    for path in ("/", "/explore", "/compare", "/quick", "/api/status"):
+        h = headers_for(path)
+        cc = h.get("cache-control", "")
+        check(f"{path} forbids caching",
+              "no-store" in cc and "no-cache" in cc,
+              f"Cache-Control: {cc or '(none)'}")
+
     print("\n== an endpoint this build lacks says RESTART, not 'unknown' ==")
     # The app is a long-lived Python process that holds the code it imported
     # at launch. After an upgrade, a freshly-served page can call an endpoint

@@ -52,13 +52,14 @@ them and says which method it used.
 python -m vpa import-ui
 ```
 
-That opens the app at `http://127.0.0.1:8765` — four pages, all local:
+That opens the app at `http://127.0.0.1:8765` — five pages, all local:
 
 | page | what it answers |
 |---|---|
 | **Import** | preview → edit → commit. Nothing is written until you say so. |
+| **Bulk** | drop many files and they land, with no preview. For trims whose parsing you have already checked. |
 | **Explore** | what is one trim worth, and how does one specific car compare to it |
-| **Compare** | several trims side by side, on identical statistics |
+| **Compare** | several trims or models side by side, on identical statistics — including how fast each one clears |
 | **Quick add** | type a price you saw, without a full capture |
 
 On Windows, `Setup Import App.bat` creates a desktop shortcut so you can
@@ -88,6 +89,10 @@ python -m vpa edit --history               # manual corrections, and undo
    file keeps its own capture date, taken from when you saved it.
 4. Check the preview, fix anything wrong, commit.
 
+Once a make, model or trim parses cleanly and you have checked it a few
+times, use **Bulk** instead: drop the whole week's files and they land with
+no preview. It backs up first and any run can be undone in full.
+
 Repeat weekly and you have price history. The same listing seen on three
 dates is three observations sharing one identity, not three cars.
 
@@ -104,6 +109,23 @@ dates is three observations sharing one identity, not three cars.
   declines to rank rather than guessing.
 - **Forecasts**: a ladder from robust trend to exponential smoothing, with
   intervals, and a stated refusal when there is not enough history.
+- **Turnover**: what happened *between* the captures. Each capture is split
+  into cars carried over, cars back in view, brand-new listings, and cars
+  that cannot be tracked at all; cars last seen on a day hang below the line.
+  From that: how fast a trim clears (as a rate per 30 days and a half-life),
+  roughly how long a car sits before it goes, how old the standing stock is,
+  whether the cars that left were the cheap ones for their day, and how every
+  trim in the model line compares on the same measures. The Compare page
+  carries the same thing across *different* vehicles: the stats side by side,
+  plus a chart of what arrived and what left between each pair of captures.
+
+  It refuses rather than guesses, which is most of the work: listings with no
+  site ad id cannot be recognised across days, two captures that share no
+  cars are two different searches rather than a market that emptied, and a
+  capture much bigger than the one before inflates arrivals while one much
+  smaller inflates exits — so those two get opposite treatment. **It never
+  says "sold."** A listing can vanish by selling, being withdrawn, expiring,
+  or being re-listed under a new id.
 - **A watchlist**: star specific cars and see what each new import did to
   them, including the figure that matters — how a car moved *relative to its
   own trim*.
@@ -114,6 +136,10 @@ dates is three observations sharing one identity, not three cars.
 The database is the point of the tool, so writing to it is deliberately hard:
 
 - Import is preview-first; nothing is stored until you commit.
+- **Bulk** deliberately is not - that is what it is for - so it takes a backup
+  before every run, refuses anything that is not a listings page, and records
+  each run so it can be undone in full: exactly the sightings it added, only
+  the cars it introduced, and every car that already existed put back.
 - Manual corrections (`vpa/edit.py`) take a backup, run in one transaction,
   check invariants before committing, roll back completely on any failure,
   and record every change with its old value so it can be undone.
@@ -129,10 +155,11 @@ The database is the point of the tool, so writing to it is deliberately hard:
 python -m tests.run_all
 ```
 
-Thirteen suites, ~380 checks: the core pipeline, title parsing, the import UI
-over live HTTP, the analysis pages, manual editing, the watchlist, identity
-repair and merge, and the Excel workbook driven through real Excel via COM
-(that last one needs Excel installed, and is the slow one).
+Fifteen suites, ~475 checks: the core pipeline, title parsing, the import UI
+over live HTTP, the analysis pages, manual editing, the watchlist, turnover
+(and every case where it must refuse), bulk upload and its undo, identity
+repair and merge, and the Excel workbook driven through real Excel via COM (that last one needs Excel
+installed, and is the slow one).
 
 ## Layout
 
@@ -142,6 +169,8 @@ vpa/            the package - the only irreplaceable code
   analyze.py    the shared statistics engine
   explore.py    the Explore page and one-car analysis
   edit.py       manual corrections, with backup / transaction / undo
+  turnover.py   what left, what arrived, and when it refuses to say
+  bulk.py       direct upload: no preview, backup first, undo after
   starred.py    the watchlist
 tests/          verification suites
 tools/          Windows launcher

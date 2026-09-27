@@ -201,59 +201,41 @@ _PAGE = r"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
 <title>vpa quick add</title>
 <style>
- :root{--ui:"Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif}
- body,button,select,input,textarea{font-family:var(--ui)}
- body{font-size:14px;line-height:1.45;margin:0;background:#f5f6f7;color:#222}
- .wrap{max-width:980px;margin:0 auto;padding:16px}
- .pagetitle{font-size:19px;margin:2px 0 2px;font-weight:600}
 __CHROME_CSS__
- .sub{color:#667;font-size:12px;margin-bottom:14px}
- .card{background:#fff;border:1px solid #dde;border-radius:8px;padding:14px;margin-bottom:14px}
- label{font-size:11px;color:#556;display:block;margin-bottom:2px}
- input,select{padding:7px;border:1px solid #bbc;border-radius:5px;font-size:14px;box-sizing:border-box}
- button{height:34px;min-width:106px;padding:0 16px;border:0;border-radius:6px;
-        font-size:13.5px;cursor:pointer;color:#222}
- .commit{background:#2e7d32;color:#fff}.commit:disabled{background:#aeb6c2}
- .ghost{background:#eaedf2}.ghost:hover{background:#dfe4ec}
- .mini,a.mini{height:32px;min-width:100px;padding:0 12px;font-size:12.5px;
-        background:#eaedf2;border-radius:6px;text-decoration:none;color:#223;
-        display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box}
- #entries .x{min-width:0;height:auto}
- .cols{display:flex;gap:14px;flex-wrap:wrap}
- .col-entry{flex:1;min-width:300px}.col-stats{flex:1;min-width:320px}
- #model{width:100%;font-size:15px}
- #price{width:100%;height:44px;font-size:19px;font-variant-numeric:tabular-nums}
- #newmodel{display:none;background:#fffbe8;border:1px solid #e5d9a0;border-radius:6px;
-           padding:10px;margin-top:8px}
- #newmodel .row{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
- #newmodel input,#newmodel select{font-size:13px;padding:5px}
+ .cols{gap:14px}
+ .col-entry{flex:1 1 360px;min-width:300px}.col-stats{flex:1.2 1 420px;min-width:320px}
+ #model{width:100%;height:40px;font-size:14.5px}
+ #price{width:100%;height:46px;font-size:20px}
+ #newmodel{display:none;background:var(--warn-soft);border:1px solid var(--warn-line);
+           border-radius:var(--r-sm);padding:10px 12px;margin-top:10px}
+ #newmodel .row{margin-top:8px}
+ #newmodel b{font-size:13px;color:var(--warn)}
  #entries{list-style:none;margin:10px 0 0;padding:0;max-height:44vh;overflow:auto}
- #entries li{display:flex;align-items:center;gap:8px;padding:4px 6px;border-top:1px solid #eef;
-             font-variant-numeric:tabular-nums;font-size:14px}
- #entries li.bad{color:#a03030;text-decoration:line-through}
- #entries .x{margin-left:auto;background:none;border:0;color:#a03030;cursor:pointer;
-             font-size:15px;padding:2px 8px}
- table.stats{border-collapse:collapse;width:100%;font-size:14px}
- .stats th{text-align:left;color:#556;font-weight:500;padding:7px 6px;font-size:12px}
- .stats td{padding:7px 6px;border-top:1px solid #eef}
- .stats td.v{font-variant-numeric:tabular-nums;font-size:16px;text-align:right}
+ #entries li{display:flex;align-items:center;gap:8px;padding:5px 6px;
+             border-top:1px solid var(--line-2);font-variant-numeric:tabular-nums;font-size:14px}
+ #entries li.bad{color:var(--bad);text-decoration:line-through}
+ #entries .x{margin-left:auto}
+ .commitbar{display:flex;gap:10px;align-items:center;margin-top:12px}
+ #batchinfo{color:var(--dim);font-size:12.5px}
+ table.stats{font-size:13.5px}
+ .stats th{font-size:12px}
+ .stats td.v{font-size:16px;text-align:right}
  .stats td.pc{text-align:right;font-size:13px;min-width:110px}
- .up{color:#2e7d32}.down{color:#c04040}.na{color:#889}
- .pool{color:#556;font-size:12px;margin:4px 0 10px}
+ .pool{color:var(--ink-2);font-size:12.5px;margin:0 0 10px}
  #result{white-space:pre-line}
- .ok{color:#2e7d32}.warn{color:#a03030}
- kbd{background:#eef1f5;border:1px solid #ccd;border-radius:3px;padding:0 5px;font-size:11px}
 </style></head><body><div class="wrap">
 __NAV__
-<h1 class="pagetitle">Quick add prices</h1>
-<div class="sub" id="dbline">connecting...</div>
+<div class="pagehead"><div>
+ <h1 class="pagetitle">Quick add prices</h1>
+ <div class="sub"><span>Jot asking prices for one model, without a full capture. Nothing is written until you commit.</span><span class="dbstat" id="dbstat"></span></div>
+</div>__ACTIONS__</div>
 
 <div class="card">
- <label for="model">model or specific trim (type to search, or type a new one)</label>
+ <label for="model">model or specific trim &mdash; type to search, or type a new one</label>
  <input id="model" list="modelList" placeholder="e.g. Ford Falcon FGX XR6 T - or plain Ford Falcon for all trims" autocomplete="off">
  <datalist id="modelList"></datalist>
  <div id="newmodel">
-  <b style="font-size:13px">New model</b>
+  <b>New model</b> <span class="flat" style="font-size:12px">&mdash; not in your data yet; say what it is</span>
   <div class="row">
    <span><label>make</label><input id="nmMake" size="12"></span>
    <span><label>model</label><input id="nmModel" size="14"></span>
@@ -267,19 +249,20 @@ __NAV__
 
 <div class="cols">
  <div class="card col-entry">
-  <label for="price">price - <kbd>Enter</kbd> adds, <kbd>Ctrl+Enter</kbd> commits</label>
+  <div class="ptitle">prices <span>&mdash; <kbd>Enter</kbd> adds one, <kbd>Ctrl+Enter</kbd> commits the batch</span></div>
   <input id="price" placeholder="18990" disabled autocomplete="off">
   <ul id="entries"></ul>
-  <div style="margin-top:10px">
+  <div class="commitbar">
    <button class="commit" id="commitBtn" disabled>Commit batch</button>
-   <span id="batchinfo" style="margin-left:8px;color:#556;font-size:12.5px"></span>
+   <span id="batchinfo"></span>
   </div>
  </div>
  <div class="card col-stats">
-  <div id="poolline" class="pool">pick a model to see its stats</div>
+  <div class="ptitle">stats <span>&mdash; everything stored for this model, plus your batch</span></div>
+  <div id="poolline" class="pool">Pick a model to see its stats.</div>
   <table class="stats"><thead>
-   <tr><th></th><th style="text-align:right">all stored + batch</th>
-       <th style="text-align:right">change since last capture</th></tr></thead>
+   <tr><th></th><th class="num">stored + batch</th>
+       <th class="num">vs last capture</th></tr></thead>
    <tbody id="statrows"></tbody></table>
  </div>
 </div>
@@ -290,8 +273,6 @@ __NAV__
 const $=id=>document.getElementById(id);
 let MODELS=[], sel=null, rawPrices=[], busy=false;
 
-fetch("/api/status").then(r=>r.json()).then(s=>{
-  $("dbline").textContent=`database: ${s.db} - ${s.vehicles} vehicles, ${s.observations} observations. Nothing is written until you commit.`;});
 function loadModels(){
   fetch("/api/quick/models").then(r=>r.json()).then(d=>{
     MODELS=d.models;
@@ -408,28 +389,17 @@ async function commit(){
   $("result").innerHTML=msg;
   rawPrices=[];
   refresh();      // stats now include the committed rows from the store
+  vpaStatus();    // and the header's counts
   loadModels();   // a new model/trim just became pickable
   $("price").focus();
 }
 $("commitBtn").onclick=commit;
-$("xlsxBtn").onclick=async()=>{
-  $("xlsxBtn").disabled=true;$("xlsxBtn").textContent="updating...";
-  try{
-    const res=await fetch("/api/viewer/open",{method:"POST",body:"{}"}).then(r=>r.json());
-    if(!res.ok)alert(String(res.error).includes("unknown endpoint")
-      ?"The app is running an older version - click Shut down, then reopen Vehicle Import."
-      :res.error);
-  }catch(e){alert("could not update the workbook: "+e);}
-  $("xlsxBtn").disabled=false;$("xlsxBtn").textContent="Excel viewer";
-};
 $("model").focus();
 __CHROME_JS__
 </script></div></body></html>
 """
 
 
-from .ui import action as _action, chrome as _chrome   # noqa: E402
+from .ui import chrome as _chrome   # noqa: E402
 
-PAGE = _chrome(_PAGE, "quick",
-               _action("xlsxBtn", "Excel viewer", "excel",
-                       "rebuild viewer.xlsx and open it"))
+PAGE = _chrome(_PAGE, "quick")

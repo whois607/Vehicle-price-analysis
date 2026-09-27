@@ -73,6 +73,18 @@ CMP_ROWS = [
     ("fc_method",    "forecast method",        "text",  "outlook"),
     ("fc_next",      "next month (forecast)",  "money", None),
     ("fc_direction", "direction",              "text",  None),
+    # How fast each selection CLEARS, which is the one axis on which a cheap
+    # slow car and a dear quick one are genuinely different propositions.
+    # Computed by vpa/turnover.py, which refuses far more often than it
+    # answers - so `turn_basis` carries the refusal into the column rather
+    # than leaving a row of dashes to be read as "zero".
+    ("turn_rate",    "leaves view / 30 days",  "rate",  "turnover"),
+    ("turn_half",    "half the stock gone",    "days",  None),
+    ("turn_listed",  "typical time listed",    "days",  None),
+    ("turn_age",     "age of what is still up", "days", None),
+    ("turn_left",    "left view",              "int",   None),
+    ("turn_arrived", "arrived",                "int",   None),
+    ("turn_basis",   "measured over",          "text",  None),
     ("rank",         "rank by median",         "int",   "against each other"),
     ("vs_cheapest",  "vs cheapest selection",  "pct",   None),
 ]
@@ -164,6 +176,10 @@ def _one(df: pd.DataFrame, label: str, sel: tuple, horizon: int,
 
     mk, mo, va, level = sel
     sub = _select(df, mk, mo, va)
+    # Turnover is measured BEFORE the live filter and never after it: keeping
+    # only the cars in the newest capture deletes exactly the cars that left,
+    # which is the entire measurement.
+    whole = sub
     # "currently listed" = seen in THIS selection's own most recent capture.
     # Applied before anything is computed, so every stat, chart and forecast
     # on the page describes the same rows - a live filter that reached only
@@ -257,6 +273,36 @@ def _one(df: pd.DataFrame, label: str, sel: tuple, horizon: int,
         "fc_verdict": fc.get("verdict", ""),
         "collisions": len(analyze.collided_keys(sub)),
     })
+
+    from .turnover import turnover as _turnover
+    t = _turnover(whole, whole, label=label)
+    # the same per-day composition Explore draws, attached to the day series
+    # this page already shares across columns, so one capture's bar and one
+    # capture's point are describing the same rows
+    per_day = {r["d"]: r for r in t.get("daily", [])}
+    for b in byday:
+        c = per_day.get(b["d"])
+        b.update({"cohort": c["n"] if c else 0,
+                  "carry": c["carry"] if c else None,
+                  "new": c["new"] if c else None,
+                  "exits": c["exits"] if c else 0,
+                  "rated": bool(c and c["rated"]),
+                  "break_before": bool(c and c["break_before"])})
+    out.update({
+        "turn_rate": t["rate30"], "turn_half": t["half_life"],
+        "turn_listed": t["median_days_est"], "turn_age": t["median_stock_age"],
+        "turn_left": t["exits"] if t["usable"] else None,
+        "turn_arrived": t["arrivals"] if t["usable"] else None,
+        "turn_basis": (f"{t['span']['captures']} captures, "
+                       f"{t['span']['start']} to {t['span']['end']}"
+                       f"{' (thin)' if t['thin'] else ''}")
+                      if t["usable"] else t["reason"],
+        "turn_verdict": t.get("verdict", ""),
+        "turn_usable": bool(t["usable"]),
+        "turn_intervals": t.get("intervals", []),
+        "turn_notes": t.get("notes", []),
+        "turn_spread": (t.get("price_signal") or {}).get("spread"),
+    })
     return out
 
 
@@ -326,75 +372,36 @@ _PAGE = r"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
 <title>vpa compare</title>
 <style>
- :root{--ui:"Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif;
-       --line:#dfe3ea;--ink:#222;--dim:#667}
- body,button,select,input{font-family:var(--ui)}
- body{font-size:14px;line-height:1.45;margin:0;background:#f5f6f7;color:var(--ink)}
- .wrap{max-width:1320px;margin:0 auto;padding:18px}
- .pagetitle{font-size:19px;margin:2px 0 2px;font-weight:600}
- .sub{color:var(--dim);font-size:12px;margin-bottom:14px}
 __CHROME_CSS__
- .card{background:#fff;border:1px solid var(--line);border-radius:10px;padding:16px;
-       margin-bottom:14px;box-shadow:0 1px 2px rgba(20,30,60,.05)}
- .row{display:flex;gap:12px;flex-wrap:wrap;align-items:end}
- label{font-size:11px;color:#556;display:block;margin-bottom:3px;letter-spacing:.02em}
- select,input[type=text]{height:34px;padding:0 8px;border:1px solid #c3c8d2;
-       border-radius:6px;font-size:13px;box-sizing:border-box;background:#fff;color:var(--ink)}
- select:focus,input:focus{outline:2px solid #cfe0f5;border-color:#3060a0}
- button{height:34px;min-width:106px;padding:0 16px;border:0;border-radius:6px;
-        font-size:13.5px;cursor:pointer;color:var(--ink)}
- .ghost{background:#eaedf2}.ghost:hover{background:#dfe4ec}
- .mini{height:32px;min-width:100px;padding:0 12px;font-size:12.5px;box-sizing:border-box}
- a.mini{display:inline-flex;align-items:center;justify-content:center;
-        text-decoration:none;color:#223;border-radius:6px;background:#eaedf2}
- a.mini:hover{background:#dfe4ec}
- .ptitle{font-size:12px;color:#445;font-weight:600;margin-bottom:8px}
- .ptitle span{font-weight:400;color:var(--dim)}
- table{border-collapse:collapse;width:100%;font-size:12.5px}
- th{background:#eef0f4;text-align:left;padding:5px 6px;white-space:nowrap}
- th.s{cursor:pointer}th.s:hover{background:#e2e6ee}
- td{border-top:1px solid #eef;padding:3px 6px;vertical-align:middle}
- tbody tr:hover td{background:#fafbff}
- .num{text-align:right}
- .scroll{max-height:52vh;overflow:auto;border:1px solid #eef;border-radius:6px}
- .scroll th{position:sticky;top:0;z-index:2}
- .up{color:#2e7d32;font-weight:600}.down{color:#a03030;font-weight:600}
- .flat{color:var(--dim)}
- .tag{display:inline-block;background:#eef1f5;color:#4a5566;border-radius:4px;
-      padding:0 5px;font-size:10.5px;margin-left:4px;white-space:nowrap}
- .tag.warn{background:#fdecea;color:#a03030}
- .hint{font-size:11.5px;color:var(--dim);margin-top:8px}
- a.ext{color:#3060a0;text-decoration:none}a.ext:hover{text-decoration:underline}
  /* picked selections */
- .picks{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;min-height:34px}
+ .picks{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;min-height:30px;align-items:center}
  .pick{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);
-       background:#fafbfd;border-radius:20px;padding:3px 6px 3px 11px;font-size:12.5px}
- .swatch{width:10px;height:10px;border-radius:3px;display:inline-block}
+       background:#fafbfd;border-radius:16px;padding:3px 5px 3px 11px;font-size:12.5px}
  .pick b{font-weight:600}
- .x{border:0;background:#eef1f5;color:#667;border-radius:50%;width:20px;height:20px;
-    min-width:20px;padding:0;line-height:18px;font-size:14px;cursor:pointer}
- .x:hover{background:#f3d9d5;color:#a03030}
- /* comparison grid */
+ /* comparison grid. Columns are a fixed width and the table only as wide as
+    it needs: with two selections, a full-width table put each value 500px
+    from the label it belongs to. */
+ #cmp{width:auto;min-width:520px}
  #cmp th:first-child,#cmp td:first-child{position:sticky;left:0;background:#fff;
-    min-width:186px;box-shadow:1px 0 0 #eef}
- #cmp th:first-child{background:#eef0f4}
- #cmp tr.grp td{background:#f3f5f9;font-weight:600;color:#445;font-size:11.5px;
-    text-transform:uppercase;letter-spacing:.04em;padding-top:7px}
- #cmp tr.grp td:first-child{background:#f3f5f9}
- #cmp td.v{text-align:right;font-variant-numeric:tabular-nums}
- #cmp td.best{background:#f0f7f0}
- .best-note{font-size:11px;color:var(--dim)}
- .ax{font-size:10px;fill:#8a92a2;font-family:var(--ui)}
- .lgd{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;margin-top:6px}
- .lgd span{display:inline-flex;align-items:center;gap:5px}
- .empty{text-align:center;color:var(--dim);padding:26px 10px;font-size:13px}
- #stale{display:none;background:#fff8f0;border:1px solid #f0d9bd;color:#7a4a10;
-        border-radius:6px;padding:6px 10px;font-size:12.5px;margin-bottom:10px}
+    width:220px;min-width:220px;box-shadow:1px 0 0 var(--line-2)}
+ #cmp th:first-child{background:var(--head)}
+ #cmp th.num{width:168px;min-width:150px;white-space:normal;vertical-align:bottom;
+    line-height:1.3}
+ #cmp th .swatch{margin-right:5px;vertical-align:-1px}
+ #cmp tr.grp td{background:var(--head);font-weight:600;color:var(--ink-2);font-size:11px;
+    text-transform:uppercase;letter-spacing:.05em;padding-top:9px;border-top:1px solid var(--line)}
+ #cmp tr.grp td:first-child{background:var(--head)}
+ #cmp td:first-child{color:var(--ink-2)}
+ #cmp td.v{text-align:right}
+ #cmp td.best{background:var(--good-soft);font-weight:600}
+ #cmp .empty{width:auto}
+ .cmpwrap{overflow-x:auto}
 </style></head><body><div class="wrap">
 __NAV__
-<h1 class="pagetitle">Compare vehicles</h1>
-<div class="sub" id="subline">loading...</div>
-<div id="stale"></div>
+<div class="pagehead"><div>
+ <h1 class="pagetitle">Compare vehicles</h1>
+ <div class="sub"><span id="subline">Several makes, model lines or trims side by side, on identical statistics. Read-only.</span><span class="dbstat" id="dbstat"></span></div>
+</div>__ACTIONS__</div>
 
 <div class="card" id="help" style="display:none">
  <p><b>This page never writes anything.</b> It is the workbook's
@@ -432,6 +439,7 @@ __NAV__
  </ul></div>
 
 <div class="card">
+ <div class="ptitle">what to compare</div>
  <div class="row">
   <div style="flex:1;min-width:260px"><label>add a selection</label>
    <input type="text" id="add" list="alllist" placeholder="type a make, model line or trim..."
@@ -446,21 +454,22 @@ __NAV__
  </div>
  <div class="picks" id="picks"></div>
  <div class="hint" id="pickhint"></div>
+ <div class="hint" id="livehint" style="margin-top:2px"></div>
 </div>
 
 <div class="card">
  <div class="ptitle">side by side <span id="cmpspan"></span></div>
- <div class="scroll" style="max-height:none"><table id="cmp"></table></div>
+ <div class="cmpwrap"><table id="cmp"></table></div>
  <div class="hint">Counts and prices are over every priced sighting - the same
   rows the workbook counts. Empty columns are ignored.</div>
 </div>
 
 <div class="card">
- <div class="row" style="margin-bottom:6px">
-  <div style="flex:1"><div class="ptitle" style="margin:0">median price by month
-    <span>&mdash; each vehicle counted once per month</span></div></div>
-  <div><label style="display:inline">
-   <input type="checkbox" id="showFc" checked> show projection</label></div>
+ <div class="cardhead">
+  <div class="ptitle">median price by month
+    <span>&mdash; each vehicle counted once per month</span></div>
+  <label style="display:inline-flex;gap:6px;align-items:center;margin:0;font-size:12.5px;color:var(--ink-2)">
+   <input type="checkbox" id="showFc" checked> show projection</label>
  </div>
  <div id="chart"></div><div class="lgd" id="legend"></div>
  <div class="hint" id="charthint"></div>
@@ -482,9 +491,8 @@ __NAV__
     <span>&mdash; overlapping bars are not really priced apart</span></div>
    <div id="boxes"></div></div>
   <div class="panel">
-   <div class="row" style="margin-bottom:6px">
-    <div style="flex:1"><div class="ptitle" style="margin:0">side-by-side bars
-      <span id="metricspan"></span></div></div>
+   <div class="cardhead">
+    <div class="ptitle">side-by-side bars <span id="metricspan"></span></div>
     <div><select id="metric">
       <option value="median">median price</option>
       <option value="per_10k">$ per 10,000 km</option>
@@ -508,7 +516,24 @@ __NAV__
     <span id="scatspan"></span></div><div id="scatter"></div></div>
  </div>
  <div class="hint">Supply counts distinct vehicles seen that day. A gap means
-  that selection was not captured that day - not that it vanished.</div>
+  that selection was not captured that day - not that it vanished. A hollow
+  point marks a capture that shares no cars with the one before it: that is
+  a different search, not a market that emptied, and the two are not
+  comparable.</div>
+</div>
+
+<div class="card">
+ <div class="ptitle">what changed between the captures
+   <span>&mdash; arrivals above the line, cars that left below it</span></div>
+ <div id="churn"></div><div class="lgd" id="churnlgd"></div>
+ <div class="lst" id="churnsum" style="margin-top:10px"></div>
+ <div class="hint">Only cars carrying the site's own ad id can be recognised
+  from one capture to the next, so this counts fewer cars than the supply
+  chart above - the difference is stated per selection. A faded bar is a pair
+  of captures too different in size to count: a much bigger capture inflates
+  arrivals, a much smaller one inflates exits. <b>None of this means "sold"</b>
+  - a listing can go by selling, being withdrawn, expiring, or being
+  re-listed under a new id.</div>
 </div>
 
 <div class="card">
@@ -517,9 +542,8 @@ __NAV__
 </div>
 
 <div class="card">
- <div class="row" style="margin-bottom:8px">
-  <div style="flex:1"><div class="ptitle" style="margin:0">every selection you can pick
-    <span id="catspan"></span></div></div>
+ <div class="cardhead">
+  <div class="ptitle">every selection you can pick <span id="catspan"></span></div>
   <div><select id="lvl">
     <option value="">all levels</option><option value="make">makes</option>
     <option value="line">model lines</option><option value="trim">trims</option>
@@ -562,6 +586,10 @@ function fmt(kind,v){
   if(kind==="year")return String(Math.round(v));
   if(kind==="pct"){const c=v>0.05?"up":(v<-0.05?"down":"flat");
     return `<span class="${c}">${v>0?"+":""}${Number(v).toFixed(1)}%</span>`;}
+  // a clearance RATE is not a change: no sign, and no green/red, because
+  // fast turnover is good news to a seller and bad news to a buyer
+  if(kind==="rate")return `${Number(v).toFixed(0)}%`;
+  if(kind==="days")return `${Number(v).toFixed(0)} d`;
   return esc(v);
 }
 /* which column wins a row, where "wins" is meaningful at all */
@@ -575,7 +603,8 @@ function renderCompare(){
     t.innerHTML=`<tr><td class="empty">Add a selection above, or pick one from
       the catalogue below, to compare.</td></tr>`;
     $("cmpspan").textContent="";$("legend").innerHTML="";$("belllgd").innerHTML="";
-    ["chart","bell","boxes","bars","supply","scatter","sellers"].forEach(id=>
+    $("churnlgd").innerHTML="";$("churnsum").innerHTML="";
+    ["chart","bell","boxes","bars","supply","churn","scatter","sellers"].forEach(id=>
       noData($(id),"pick a selection to draw this"));
     return;}
   const cols=d.columns;
@@ -608,13 +637,23 @@ function renderCompare(){
    All of them share these two helpers so every chart on the page uses the
    same axis treatment, and a gap in a series always stays a gap rather than
    being joined by a line pretending a price was observed there. */
+/* `lo` is drawn at px0 and `hi` at px1: a y axis passes (bottom, top), an x
+   axis (left, right). It used to always draw lo at px1, which is right for
+   y and silently mirrored every x axis - the price-range and odometer charts
+   ran right-to-left, with the cheapest car at the right-hand end. */
 function scale(lo,hi,px0,px1,padFrac){
+  const nonneg=lo>=0;   // prices, kilometres and counts never go below zero
   if(lo===hi){lo=lo*0.95||-1;hi=hi*1.05||1;}
   if(padFrac){const p=(hi-lo)*padFrac;lo-=p;hi+=p;}
-  return {lo,hi,at:v=>px1-(px1-px0)*((v-lo)/(hi-lo||1))};
+  // out to the round numbers either side, so the axis is labelled at both ends
+  const t=vpaTicks(lo,hi,5),st=t.length>1?t[1]-t[0]:0;
+  if(st){lo=Math.floor(lo/st)*st;hi=Math.ceil(hi/st)*st;}
+  if(nonneg&&lo<0)lo=0;
+  return {lo,hi,at:v=>px0+(px1-px0)*((v-lo)/(hi-lo||1))};
 }
 function yGrid(s,L,R,W,fmt,steps){
-  return (steps||[0,.25,.5,.75,1]).map(f=>{const v=s.lo+(s.hi-s.lo)*f;return `
+  if(fmt===money)fmt=vpaAxMoney;
+  return vpaTicks(s.lo,s.hi,steps?steps.length:5).map(v=>{return `
     <line x1="${L}" y1="${s.at(v).toFixed(1)}" x2="${W-R}" y2="${s.at(v).toFixed(1)}" stroke="#eef0f4"/>
     <text x="${L-7}" y="${(s.at(v)+3.5).toFixed(1)}" text-anchor="end" class="ax">${fmt(v)}</text>`;}).join("");
 }
@@ -647,7 +686,7 @@ function monthChart(d){
     noData(el,"no monthly data for these selections");
     $("legend").innerHTML="";$("charthint").textContent="";return;}
   const W=1180,H=300,L=70,R=14,T=14,B=34,n=months.length;
-  const s=scale(Math.min(...vals),Math.max(...vals),T,H-B,0.08);
+  const s=scale(Math.min(...vals),Math.max(...vals),H-B,T,0.08);
   const x=i=>L+(n<2?(W-L-R)/2:i*(W-L-R)/(n-1));
   const y=s.at;
   // a dashed rule halfway between the last observed month and the first
@@ -729,8 +768,8 @@ function boxChart(d){
  full range ${money(c.lo)} to ${money(c.hi)} over ${c.n} price(s)</title></circle>
       <text x="${L-8}" y="${cy+4}" text-anchor="end" class="ax"
         style="font-size:11px">${esc(c.label)}</text>`;}).join("");
-  const xt=[0,.5,1].map(f=>{const v=s.lo+(s.hi-s.lo)*f;return `
-    <text x="${x(v).toFixed(1)}" y="${H-8}" text-anchor="middle" class="ax">${money(v)}</text>`;}).join("");
+  const xt=vpaTicks(s.lo,s.hi,5).map(v=>{return `
+    <text x="${x(v).toFixed(1)}" y="${H-8}" text-anchor="middle" class="ax">${vpaAxMoney(v)}</text>`;}).join("");
   el.innerHTML=`<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img"
     aria-label="price range, middle half and median for each selection">${body}${xt}</svg>
    <div class="hint">Whisker = full range, shaded box = middle half (25-75%),
@@ -767,25 +806,104 @@ function barChart(d){
    capture day */
 function supplyChart(d){
   const el=$("supply"),days=d.days||[];
-  const series=d.columns.map((c,i)=>({label:c.label,color:COLORS[i%6],
-    pts:days.map(day=>{const b=(c.byday||[]).find(x=>x.d===day);
-      return b?b.vehicles:null;})}));
+  const series=d.columns.map((c,i)=>{
+    const at=day=>(c.byday||[]).find(x=>x.d===day);
+    return {label:c.label,color:COLORS[i%6],
+      pts:days.map(day=>{const b=at(day);return b?b.vehicles:null;}),
+      brk:days.map(day=>{const b=at(day);return !!(b&&b.break_before);}),
+      // The composition behind the point, so hovering answers "is that dip
+      // cars leaving, or a smaller capture?" without leaving the chart.
+      // Every part is named and they sum to the point's own value - a
+      // tooltip that accounts for 6 of 66 cars is worse than none, because
+      // the reader assumes the other 60 fall into the categories shown.
+      mix:days.map(day=>{const b=at(day);
+        if(!b||b.carry==null)return "";
+        const back=Math.max(0,(b.cohort||0)-b.carry-b.new),
+              untracked=Math.max(0,b.vehicles-(b.cohort||0));
+        const parts=[[b.carry,"carried over"],[back,"back in view"],
+                     [b.new,"new"],[untracked,"with no ad id"]]
+          .filter(([v])=>v>0).map(([v,t])=>`${v} ${t}`);
+        return ` (${parts.join(", ")}`
+          +(b.exits?`; ${b.exits} last seen here`:"")+")";})};});
   const vals=series.flatMap(s=>s.pts).filter(v=>v!=null);
   if(!vals.length){noData(el,"no capture days for these selections");return;}
   const W=560,H=240,L=48,R=14,T=14,B=34,n=days.length;
-  const s=scale(0,Math.max(...vals),T,H-B,0.06);
+  const s=scale(0,Math.max(...vals),H-B,T,0.06);
   const x=i=>L+(n<2?(W-L-R)/2:i*(W-L-R)/(n-1));
   const body=series.map(sr=>
     `<path d="${gapPath(sr.pts,x,s.at)}" fill="none" stroke="${sr.color}" stroke-width="2"
        stroke-linejoin="round"/>`
     +sr.pts.map((v,i)=>v==null?"":
-      `<circle cx="${x(i).toFixed(1)}" cy="${s.at(v).toFixed(1)}" r="3" fill="${sr.color}">
-        <title>${esc(sr.label)} ${days[i]}: ${v} for sale</title></circle>`).join("")).join("");
+      // hollow = this capture shares no cars with the one before it, so the
+      // step between the two points is a change of search and not of stock.
+      // Drawing it identically would publish a scope change as a cliff.
+      `<circle cx="${x(i).toFixed(1)}" cy="${s.at(v).toFixed(1)}" r="${sr.brk[i]?4:3}"
+        fill="${sr.brk[i]?"#fff":sr.color}" stroke="${sr.color}" stroke-width="${sr.brk[i]?2:0}">
+        <title>${esc(sr.label)} ${days[i]}: ${v} for sale${sr.mix[i]||""}</title></circle>`).join("")).join("");
   const ticks=days.map((day,i)=>(n<=6||i%Math.ceil(n/6)===0)
     ?`<text x="${x(i).toFixed(1)}" y="${H-10}" text-anchor="middle" class="ax">${day.slice(5)}</text>`:"").join("");
   el.innerHTML=`<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img"
     aria-label="vehicles for sale at each capture, per selection">
-    ${yGrid(s,L,R,W,v=>Math.round(v),[0,.5,1])}${body}${ticks}</svg>`;
+    ${yGrid(s,L,R,W,v=>Math.round(v).toLocaleString(),[0,.5,1])}${body}${ticks}</svg>`;
+}
+
+/* Churn, side by side: for each gap BETWEEN captures, what arrived (up) and
+   what left view (down), one grouped bar per selection.
+
+   A line chart cannot show this - supply holding flat at forty is the same
+   picture whether it is the same forty cars or forty out and forty in, and
+   those are opposite markets. Bars diverge from a shared zero so "building"
+   and "emptying" are distinguishable at a glance, and every interval a
+   selection could not be measured over is faded rather than dropped. */
+function churnChart(d){
+  const el=$("churn"),cols=d.columns||[];
+  // one slot per capture interval that ANY selection has, so columns line up
+  const slots=[...new Set(cols.flatMap(c=>(c.turn_intervals||[])
+    .map(i=>i.from+"|"+i.to)))].sort();
+  if(!slots.length){noData(el,"no selection here has two comparable captures");
+    $("churnlgd").innerHTML="";$("churnsum").innerHTML="";return;}
+  const get=(c,slot)=>(c.turn_intervals||[]).find(i=>i.from+"|"+i.to===slot);
+  const vals=cols.flatMap(c=>(c.turn_intervals||[]).flatMap(i=>[i.arrivals,i.exits]));
+  const top=Math.max(1,...vals);
+  const W=560,H=250,L=44,R=14,T=16,B=44,n=slots.length,m=cols.length;
+  const PH=H-T-B, zero=T+PH/2, sc=(PH/2)/top;
+  const gw=(W-L-R)/n, bw=Math.max(3,Math.min(16,(gw-8)/Math.max(1,m)));
+  const gx=i=>L+gw*i+(gw-bw*m)/2;
+  const grid=[top,0,-top].map(v=>{const y=zero-v*sc;return `
+    <line x1="${L}" y1="${y.toFixed(1)}" x2="${W-R}" y2="${y.toFixed(1)}"
+      stroke="${v?"#eef0f4":"#c3c8d2"}"/>
+    <text x="${L-7}" y="${(y+3.5).toFixed(1)}" text-anchor="end" class="ax">${Math.abs(v)}</text>`;}).join("");
+  const bars=slots.map((slot,i)=>cols.map((c,j)=>{
+    const iv=get(c,slot); if(!iv)return "";
+    const x=gx(i)+bw*j, col=COLORS[j%6];
+    const tip=(what,v,ok)=>`<title>${esc(c.label)} ${iv.from} to ${iv.to}
+ (${iv.elapsed} day${iv.elapsed===1?"":"s"}): ${v} ${what}${ok?""
+ :" - not counted, the two captures are too different in size ("+iv.start_n+" then "+iv.end_n+")"}</title>`;
+    let s="";
+    if(iv.arrivals)s+=`<rect x="${x.toFixed(1)}" y="${(zero-iv.arrivals*sc).toFixed(1)}"
+      width="${bw.toFixed(1)}" height="${(iv.arrivals*sc).toFixed(1)}" fill="${col}"
+      opacity="${iv.counts_arrivals?.85:.28}">${tip("arrived",iv.arrivals,iv.counts_arrivals)}</rect>`;
+    if(iv.exits)s+=`<rect x="${x.toFixed(1)}" y="${zero.toFixed(1)}"
+      width="${bw.toFixed(1)}" height="${(iv.exits*sc).toFixed(1)}" fill="${col}"
+      opacity="${iv.counts_exits?.55:.2}">${tip("left view",iv.exits,iv.counts_exits)}</rect>`;
+    return s;}).join("")).join("");
+  const ticks=slots.map((slot,i)=>(n<=7||i%Math.ceil(n/7)===0)
+    ?`<text x="${(gx(i)+bw*m/2).toFixed(1)}" y="${H-24}" text-anchor="middle"
+       class="ax">${slot.split("|")[1].slice(5)}</text>`:"").join("");
+  el.innerHTML=`<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img"
+    aria-label="arrivals and exits between captures, per selection">
+    ${grid}${bars}${ticks}
+    <text x="${L}" y="${H-8}" class="ax">labelled by the capture each gap ends at</text></svg>`;
+  $("churnlgd").innerHTML=cols.map((c,i)=>
+    `<span><i style="background:${COLORS[i%6]}"></i>${esc(c.label)}</span>`).join("")
+    +`<span class="flat">solid up = arrived &middot; faded down = left view</span>`;
+  // The verdict sentence per selection, which is where the comparison
+  // actually lands: two trims can churn the same number of cars and mean
+  // completely different things once the rate and the direction are stated.
+  $("churnsum").innerHTML=cols.map((c,i)=>
+    `<div><span class="swatch" style="background:${COLORS[i%6]}"></span>
+      <span class="nm"><b>${esc(c.label)}</b> &mdash;
+      ${esc(c.turn_usable?c.turn_verdict:c.turn_basis)}</span></div>`).join("");
 }
 
 /* every selection's listings on one price-vs-odometer plane, colour-coded -
@@ -801,12 +919,12 @@ function scatterChart(d){
   if(!all.length){noData(el,"no listing here has both a price and an odometer");return;}
   const W=560,H=240,L=62,R=14,T=14,B=34;
   const sx=scale(Math.min(...all.map(p=>p.odo)),Math.max(...all.map(p=>p.odo)),L,W-R,0.03);
-  const sy=scale(Math.min(...all.map(p=>p.price)),Math.max(...all.map(p=>p.price)),T,H-B,0.06);
+  const sy=scale(Math.min(...all.map(p=>p.price)),Math.max(...all.map(p=>p.price)),H-B,T,0.06);
   const body=sets.map(s=>s.pts.map(p=>
     `<circle cx="${sx.at(p.odo).toFixed(1)}" cy="${sy.at(p.price).toFixed(1)}" r="2.6"
       fill="${s.color}" opacity=".55"><title>${esc(s.label)}${p.year?" "+p.year:""}:
  ${money(p.price)} at ${km(p.odo)}</title></circle>`).join("")).join("");
-  const xt=[0,.5,1].map(f=>{const v=sx.lo+(sx.hi-sx.lo)*f;return `
+  const xt=vpaTicks(sx.lo,sx.hi,5).map(v=>{return `
     <text x="${sx.at(v).toFixed(1)}" y="${H-10}" text-anchor="middle" class="ax">${km(v)}</text>`;}).join("");
   el.innerHTML=`<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img"
     aria-label="price against odometer for each selection">
@@ -875,8 +993,8 @@ function bellChart(d){
         <title>${esc(s.label)}: middle ${money(med.price)}, ${s.curve.n} cars,
  68% of them between ${money(s.curve.marks.find(m=>m.sd===-1).price)} and
  ${money(s.curve.marks.find(m=>m.sd===1).price)}</title></circle>`;}).join("");
-  const xt=[0,.25,.5,.75,1].map(f=>{const v=x0+(x1-x0)*f;return `
-    <text x="${X(v).toFixed(1)}" y="${H-14}" text-anchor="middle" class="ax">${money(v)}</text>`;}).join("");
+  const xt=vpaTicks(x0,x1,6).map(v=>{return `
+    <text x="${X(v).toFixed(1)}" y="${H-14}" text-anchor="middle" class="ax">${vpaAxMoney(v)}</text>`;}).join("");
   el.innerHTML=`<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img"
     aria-label="fitted price distribution for each selection">${grid}${body}${xt}</svg>`;
   $("belllgd").innerHTML=sets.map(s=>{
@@ -894,7 +1012,7 @@ function bellChart(d){
 function drawCharts(){
   if(!DATA)return;
   monthChart(DATA);bellChart(DATA);boxChart(DATA);barChart(DATA);
-  supplyChart(DATA);scatterChart(DATA);sellerChart(DATA);
+  supplyChart(DATA);churnChart(DATA);scatterChart(DATA);sellerChart(DATA);
 }
 $("metric").onchange=()=>barChart(DATA);
 $("showFc").onchange=()=>monthChart(DATA);
@@ -979,10 +1097,11 @@ $("clearBtn").onclick=()=>{PICKS=[];apply();};
 // whole page describes one population rather than a mix of two
 $("live").onchange=()=>{
   const on=$("live").value==="1";
-  $("subline").textContent=on?"only cars seen in each selection's most recent "
-    +"capture - their full price history is kept, so the trend and forecast "
-    +"still work. Not proof they are still for sale."
-    :"every capture, all time";
+  // said beside the control that caused it - it used to overwrite the page
+  // subtitle, and the 20-second status poll then silently overwrote it back
+  $("livehint").textContent=on?"Latest capture only: cars seen in each selection's "
+    +"most recent capture. Their full price history is kept, so the trend and "
+    +"forecast still work. Not proof they are still for sale.":"";
   apply();};
 $("topBtn").onclick=()=>{
   if(!CAT)return;
@@ -993,22 +1112,13 @@ $("topBtn").onclick=()=>{
 /* ---------- stay in step with the database ---------- */
 let seenVersion=null;
 async function checkFresh(){
-  const s=await fetch("/api/status").then(r=>r.json());
-  $("subline").textContent=`${s.vehicles} vehicles, ${s.observations} observations`
-    +` — read-only view, nothing here changes your data`;
+  const s=vpaApplyStatus(await fetch("/api/status").then(r=>r.json()));
   if(seenVersion===null)seenVersion=s.data_version;
   else if(s.data_version!==seenVersion){
     seenVersion=s.data_version;
     CAT=await fetch("/api/compare/catalogue").then(r=>r.json());
     fillList();await apply();
   }
-  const st=$("stale");
-  if(s.workbook&&s.workbook.stale){
-    st.style.display="block";
-    st.innerHTML=`The Excel workbook was built before your latest import`
-      +` (${esc(s.workbook.built||"never built")}). Open <b>Import</b> or`
-      +` <b>Explore</b> and click <b>Excel viewer</b> to rebuild it.`;
-  }else st.style.display="none";
 }
 function fillList(){
   $("alllist").innerHTML=CAT.rows.map(r=>

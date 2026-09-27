@@ -10,7 +10,9 @@ check_compare (Compare page: catalogue, side-by-side stats, ranking),
 check_verify (the Data check, run against deliberately broken databases),
 check_repair (identity migration), check_edit (manual corrections:
 validation, transaction, audit trail, undo), check_starred (the
-watchlist), check_quickadd, check_viewer
+watchlist), check_turnover (what left view between captures, and the four
+ways that measurement lies), check_bulk (direct upload: backup before, undo
+after), check_quickadd, check_viewer
 (Excel workbook via real Excel COM - needs Excel installed and viewer test
 files closed). Exit 0 = everything.
 """
@@ -24,6 +26,7 @@ from pathlib import Path
 SUITES = ["tests.selfcheck", "tests.check_titles", "tests.check_importui",
           "tests.check_explore", "tests.check_car", "tests.check_compare",
           "tests.check_verify", "tests.check_repair", "tests.check_merge", "tests.check_edit", "tests.check_starred",
+          "tests.check_turnover", "tests.check_bulk",
           "tests.check_quickadd", "tests.check_viewer"]
 
 

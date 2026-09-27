@@ -971,9 +971,22 @@ def _view_comparison(ws, top, second, months):
     _put(ws, 30, 1, "if 'prices (n)' changed a lot between those two captures "
                     "the medians describe different stock, not a price move",
                     font=F_NOTE, wrap=True)
+    # Turnover is deliberately NOT a row here. It is the one block of the
+    # app's Compare page a formula cannot reproduce: it has to recognise the
+    # same listing across capture days, split the days wherever that
+    # recognition fails, and rate exits per car-day - set operations over a
+    # selection the reader picks in the dropdown AFTER this file was built.
+    # A rate computed from two capture counts would be wrong precisely where
+    # it looks most interesting, so the sheet points at the app instead of
+    # printing a number it cannot stand behind. Same reasoning as the
+    # de-duplication note below.
     _put(ws, 33, 1, "change compares the median on the first capture day vs the "
                     "latest; '-' = only one capture day so far. Empty columns "
-                    "are ignored by the chart.", font=F_NOTE)
+                    "are ignored by the chart. How fast each selection CLEARS "
+                    "- what left view, what arrived, and how long a car sits "
+                    "- is on the app's Compare and Explore pages: it needs the "
+                    "same listing recognised across days, which a worksheet "
+                    "formula cannot do.", font=F_NOTE)
     _put(ws, hdr - 2, 1, "This block counts every sighting, so a car listed "
                          "twice in a month counts twice - a formula cannot "
                          "de-duplicate. The app's Compare page counts each car "

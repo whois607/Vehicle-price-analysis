@@ -210,6 +210,47 @@ rewrites the capture date on re-import.
   `viewer_xlsx.Match`. It writes nothing and calls the same engines as
   `report.py` (`analyze.prep/bucket_stats/fit_mileage/data_caveats`,
   `forecast.forecast_segment`), so a median here equals the workbook's.
+* `vpa/bulk.py` — `/bulk`, **direct upload** (added 11/08/2026, by request:
+  "direct uploads without double checking, bulk amounts at once, for cars and
+  trims that are verified as working"). Same adapters, same `make_record`,
+  same `Store.ingest` as the Import page — only the preview is missing, which
+  is asserted by a test that runs one file through BOTH paths and compares the
+  keys. Skipping the human check moves the safety net to either side of the
+  write, and none of it is optional:
+  **before** — one `Store.backup()` for the whole run, taken before the first
+  write (NOTES §6 listed this as un-started; a page that writes without
+  showing you anything is where it stopped being optional), plus a refusal of
+  anything that is not a listings page (challenge interstitial, empty file,
+  Facebook shell) named per file with its reason;
+  **after** — `bulk_runs` records the ingest batch ids and a snapshot of every
+  vehicle that already existed, so `undo()` removes exactly the run's
+  observations, deletes only the vehicles it introduced, and restores the
+  columns `ingest`'s COALESCE filled in on the others.
+  Deliberately NOT one transaction: `Store.ingest()` commits per call and is
+  the write path shared with the CLI, so wrapping it would mean editing the
+  most load-bearing code in the project for a convenience page. Per-file
+  commits plus a run-level undo means a run that dies at file 7 keeps files
+  1-6 AND stays completely reversible.
+  The page's layout is fixed by request and by CSS that says so: fixed-height
+  drop zone, status strip, tiles and results box; results scroll inside their
+  box rather than growing the page; buttons keep one label and one min-width
+  and are disabled rather than relabelled. Verified by measuring every
+  control's bounding box across 27 samples during a live upload and 20 during
+  an undo — see §8.
+* `vpa/turnover.py` — what happens **between** the captures (added
+  11/08/2026). Pure engine: no I/O, no writes, no HTML; `explore.py` hands it
+  a selection it has already made and filtered. `turnover(sub, full)` returns
+  exits, arrivals, carry-over, a per-car-day hazard with its 30-day rate and
+  half-life, bracketed time-on-market, the age of the standing stock, and
+  whether the cars that left were priced differently from the ones that
+  stayed — each measured **against its own day's median**, so a market that
+  drifted between two dates cannot masquerade as a discount.
+  `by_variant(line)` runs it per trim and pools the line's rate from them.
+  `daily[]` feeds the capture chart's composition even when the rate itself
+  is refused. Every refusal path returns the **same dict shape** as a
+  success, because a caller that KeyErrors on the refusal has been broken by
+  the one case the module exists to handle. See §5.3 for the three gates and
+  the measurements behind them.
 * `vpa/repair.py` — `python -m vpa repair-identities [--apply]`. Splits
   vehicle identities that merged two different cars. `merged_keys()` finds
   them, `_target_key()` decides each observation's correct key (recomputing
@@ -520,13 +561,49 @@ rewrites the capture date on re-import.
   different class of thing from actions (outlined), and Shut down is styled
   as a danger action, sits last, and is behind a confirm. It also exists on
   all four pages — before, only the import page could stop the app.
+  **One stylesheet (27/09/2026).** `CHROME_CSS` is now the whole base: colour
+  tokens on `:root` (`--accent`, `--good`, `--bad`, `--warn`, `--line`, …),
+  type sizes, cards, buttons, inputs, tables, tiles, tags, chips, tabs and
+  the help panel. Each page used to carry its own copy and they had drifted
+  into five page widths, three button styles and two grey scales. Pages put
+  `__CHROME_CSS__` FIRST in their `<style>` and add only their own rules
+  after it; element rules are wrapped in `:where()` so any page rule wins
+  without a specificity fight. The header is now identical on every page
+  (tabs, Excel viewer, How to use, Shut down); a page's own actions go in
+  `__ACTIONS__` beside its title. `CHROME_JS` owns the database line
+  (`#dbstat`, db path on hover), the Excel viewer button, and the
+  workbook-stale flag, which is a dot ON that button rather than a banner:
+  the banner pushed every page down and would have moved every control on
+  Bulk. `vpaTicks()`/`vpaAxMoney()` put chart axes on round numbers ($20k,
+  $40k) instead of 0/25/50/75/100% of the range ($30,794, $53,627).
 * `vpa/compare.py` — `/compare`, the **many-vehicles-at-once** side (added
   03/08/2026). The workbook's **Comparison** and **Models** sheets brought
   across. `catalogue_payload()` lists every selection that exists at all three
   levels with its counts and median (searchable, sortable — the Models sheet);
   `compare_payload(db, labels)` returns up to `MAX_SELECTIONS` (6) columns of
   the stat rows declared in `CMP_ROWS`, which mirror `viewer_xlsx._CMP_ROWS`
-  row for row, plus a shared month axis for the overlay chart.
+  row for row **except the `turnover` group** (see below), plus a shared month
+  axis for the overlay chart.
+  **Turnover, added 11/08/2026** and computed by `vpa/turnover.py` on the
+  selection *before* the live-only filter — filtering to the newest capture
+  first would delete exactly the cars that left and report zero. Three
+  places carry it: seven `CMP_ROWS` stats, the supply line chart (each point's
+  tooltip names every part of that day's count, and a capture sharing no cars
+  with the one before it is drawn **hollow** so a scope change cannot read as
+  a cliff), and a new **what changed between the captures** panel — grouped
+  bars diverging from zero, arrivals up and exits down, one colour per
+  selection, with pairs that are not comparable faded rather than dropped.
+  A line chart cannot show this on its own: supply holding flat at forty is
+  the same picture whether it is the same forty cars or forty out and forty
+  in, and those are opposite markets.
+  **These seven rows are deliberately NOT in the workbook's Comparison
+  sheet.** They are the one block a formula cannot reproduce — recognising
+  the same listing across capture days, splitting the days where that
+  recognition fails, and rating exits per car-day are set operations over a
+  selection the reader picks in the dropdown *after* the file was built. The
+  sheet's row 33 note points at the app instead of printing a number it
+  cannot stand behind; same reasoning as the de-duplication note under its
+  month block (§5.12).
   `selection_index()` / `resolve()` turn a typed label into a selection using
   the same disjoint three-level rule as `viewer_xlsx.Match`, so a label typed
   into the workbook's row 3 and the same label here pool the same rows.
@@ -650,12 +727,55 @@ green; there is no half-finished branch or disabled code path. The items in
    and were only present here as transitive installs.
 2. ~~No `.gitignore`~~ — **added 02/08/2026**, covering `data/`, `output/`,
    `tests/synthetic/`, `*.lnk`, `__pycache__/`.
-3. **Turnover/"how many sold" is not measurable on most history.** Listing
-   identity breaks across capture eras (v2 `BASE-`/`IMG-` ids → real
-   `SSE/OAG` ids → the 28/07 batch which was pasted text with *no* ids), so
-   cross-day joins fail. This is why the Movement sheet was replaced by
-   **Supply** (counts only). To make turnover work later, capture with
-   **Ctrl+S saved HTML**, which carries ad ids.
+3. ~~**Turnover/"how many sold" is not measurable on most history.**~~ —
+   **measurable at TRIM level as of 11/08/2026** (`vpa/turnover.py`); still
+   not measurable at model-line level, and the reason is the interesting
+   part. The original finding stands: identity breaks across capture eras
+   (v2 `BASE-`/`IMG-` ids → real `SSE/OAG` ids → the 28/07 batch which was
+   pasted text with *no* ids), so a naive cross-day join fails. What changed
+   is that the failure is **measurable per pair of captures** rather than
+   global, so it can be gated instead of being a blanket refusal.
+
+   Measured on the live database. **Model line Ford Falcon**, consecutive
+   captures: `03/08 → 05/08` shares **0** of 134 and 52 cars, `05/08 → 06/08`
+   shares **0** of 52 and 66 — two sweeps of genuinely different cars (05/08
+   caught AU/BA-era Falcons, 03/08 was FG-era). **Its trims over the same
+   days**: 0.82–1.00 of the smaller capture carries over, with the worst pair
+   anywhere at 0.45. So one dataset supports a trim-level rate and refuses a
+   line-level one, and `turnover.spans()` is what tells those apart — the
+   line's rate is instead **pooled from its trims** (`by_variant`), which
+   avoids the scope problem rather than averaging through it.
+
+   Three gates, each seeded as a regression in `tests/check_turnover.py`:
+
+   * **cohort** — only keys carrying a site-issued ad id
+     (`merge.SITE_ID_PREFIXES`). `IMG-`/`BASE-`/fingerprint identities are
+     excluded and counted aloud, never diluted into the rate.
+   * **spans** — a pair sharing under `MIN_LINK` (0.25) of the smaller
+     capture ends the span. Without this, the Falcon line reports a ~100%
+     clearance for a fortnight nobody bought anything in.
+   * **scope, asymmetrically** (`_scope()`) — a capture much bigger than its
+     neighbour inflates *arrivals* (the search widened: 66 cars on 06/08,
+     168 on 10/08, so "113 arrivals in four days"), while a much smaller one
+     inflates *exits*. Opposite failures, opposite treatment: a wider net
+     that still misses a car is *stronger* evidence it has gone, so widened
+     pairs keep their exits and drop their arrivals, and narrowed pairs do
+     the reverse. One blanket rule would throw away half the evidence.
+
+   Rates are **exits per car-day**, not per capture, because the real gaps
+   run 1 to 22 days; that is also what makes two trims on different capture
+   rhythms comparable at all. Time-on-market is reported as a **bracket**
+   (floor = last − first, ceiling = next capture − the capture before first),
+   because reporting only the floor prints "listed 0 days" for every car
+   seen once. The page filters are handled by passing the *unfiltered*
+   selection alongside: a car that repriced out of "under $27,000" is vetoed
+   rather than counted as a delisting.
+
+   **The vocabulary is still not "sold"** — a listing can vanish by selling,
+   being withdrawn, expiring, or being re-listed under a new id, and a test
+   asserts the word appears nowhere in any verdict or note. Capturing with
+   **Ctrl+S saved HTML** over a **consistent search** is still what makes
+   any of this work.
 3b. ~~Merged identities: 14 keys hold two different cars~~ — **fixed
    03/08/2026.** A key showing two prices on the *same* capture day cannot
    be one car. Two causes: the id-less fingerprint bucketed odometer at
@@ -762,9 +882,13 @@ In the order I'd do them:
    shortcut against *their* Python path and folder. Optionally add a
    `--db` flag to `tools/make_launcher.py::make_shortcut()` so two people
    can share one code copy on one machine.
-2. **Keep capturing with saved HTML** rather than pasted text where
-   turnover matters — this is a habit change, not code, and it's what would
-   unlock #3 in the bug list.
+2. **Keep capturing with saved HTML, over a search you do not change.**
+   Still a habit change and not code, and now it is the single highest-value
+   one: `vpa/turnover.py` rates 9 of Ford Falcon's 88 trims and refuses the
+   other 79 — **39 for having only one usable capture and 37 for carrying no
+   site ad id**. Both are fixed by the same habit. Re-running the *same*
+   saved-HTML search weekly is worth more than a broader one-off sweep,
+   because a sweep that changes shape is what `_scope()` has to throw away.
 3. **Decide what to do about the 26 double-counted cars** (bug 11). A merge
    pass in the style of `repair.py` — rehearse on a copy, back up, one
    transaction, refuse to commit unless every price survives — is the shape
@@ -786,7 +910,7 @@ In the order I'd do them:
 ## 7. Verification
 
 ```powershell
-& $py -m tests.run_all          # all nine suites, ~70s
+& $py -m tests.run_all          # all fourteen suites, ~120s
 & $py -m vpa verify             # cross-check the real database (seconds)
 ```
 
@@ -796,10 +920,12 @@ In the order I'd do them:
 | `tests/check_repair.py` (11) | seeds a legacy database through the old 5,000 km rule, then proves the migration keeps every price byte-for-byte, clears merged identities, never fragments a car driven 300 km between captures, leaves healthy ad-id vehicles alone, is idempotent, and **rolls back completely when an invariant fails** |
 | `tests/check_explore.py` (43) | selection levels pool exactly the right rows; headline and monthly numbers equal `analyze` computed independently; the supply summary matches the series it summarises; splits carry medians and sum to the selection; the scatter holds every priced row with an odometer; the price histogram bins every priced row into contiguous gap-free bins and is withheld entirely when there are too few; a real re-price is reported while a deliberately merged identity is flagged and excluded; exploring writes nothing; `data_version` moves when an import lands; several trims pool to exactly the sum of the trims alone and stay inside the model; a pooled median equals pandas over the pooled rows; year / price / keyword filters narrow and report what they kept, compose with pooling, and never silently drop rows that have no year or no price |
 | `tests/check_car.py` (62) | judging ONE car against its trim: the peer pool is one price per car and self-excluding (asserts sightings > cars, so it cannot pass by coincidence); all three gates fire on distinct vehicles; a typed price never reaches the fit however absurd; the model line's fit is **never** substituted (paired with an assertion that a line fit *was* available, or the check would pass trivially); the extrapolation guard withholds outside independently-computed 5th/95th percentiles; comparables order by log ratio and the fixture is built so absolute distance would give a different answer; duplicates are flagged and **not** merged; splits refuse below their gate *and say why*; a merged identity reports no change; the .db is byte-identical after 6 calls; the over-time panel spans the TRIM's days so a missing day is a gap (asserted on a car that HAS gaps, not the four-day car); daily peer stats exclude the subject and match pandas; every sighting names its import and the count of separate imports matches the ingest log; the exterior colour beats the metaData field that holds the interior |
-| `tests/check_compare.py` (35) | the catalogue lists all three levels with the right pooling; every stat in the side-by-side block equals an independent computation; rank and "vs cheapest" re-rank when a column is dropped; the month series matches `analyze.bucket_stats`; the chart series (per-day supply, scatter, forecast points with intervals) are present and the projection sits **after** the history on the axis; an unknown label is **reported** rather than silently dropped; duplicates and over-long lists are handled; comparing writes nothing |
+| `tests/check_compare.py` (42) | the catalogue lists all three levels with the right pooling; every stat in the side-by-side block equals an independent computation; rank and "vs cheapest" re-rank when a column is dropped; the month series matches `analyze.bucket_stats`; the chart series (per-day supply, scatter, forecast points with intervals) are present and the projection sits **after** the history on the axis; an unknown label is **reported** rather than silently dropped; duplicates and over-long lists are handled; comparing writes nothing; turnover rides along per column and a selection that cannot be measured carries its REASON into the cell rather than a blank a reader would take for zero; the churn chart's per-day parts never exceed the day's own total; and a trim seeded with two captures sharing no car is flagged as a scope break while its overlapping sibling is not |
 | `tests/check_merge.py` (19) | seeds eight groups that share an exact price and odometer, of which six each violate exactly ONE condition (rounded odometer, conflicting year, two site ids, no site id, a same-day price clash, a backwards odometer) and asserts each is left alone **with its reason named** — a group that simply never formed would otherwise pass silently. Then: the safe cases merge, three identities become one three-day history, the price multiset survives byte-for-byte, a dry run leaves the file byte-identical, a second run is a no-op, and a forced invariant failure rolls back completely |
 | `tests/check_verify.py` (23) | runs the Data check against **deliberately broken copies**: a stale workbook is caught and a rebuilt one clears, a $3 price and a 2099 capture date are caught, a merged identity is caught, a car recorded with *and* without an ad id is caught, two different cars sharing an `IMG-` id are **not** falsely flagged, an orphaned observation FAILS (not warns), and checking leaves the database byte-identical |
-| `tests/check_importui.py` (51) | live HTTP: preview writes nothing, commit matches preview, FB price-led paste binds prices correctly, empty-HTML hint, `/api/overview` totals agree with `/api/status`, and `_mix_scenario_db()` proves a changed pool (pooled median −61.5%) still reports the true same-cars +10%; the workbook rebuilds into a throwaway file with `os.startfile` watched, proving `/api/viewer/build` opens nothing while `/api/viewer/open` opens exactly once; the data check card precedes 'dataset at a glance'; and `/`, `/?v=1` and `/index.html` all serve, with the module run in a SUBPROCESS because importing it hides the `NameError: PAGE` this catches |
+| `tests/check_importui.py` (74) | live HTTP: preview writes nothing, commit matches preview, FB price-led paste binds prices correctly, empty-HTML hint, `/api/overview` totals agree with `/api/status`, and `_mix_scenario_db()` proves a changed pool (pooled median −61.5%) still reports the true same-cars +10%; the workbook rebuilds into a throwaway file with `os.startfile` watched, proving `/api/viewer/build` opens nothing while `/api/viewer/open` opens exactly once; the data check card precedes 'dataset at a glance'; `/`, `/?v=1` and `/index.html` all serve, with the module run in a SUBPROCESS because importing it hides the `NameError: PAGE` this catches; and all five pages share one header, one stylesheet (placed first, never re-declared) and unique element ids |
+| `tests/check_turnover.py` (30) | seeds four trims, one per failure mode, because the value of `turnover.py` is its refusals: a clean weekly run rates correctly (exits, arrivals, and car-days asserted as a PROPERTY of the intervals rather than a hand-computed constant, so a reseed cannot silently break it); a trim with `IMG-` ids is refused and its untrackable cars counted; two captures sharing NO car break the span instead of reporting a 100% clearance; a capture a sixth the size of its predecessor has its ten 'exits' shown but never rated, and `_scope()` is asserted to treat widening and narrowing OPPOSITELY; a car that repriced out of a page filter is vetoed rather than counted as a delisting; time on market is bracketed with the floor strictly below the ceiling, asserted on a car seeded to both arrive AND leave inside the window so the check cannot pass vacuously; and the word "sold" is asserted absent from every verdict and note |
+| `tests/check_bulk.py` (24) | writing with no preview, and undoing it: the backup is proved to hold the state from BEFORE the run (a copy taken after would restore the very thing you are undoing); one file through the preview path and the bulk path produces an identical key set, so the fast path cannot drift into being a second importer; a bot-protection page and an empty file are refused by name while the good files in the same run land; undo returns the counts exactly, keeps pre-existing cars WITH their earlier sightings, empties a column the run filled by COALESCE, and leaves an unrelated observation-less car alone; a forced failure in the restore step rolls back byte-identical and the run is still undoable afterwards |
 | `tests/check_quickadd.py` (16) | stats/percentage maths, mode edge cases, commit into the shared store |
 | `tests/check_viewer.py` (45) | opens the workbook in **real Excel via COM** and reads what the formulas compute; styling preservation, MyView untouched, block sizing, layout migration, and an error scan that separates intentional `#N/A` chart gaps from real `#REF!`/`#VALUE!` |
 
@@ -811,6 +937,51 @@ is scratch output and safe to delete.
 ## 8. Gotchas that cost real time
 
 Keep these — each one was a bug that took a while to find.
+
+**Testing a page that WRITES**
+* **Confirm which database a server is pointed at before clicking anything
+  on it.** 11/08/2026, testing `/bulk`: the launch config named a scratch
+  database, the tool that started the server ignored it and used the default,
+  and nine fabricated vehicles and eighteen observations went into the real
+  `data/vpa.db`. They came straight back out — `bulk.undo()` on its own two
+  runs, batches 210-211, removed exactly them and nothing else, and
+  `vpa verify` came back with 0 failures — but the check that would have
+  prevented it costs one request: `GET /api/status` reports `db`, so read it
+  and match it before the first interaction. Every read-only page (Explore,
+  Compare) is safe to point anywhere; Import, Bulk and Quick add are not.
+* A related trap in the same session: opening a `Store` inside a
+  comprehension (`for s in [Store(DB)]`) leaks the connection, and on Windows
+  the next `unlink()` of that file fails with `PermissionError: [WinError 32]`
+  half-way through a test run. Use `with Store(...)` and collect first.
+
+**The layout that must not move**
+* `/bulk` was asked for with "no button moves around", which is a testable
+  property, not a style note: capture `getBoundingClientRect()` for every
+  control before, during (on a 40 ms interval) and after a real upload, and
+  assert the boxes are identical. Two real defects only showed up that way —
+  a 90-character backup path wrapping to a second line and pushing the panel
+  below it down, and the results table growing the card instead of scrolling
+  inside it. Fixed heights plus `overflow:auto` are load-bearing there;
+  changing one to `max-height` reintroduces both.
+
+**The shared stylesheet**
+* A page-level class with a generic name will fight the chrome. Explore had
+  `.danger{background:#a03030;color:#fff}` for one button, and it matched
+  the nav's `navbtn danger` too — Shut down rendered as a solid red block
+  with its label invisible. Base rules now scope colour classes to the
+  element (`button.danger`); keep page rules specific to the page.
+* A `.ptitle span{color:dim}` rule greys EVERY span in a title, including a
+  coloured badge placed there (the "from your data" tag went dark-on-blue).
+  The base rule now only touches unclassed or id'd spans.
+* Compare's `scale(lo,hi,px0,px1)` draws `lo` at `px0`. It used to draw it
+  at `px1` whatever was passed, which is right for a y axis and mirrored
+  every x axis: the price-range and odometer charts ran right-to-left for
+  their whole life, and nobody could tell until the axes got round-number
+  labels. y axes pass `(bottom, top)`.
+* Verify pages against a COPY of the database (SQLite backup API to the
+  scratchpad, then `--db` it and check `/api/status`), and screenshot with
+  headless Chrome on its own `--user-data-dir` with `--timeout`; the in-app
+  browser pane often will not render a screenshot.
 
 **Excel / openpyxl**
 * Post-2007 functions need the `_xlfn.` prefix in the file

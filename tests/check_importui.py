@@ -123,16 +123,16 @@ def check_chrome() -> None:
     way to stop the app."""
     import re
 
-    from vpa import compare, explore, importui, quickadd
+    from vpa import bulk, compare, explore, importui, quickadd
     from vpa.ui import PAGES
 
-    pages = {"import": importui.PAGE, "explore": explore.PAGE,
+    pages = {"import": importui.PAGE, "bulk": bulk.PAGE, "explore": explore.PAGE,
              "compare": compare.PAGE, "quick": quickadd.PAGE}
     print("\n== the shared page chrome ==")
     check("no template placeholder survives into any served page",
           all(t not in p for p in pages.values()
-              for t in ("__NAV__", "__CHROME_CSS__", "__CHROME_JS__")),
-          "NAV / CSS / JS all substituted on 4 pages")
+              for t in ("__NAV__", "__CHROME_CSS__", "__ACTIONS__", "__CHROME_JS__")),
+          f"NAV / CSS / actions / JS all substituted on {len(pages)} pages")
     # counted with a regex, not `in`: the wrapping <nav class="navtabs"> also
     # contains the substring 'class="navtab' and inflated the count by one
     tabs_re = re.compile(r'class="navtab(?: on)?"')
@@ -151,7 +151,7 @@ def check_chrome() -> None:
     check("every page can stop the app, not just the import page",
           all('id="quitBtn"' in p for p in pages.values())
           and all("confirm(" in p for p in pages.values()),
-          "Shut down present on all 4, behind a confirm")
+          f"Shut down present on all {len(pages)}, behind a confirm")
     check("Shut down is styled apart from navigation, not identical to it",
           all('class="navbtn danger" id="quitBtn"' in p for p in pages.values()),
           "danger styling on the quit button only")
@@ -159,7 +159,19 @@ def check_chrome() -> None:
           all(not {i for i in re.findall(r'id="([a-zA-Z0-9_]+)"', p)
                    if re.findall(r'id="([a-zA-Z0-9_]+)"', p).count(i) > 1}
               for p in pages.values()),
-          "ids unique on all 4 pages")
+          f"ids unique on all {len(pages)} pages")
+    check("every page carries the one shared stylesheet, first in its <style>",
+          all(p.split("<style>", 1)[1].lstrip().startswith(":root{")
+              and "--accent:" in p for p in pages.values()),
+          "shared tokens lead every page's CSS, so page rules come after and win")
+    check("every page has the same header: Excel viewer, help, shut down, db line",
+          all(p.count('id="xlsxBtn"') == 1 and 'id="dbstat"' in p
+              and 'class="pagehead"' in p for p in pages.values()),
+          "workbook button and database line on all pages, once each")
+    check("no page re-declares a base rule the shared stylesheet owns",
+          all(p.count("--ui:") == 1 and p.count(".card{") == 1
+              for p in pages.values()),
+          "one :root and one .card rule per page")
     # VACUOUS-GUARD: counting <svg> would also pass on an empty icon set, so
     # the paths themselves are required to be non-empty
     from vpa.ui import ICONS

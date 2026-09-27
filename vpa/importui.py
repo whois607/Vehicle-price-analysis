@@ -461,6 +461,9 @@ class _Handler(BaseHTTPRequestHandler):
         bare = self.path.split("?", 1)[0]
         if bare in ("/", "/index.html"):
             self._send(200, PAGE.encode("utf-8"), "text/html; charset=utf-8")
+        elif bare == "/bulk":
+            from . import bulk
+            self._send(200, bulk.PAGE.encode("utf-8"), "text/html; charset=utf-8")
         elif bare == "/quick":
             from . import quickadd
             self._send(200, quickadd.PAGE.encode("utf-8"), "text/html; charset=utf-8")
@@ -520,6 +523,9 @@ class _Handler(BaseHTTPRequestHandler):
         elif self.path == "/api/edit/history":
             from . import edit
             self._json({"ok": True, "batches": edit.history(self.db_path)})
+        elif self.path == "/api/bulk/history":
+            from . import bulk
+            self._json({"ok": True, "runs": bulk.history(self.db_path)})
         elif self.path.startswith("/api/edit/row"):
             from urllib.parse import parse_qs, urlparse
             from . import edit
@@ -605,6 +611,13 @@ class _Handler(BaseHTTPRequestHandler):
             elif self.path == "/api/edit/undo":
                 from . import edit
                 self._json(edit.undo(self.db_path, payload.get("batch") or ""))
+            elif self.path == "/api/bulk/run":
+                from . import bulk
+                self._json(bulk.run_payload(payload, self.db_path))
+            elif self.path == "/api/bulk/undo":
+                from . import bulk
+                self._json(bulk.undo(self.db_path,
+                                     run_id=int(payload.get("run") or 0)))
             elif self.path == "/api/shutdown":
                 self._json({"ok": True, "bye": True})
                 # shutdown() blocks until serve_forever returns, so it must
@@ -678,129 +691,61 @@ _PAGE = r"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
 <title>vpa import</title>
 <style>
- :root{--ui:"Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif;
-       --line:#dfe3ea;--ink:#222;--dim:#667}
- /* one font family for every control - browsers otherwise style date
-    inputs, selects and textareas with their own defaults */
- body,button,select,input,textarea{font-family:var(--ui)}
- body{font-size:14px;line-height:1.45;margin:0;background:#f5f6f7;color:var(--ink)}
- .wrap{max-width:1180px;margin:0 auto;padding:18px}
- h1{font-size:19px;margin:4px 0 2px} .sub{color:var(--dim);font-size:12px;margin-bottom:14px}
- .card{background:#fff;border:1px solid var(--line);border-radius:10px;padding:16px;
-       margin-bottom:14px;box-shadow:0 1px 2px rgba(20,30,60,.05)}
- .row{display:flex;gap:12px;flex-wrap:wrap;align-items:end}
- label{font-size:11px;color:#556;display:block;margin-bottom:3px;letter-spacing:.02em}
- select,input[type=date]{height:34px;padding:0 8px;border:1px solid #c3c8d2;
-       border-radius:6px;font-size:13px;box-sizing:border-box;background:#fff;color:var(--ink)}
- input[type=date]{width:140px}
- select{min-width:118px}
- select:focus,input:focus,textarea:focus{outline:2px solid #cfe0f5;border-color:#3060a0}
- #drop{border:2px dashed #b3bccd;border-radius:8px;padding:20px;text-align:center;color:#557;
-       cursor:pointer;flex:1;min-width:260px;background:#fafbff;min-height:74px;
-       display:flex;align-items:center;justify-content:center}
- #drop.hover{background:#eef2ff;border-color:#3060a0}
- textarea{width:100%;box-sizing:border-box;height:104px;border:1px solid #c3c8d2;
-          border-radius:6px;font-size:13px;line-height:1.5;padding:8px;margin-top:10px;
-          color:var(--ink)}
- button{height:34px;min-width:106px;padding:0 16px;border:0;border-radius:6px;
-        font-size:13.5px;cursor:pointer;color:var(--ink)}
- button:disabled{cursor:default}
- .primary{background:#3060a0;color:#fff}.primary:disabled{background:#aeb6c2}
- .commit{background:#2e7d32;color:#fff}.commit:disabled{background:#aeb6c2}
- .ghost{background:#eaedf2}.ghost:hover{background:#dfe4ec}
- table{border-collapse:collapse;width:100%;font-size:12.5px;margin-top:10px}
- th{background:#eef0f4;text-align:left;padding:5px 6px;position:sticky;top:0}
- td{border-top:1px solid #eef;padding:2px 4px;vertical-align:top}
- td input{box-sizing:border-box;border:1px solid transparent;border-radius:3px;
-          font:12.5px inherit;padding:3px;background:transparent}
- td input[data-f=capture_date]{width:92px}td input[data-f=make]{width:82px}
+__CHROME_CSS__
+ /* ---- bringing data in ---- */
+ .inrow{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap}
+ #drop{border:2px dashed #b3bccd;border-radius:9px;padding:0 18px;text-align:center;
+       color:var(--ink-2);cursor:pointer;flex:1;min-width:260px;background:#fafbfe;
+       height:74px;display:flex;align-items:center;justify-content:center;font-size:13px}
+ #drop:hover{background:#f2f6ff;border-color:#8fa8cf}
+ #drop.hover{background:var(--accent-soft);border-color:var(--accent)}
+ #paste{width:100%;height:92px;margin-top:10px;resize:vertical}
+ input[type=date]{width:148px}
+ select{min-width:128px}
+ /* the preview table: every cell is an input, so it reads as a sheet */
+ #tbl td{padding:2px 4px;vertical-align:top}
+ td input{border:1px solid transparent;border-radius:4px;height:26px;
+          font-size:12.5px;padding:0 4px;background:transparent;color:var(--ink)}
+ td input[data-f=capture_date]{width:96px}td input[data-f=make]{width:82px}
  td input[data-f=model]{width:92px}td input[data-f=variant]{width:130px}
- td input[data-f=year]{width:48px}td input[data-f=price_aud]{width:74px}
- td input[data-f=odometer_km]{width:78px}td input[data-f=state]{width:48px}
+ td input[data-f=year]{width:50px}td input[data-f=price_aud]{width:76px}
+ td input[data-f=odometer_km]{width:80px}td input[data-f=state]{width:48px}
  td input[data-f=seller_type]{width:68px}
- td input:hover{border-color:#ccd}td input:focus{border-color:#3060a0;background:#fff;outline:0}
- tr.off{opacity:.45;background:#fafafa}
- .flag{display:inline-block;background:#fdecea;color:#a03030;border-radius:4px;
-       padding:0 5px;margin:1px 2px 1px 0;font-size:11px;white-space:nowrap}
- .flag.info{background:#e8f1fb;color:#20507e}
- .num{text-align:right}.count{font-weight:600}
- #summary{margin:6px 0;color:#334}
- #result{white-space:pre-line;font-size:14px}
- .ok{color:#2e7d32}.warn{color:#a03030}
- .scroll{max-height:60vh;overflow:auto;border:1px solid #eef}
- .act{display:flex;gap:22px;flex-wrap:wrap;align-items:flex-start}
- .panel{flex:1;min-width:300px}
- .ptitle{font-size:12px;color:#445;font-weight:600;margin-bottom:8px}
- .ptitle span{font-weight:400;color:var(--dim)}
+ td input:hover{border-color:var(--field)}
+ td input:focus{border-color:var(--accent);background:#fff;outline:0}
+ tr.off{opacity:.45}
+ .flag{margin:1px 3px 1px 0}
+ .count{font-weight:600}
+ #summary{margin:0 0 10px;color:var(--ink-2);font-size:13px}
+ .commitbar{display:flex;gap:10px;align-items:center;margin-top:12px}
+ #selcount{color:var(--dim);font-size:12.5px}
+ #result{white-space:pre-line;font-size:13.5px}
+ /* ---- overview ---- */
  #heat{display:grid;grid-auto-flow:column;grid-template-rows:repeat(7,11px);gap:2px}
  #heat div{width:11px;height:11px;border-radius:2px;background:#e8eaee}
  .h1{background:#c9e6c9!important}.h2{background:#8fcb8f!important}
  .h3{background:#4d9e4d!important}.h4{background:#256e25!important}
- .heatlegend{font-size:11px;color:var(--dim);display:flex;gap:3px;align-items:center;
-             margin-top:8px}
+ .heatlegend{font-size:11.5px;color:var(--dim);display:flex;gap:3px;align-items:center;
+             margin-top:10px}
  .heatlegend div{width:11px;height:11px;border-radius:2px;background:#e8eaee}
- .ax{font-size:10px;fill:#8a92a2;font-family:var(--ui)}
- /* ---- overview ---- */
- .tiles{display:flex;gap:10px;flex-wrap:wrap}
- .tile{flex:1 1 118px;min-width:112px;background:#fafbfd;border:1px solid var(--line);
-       border-radius:8px;padding:8px 10px}
- .tile b{display:block;font-size:18px;font-weight:600;line-height:1.25}
- .tile span{display:block;font-size:11px;color:var(--dim)}
- .seg{display:inline-flex;border:1px solid #c3c8d2;border-radius:6px;overflow:hidden}
- .seg button{height:26px;min-width:0;padding:0 11px;font-size:12px;background:#fff;
-             border-radius:0}
- .seg button.on{background:#3060a0;color:#fff}
- .hdr2{display:flex;align-items:center;gap:10px;margin-bottom:6px}
- .hdr2 .ptitle{flex:1;margin:0}
- table.ov{font-size:12.5px;margin-top:4px}
- .ov th{position:static;padding:4px 6px;white-space:nowrap}
- .ov td{padding:3px 6px;vertical-align:middle}
- .ov tbody tr:hover td{background:#fafbff}
+ .ov td{vertical-align:middle}
  .ov .nm{font-weight:600}
- .up{color:#2e7d32;font-weight:600}.down{color:#a03030;font-weight:600}
- .flat{color:var(--dim)}
- .tag{display:inline-block;background:#eef1f5;color:#4a5566;border-radius:4px;
-      padding:0 5px;font-size:10.5px;margin-left:4px;white-space:nowrap}
- .tag.warn{background:#fdecea;color:#a03030}
- .tag.good{background:#e7f3e8;color:#2e7d32}
- .lst{font-size:12.5px}
- .lst>div{display:flex;gap:8px;align-items:baseline;padding:4px 0;
-          border-top:1px solid #f0f2f6}
- .lst>div:first-child{border-top:0}
- .lst .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
- .bar{height:6px;border-radius:3px;background:#e8eaee;overflow:hidden;margin-top:3px}
- .bar i{display:block;height:100%;background:#3060a0}
- .hint{font-size:11.5px;color:var(--dim);margin-top:8px}
+ .bar{height:6px;border-radius:3px;background:var(--line-2);overflow:hidden;margin-top:3px}
+ .bar i{display:block;height:100%;background:var(--accent)}
  /* data check rows wrap freely - .lst clips to one line, which would hide
     exactly the explanation that makes a warning actionable */
  .vf>div{display:flex;gap:9px;align-items:flex-start;padding:6px 0;
-         border-top:1px solid #f0f2f6;font-size:12.5px}
+         border-top:1px solid var(--line-2);font-size:12.5px}
  .vf>div:first-child{border-top:0}
  .vf .mk{font-weight:700;width:13px;flex:none;text-align:center;line-height:1.4}
  .vf .bd{flex:1}
  .vf .bd b{font-weight:600}
- .vf .bd .flat{color:var(--dim)}
- a.ext{color:#3060a0;text-decoration:none}a.ext:hover{text-decoration:underline}
- #stale{display:none;background:#fff8f0;border:1px solid #f0d9bd;color:#7a4a10;
-        border-radius:6px;padding:6px 10px;font-size:12.5px;margin-bottom:10px}
- .pagetitle{font-size:19px;margin:2px 0 2px;font-weight:600}
-__CHROME_CSS__
- .mini{height:32px;min-width:100px;padding:0 12px;font-size:12.5px;
-        box-sizing:border-box}
- a.mini{display:inline-flex;align-items:center;justify-content:center;
-        text-decoration:none;color:#223;border-radius:6px}
- #help{display:none}
- #help details{margin:6px 0;border:1px solid #e3e6ec;border-radius:6px;padding:6px 10px;background:#fafbfd}
- #help summary{cursor:pointer;font-weight:600;font-size:13px;color:#2a3f5f}
- #help p,#help ul{margin:6px 0;font-size:13px;color:#333}
- #help ul{padding-left:20px}
- #help code{background:#eef1f5;border-radius:3px;padding:0 4px;font-size:12px}
- #help .flag,#help .flag.info{font-size:11px}
 </style></head><body><div class="wrap">
 __NAV__
-<h1 class="pagetitle">Import listings</h1>
-<div class="sub" id="dbline">connecting...</div>
-<div id="stale"></div>
+<div class="pagehead"><div>
+ <h1 class="pagetitle">Import listings</h1>
+ <div class="sub"><span>Preview first &mdash; nothing is written until you commit.</span><span class="dbstat" id="dbstat"></span></div>
+</div>__ACTIONS__</div>
 
 <div class="card" id="help">
  <p><b>The one rule:</b> nothing is written to the database until you press
@@ -900,8 +845,9 @@ __NAV__
 </div>
 
 <div class="card">
- <div class="row">
-  <div id="drop"><span id="droplabel">drop CSV / JSON / saved-HTML files here, or click to choose &mdash; several at once is fine</span></div>
+ <div class="ptitle">add listings <span>&mdash; saved pages, CSV or JSON; several files at once is fine</span></div>
+ <div class="inrow">
+  <div id="drop"><span id="droplabel">drop CSV / JSON / saved-HTML files here, or click to choose</span></div>
   <input type="file" id="file" accept=".csv,.json,.html,.htm,.txt" multiple hidden>
   <div><label>source</label>
    <select id="source"><option value="">auto / from data</option>
@@ -916,18 +862,35 @@ __NAV__
  <textarea id="paste" placeholder="...or paste raw listing text here (title lines like '2014 Ford Falcon XR6', then price / km / suburb)"></textarea>
 </div>
 
+<!-- The preview sits directly under the box that produced it. It used to
+     be the LAST card, below six overview panels, so after pressing Preview
+     nothing visible happened until you scrolled a long way down. -->
+<div class="card" id="previewCard" style="display:none">
+ <div class="ptitle">preview <span>&mdash; nothing is saved until you commit</span></div>
+ <div id="summary"></div>
+ <div class="scroll"><table id="tbl"><thead><tr>
+  <th><input type="checkbox" id="all" checked></th><th>status / flags</th>
+  <th>src</th><th>date</th><th>make</th><th>model</th><th>variant</th>
+  <th>year</th><th>price</th><th>odo km</th><th>state</th><th>seller</th>
+ </tr></thead><tbody></tbody></table></div>
+ <div class="commitbar">
+  <button class="commit" id="commitBtn">Commit selected</button>
+  <button class="ghost" id="cancelBtn">Discard</button>
+  <span id="selcount"></span>
+ </div>
+</div>
+
+<div class="card" id="resultCard" style="display:none"><div id="result"></div></div>
+
 <!-- Data check sits directly under the import box, ABOVE the dataset panels.
      It is the thing you want immediately after committing rows, and it used
      to be the last card on a long page. -->
 <div class="card">
- <div class="row" style="margin-bottom:8px">
-  <div style="flex:1"><div class="ptitle" style="margin:0">data check
-    <span id="vfspan">&mdash; cross-checks the database against itself and against the workbook</span></div></div>
- </div>
- <div id="verify"><div class="flat" style="font-size:12.5px">Not run yet.
-  This re-computes the totals two independent ways and compares the Excel
-  workbook against the live database, so you can see the numbers agree rather
-  than assume it.</div></div>
+ <div class="ptitle">data check
+    <span id="vfspan">&mdash; cross-checks the database against itself and against the workbook</span></div>
+ <div id="verify"><div class="flat" style="font-size:12.5px">Not run yet &mdash;
+  <b>Data check</b> (top right) re-computes the totals two independent ways and
+  compares the workbook against the live database.</div></div>
 </div>
 
 <div class="card">
@@ -955,7 +918,7 @@ __NAV__
   <div class="seg"><button id="lvLine" class="on">Model lines</button
    ><button id="lvTrim">Trims</button></div>
  </div>
- <table class="ov" id="topTbl"><thead><tr>
+ <table class="ov" id="topTbl" style="margin-top:2px"><thead><tr>
   <th>model</th><th class="num">prices</th><th class="num">days</th>
   <th class="num">median now</th><th>trend</th><th class="num">vs first</th>
   <th class="num">vs previous</th><th>range</th>
@@ -980,21 +943,6 @@ __NAV__
  </div>
 </div>
 
-<div class="card" id="previewCard" style="display:none">
- <div id="summary"></div>
- <div class="scroll"><table id="tbl"><thead><tr>
-  <th><input type="checkbox" id="all" checked></th><th>status / flags</th>
-  <th>src</th><th>date</th><th>make</th><th>model</th><th>variant</th>
-  <th>year</th><th>price</th><th>odo km</th><th>state</th><th>seller</th>
- </tr></thead><tbody></tbody></table></div>
- <div style="margin-top:10px">
-  <button class="commit" id="commitBtn">Commit selected</button>
-  <button class="ghost" id="cancelBtn">Discard</button>
-  <span id="selcount" style="margin-left:10px;color:#556"></span>
- </div>
-</div>
-
-<div class="card" id="resultCard" style="display:none"><div id="result"></div></div>
 
 <script>
 const $=id=>document.getElementById(id);
@@ -1170,18 +1118,7 @@ $("lvTrim").onclick=()=>{ovLevel="trim";$("lvTrim").classList.add("on");
 // The web pages recompute from the database on every request, so they are
 // never stale. viewer.xlsx is the exception - it is a file, frozen at the
 // moment it was built - so say so rather than letting it drift silently.
-function refreshStatus(){
-  return fetch("/api/status").then(r=>r.json()).then(s=>{
-    $("dbline").textContent=`database: ${s.db} - ${s.vehicles} vehicles, `
-      +`${s.observations} observations. Nothing is written until you commit.`;
-    const st=$("stale");
-    if(s.workbook&&s.workbook.stale){
-      st.style.display="block";
-      st.innerHTML=`The Excel workbook is older than your latest import`
-        +` (built ${s.workbook.built||"never"}). Click <b>Excel viewer</b> to rebuild it.`;
-    }else st.style.display="none";
-    return s;});
-}
+function refreshStatus(){return vpaStatus();}
 
 // Data check: every row here is two answers compared, not one answer
 // restated, so a PASS is evidence. Run on demand - it reads the workbook,
@@ -1189,7 +1126,7 @@ function refreshStatus(){
 const VMARK={pass:["&#10003;","#2e7d32"],warn:["!","#a06010"],
              fail:["&#10007;","#a03030"],skip:["&ndash;","#8a92a2"]};
 async function runVerify(){
-  const b=$("vfBtn");b.disabled=true;b.textContent="checking...";
+  const b=$("vfBtn");b.disabled=true;b.classList.add("busy");
   try{
     const v=await fetch("/api/verify").then(r=>r.json());
     const c=v.counts;
@@ -1213,7 +1150,7 @@ async function runVerify(){
         &middot; ${cov.full_pct}% full detail &middot; ${cov.reseen_pct}% of
         vehicles seen more than once</div>`:"");
   }catch(e){$("verify").innerHTML=`<div class="flat">check failed: ${esc(e)}</div>`;}
-  b.disabled=false;b.textContent="Run check";
+  b.disabled=false;b.classList.remove("busy");
 }
 $("vfBtn").onclick=()=>{
   // the button is up in the nav, so bring its results into view
@@ -1444,8 +1381,6 @@ function flash(btn,word){
   const span=btn.querySelector("span")||btn,was=span.textContent;
   span.textContent=word;setTimeout(()=>{span.textContent=was;},1600);
 }
-$("xlsxBtn").onclick=()=>rebuildWorkbook(
-  "xlsxBtn","/api/viewer/open","Excel viewer","opening...");
 $("rebuildBtn").onclick=()=>rebuildWorkbook(
   "rebuildBtn","/api/viewer/build","Rebuild workbook","rebuilding...");
 __CHROME_JS__
@@ -1463,8 +1398,7 @@ PAGE = _chrome(_PAGE, "import",
                          "rebuild viewer.xlsx from the database WITHOUT opening "
                          "it - use this to clear the stale-workbook banner, or "
                          "before closing the app")
-               + _action("xlsxBtn", "Excel viewer", "excel",
-                         "rebuild viewer.xlsx and open it in Excel"))
+)
 
 
 # MUST stay the last statement in the file. `main()` blocks in serve_forever(),

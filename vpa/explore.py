@@ -255,6 +255,9 @@ def detail_payload(db_path: str | Path = DEFAULT_DB, make: str | None = None,
     STARS = _star_keys(db_path)
     sub = _select_multi(df, make, model, picked)
     unfiltered_n = int(len(sub))
+    # kept whole: turnover needs the pre-filter selection to tell a car that
+    # left the market from one that merely left the filter (turnover.py)
+    unfiltered_sub = sub
     sub, applied = _apply_filters(sub, year_min, year_max, price_min,
                                   price_max, keyword)
     if sub.empty:
@@ -323,6 +326,25 @@ def detail_payload(db_path: str | Path = DEFAULT_DB, make: str | None = None,
             "lo": _num(g["price_aud"].min()), "hi": _num(g["price_aud"].max()),
         })
     byday.sort(key=lambda r: r["d"])
+
+    # ---- what happened BETWEEN the captures: which of those cars left view,
+    # which are new, how fast this selection clears, and how that compares to
+    # its sibling trims. The unfiltered selection rides along so a car that
+    # only left the FILTER is not reported as having left the market.
+    from . import turnover as _turn
+    churn = _turn.turnover(sub, unfiltered_sub, label=label)
+    # the per-day composition is drawn on the supply chart, so each day needs
+    # the cars the chart is already counting beside the trackable ones
+    per_day = {r["d"]: r for r in churn.get("daily", [])}
+    for b in byday:
+        c = per_day.get(b["d"])
+        if c:
+            b.update({"cohort": c["n"], "carry": c["carry"], "new": c["new"],
+                      "exits": c["exits"], "rated": c["rated"],
+                      "break_before": c["break_before"], "inspan": c["inspan"]})
+        else:
+            b.update({"cohort": 0, "carry": None, "new": None, "exits": 0,
+                      "rated": False, "break_before": False, "inspan": False})
 
     # ---- supply summary: the Supply sheet's top block. "now" is the newest
     # capture, not a live count - a smaller number can mean fewer cars OR a
@@ -550,6 +572,17 @@ def detail_payload(db_path: str | Path = DEFAULT_DB, make: str | None = None,
                              "selected": str(va) in set(picked)})
         siblings.sort(key=lambda s: -s["n"])
 
+    # ---- the same churn measurement for every trim of this model line, so
+    # "does this one clear faster than its siblings" is one look rather than
+    # six page loads. Each trim is measured on its own span; see by_variant.
+    trim_churn = {"rows": [], "pooled": None, "usable": False}
+    if make and model:
+        fam_all = _select(df, make, model, None)
+        fam_filtered, _ = _apply_filters(fam_all, year_min, year_max,
+                                         price_min, price_max, keyword)
+        trim_churn = _turn.by_variant(fam_filtered, selected=picked,
+                                      full_line=fam_all)
+
     return {"ok": True, "empty": False, "head": head, "byday": byday,
             "picked": picked, "filters": applied, "starred_total": len(STARS),
             "unfiltered": unfiltered_n, "kept": int(len(sub)),
@@ -566,7 +599,8 @@ def detail_payload(db_path: str | Path = DEFAULT_DB, make: str | None = None,
             "vehicles": vehicles[:MAX_VEHICLES],
             "vehicle_total": len(vehicles),
             "movers": movers[:40], "mover_total": len(movers),
-            "siblings": siblings}
+            "siblings": siblings,
+            "churn": churn, "trim_churn": trim_churn}
 
 
 # ------------------------------------------------------- one car vs its trim
@@ -1120,178 +1154,104 @@ _PAGE = r"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
 <title>vpa explore</title>
 <style>
- :root{--ui:"Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif;
-       --line:#dfe3ea;--ink:#222;--dim:#667}
- body,button,select,input,textarea{font-family:var(--ui)}
- body{font-size:14px;line-height:1.45;margin:0;background:#f5f6f7;color:var(--ink)}
- .wrap{max-width:1180px;margin:0 auto;padding:18px}
- .pagetitle{font-size:19px;margin:2px 0 2px;font-weight:600}
- .sub{color:var(--dim);font-size:12px;margin-bottom:14px}
- .card{background:#fff;border:1px solid var(--line);border-radius:10px;padding:16px;
-       margin-bottom:14px;box-shadow:0 1px 2px rgba(20,30,60,.05)}
- .row{display:flex;gap:12px;flex-wrap:wrap;align-items:end}
- label{font-size:11px;color:#556;display:block;margin-bottom:3px;letter-spacing:.02em}
- select,input[type=text]{height:34px;padding:0 8px;border:1px solid #c3c8d2;
-       border-radius:6px;font-size:13px;box-sizing:border-box;background:#fff;color:var(--ink)}
- select{min-width:150px;max-width:280px}
- select:focus,input:focus{outline:2px solid #cfe0f5;border-color:#3060a0}
- button{height:34px;min-width:106px;padding:0 16px;border:0;border-radius:6px;
-        font-size:13.5px;cursor:pointer;color:var(--ink)}
- .ghost{background:#eaedf2}.ghost:hover{background:#dfe4ec}
- .mini{height:32px;min-width:100px;padding:0 12px;font-size:12.5px;box-sizing:border-box}
- a.mini{display:inline-flex;align-items:center;justify-content:center;
-        text-decoration:none;color:#223;border-radius:6px;background:#eaedf2}
- a.mini:hover{background:#dfe4ec}
- .ptitle{font-size:12px;color:#445;font-weight:600;margin-bottom:8px}
- .ptitle span{font-weight:400;color:var(--dim)}
- .tiles{display:flex;gap:10px;flex-wrap:wrap}
- .tile{flex:1 1 118px;min-width:112px;background:#fafbfd;border:1px solid var(--line);
-       border-radius:8px;padding:8px 10px}
- .tile b{display:block;font-size:18px;font-weight:600;line-height:1.25}
- .tile span{display:block;font-size:11px;color:var(--dim)}
- .act{display:flex;gap:22px;flex-wrap:wrap;align-items:flex-start}
- .panel{flex:1;min-width:320px}
- table{border-collapse:collapse;width:100%;font-size:12.5px}
- th{background:#eef0f4;text-align:left;padding:5px 6px;position:sticky;top:0;
-    white-space:nowrap}
- th.s{cursor:pointer}th.s:hover{background:#e2e6ee}
- td{border-top:1px solid #eef;padding:3px 6px;vertical-align:middle}
- tbody tr:hover td{background:#fafbff}
- .num{text-align:right}
- .scroll{max-height:56vh;overflow:auto;border:1px solid #eef;border-radius:6px}
- .up{color:#2e7d32;font-weight:600}.down{color:#a03030;font-weight:600}
- .flat{color:var(--dim)}
- .tag{display:inline-block;background:#eef1f5;color:#4a5566;border-radius:4px;
-      padding:0 5px;font-size:10.5px;margin-left:4px;white-space:nowrap}
- .tag.warn{background:#fdecea;color:#a03030}
- .tag.good{background:#e7f3e8;color:#2e7d32}
- .chip{display:inline-block;border:1px solid #c3c8d2;background:#fff;border-radius:20px;
-       padding:2px 10px;margin:2px 4px 2px 0;font-size:12px;cursor:pointer;color:#334}
- .chip:hover{background:#eef2ff;border-color:#3060a0}
- .chip.on{background:#3060a0;border-color:#3060a0;color:#fff}
- .ax{font-size:10px;fill:#8a92a2;font-family:var(--ui)}
- .lst{font-size:12.5px}
- .lst>div{display:flex;gap:8px;align-items:baseline;padding:4px 0;
-          border-top:1px solid #f0f2f6}
- .lst>div:first-child{border-top:0}
- .lst .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
- .hint{font-size:11.5px;color:var(--dim);margin-top:8px}
- .warnbox{background:#fff8f0;border:1px solid #f0d9bd;border-radius:6px;padding:8px 10px;
-          font-size:12.5px;color:#7a4a10;margin-top:8px}
- a.ext{color:#3060a0;text-decoration:none}a.ext:hover{text-decoration:underline}
- #stale{display:none;background:#fff8f0;border:1px solid #f0d9bd;color:#7a4a10;
-        border-radius:6px;padding:6px 10px;font-size:12.5px;margin-bottom:10px}
- .tabs{display:flex;gap:4px;flex-wrap:wrap;border-bottom:1px solid var(--line);
-       margin:-4px -4px 12px}
- .tab{height:32px;min-width:0;padding:0 13px;background:transparent;border-radius:6px 6px 0 0;
-      font-size:13px;color:#556;border-bottom:2px solid transparent;margin-bottom:-1px}
- .tab:hover{background:#f1f3f7}
- .tab.on{color:#3060a0;font-weight:600;border-bottom-color:#3060a0;background:#f7f9fd}
- .cols{display:flex;gap:20px;flex-wrap:wrap}
- .cols>div{flex:1 1 260px;min-width:240px}
- .mini-h{font-size:11.5px;color:#556;font-weight:600;margin-bottom:5px}
- .sumline{display:flex;gap:18px;flex-wrap:wrap;font-size:12px;color:#445;margin-top:6px}
- .sumline b{font-size:13.5px}
- tr.pick{cursor:pointer}tr.pick.on td{background:#eef4ff}
 __CHROME_CSS__
- /* one-car verdict card */
- #carcard{border-color:#c3d2e8;box-shadow:0 1px 3px rgba(20,50,110,.10)}
- .verdict{font-size:15px;line-height:1.5;margin:2px 0 12px}
- .verdict b{font-weight:600}
- .subjtag{display:inline-block;background:#3060a0;color:#fff;border-radius:4px;
-          padding:1px 7px;font-size:11px;margin-left:6px;vertical-align:2px}
- .subjtag.typed{background:#7a4a10}
- .grid2{display:flex;gap:22px;flex-wrap:wrap}
- .grid2>div{flex:1 1 300px;min-width:280px}
- .kv{font-size:12.5px}
- .kv>div{display:flex;gap:8px;align-items:baseline;padding:3px 0;
-         border-top:1px solid #f0f2f6}
- .kv>div:first-child{border-top:0}
- .kv .k{flex:1;color:#556}
- .gated{color:var(--dim);font-style:italic}
- .mine{color:#7a4a10;font-weight:600}
- .fld{display:flex;gap:8px;flex-wrap:wrap;align-items:end}
- .fld label{font-size:11px}
- .fld input,.fld select{height:32px;font-size:12.5px}
+ select{min-width:150px;max-width:280px}
+ .filters{margin-top:12px;padding-top:12px;border-top:1px solid var(--line-2)}
  .w6{width:104px}.w8{width:132px}
- .filters{margin-top:10px;padding-top:10px;border-top:1px solid #eef0f4}
- .filters input{height:32px;font-size:12.5px}
- .fbadge{display:inline-block;background:#eef4fc;border:1px solid #c9d9ef;
-   color:#24457e;border-radius:11px;padding:1px 9px;font-size:11.5px;
+ .fbadge{display:inline-block;background:var(--accent-soft);border:1px solid var(--accent-line);
+   color:var(--accent-2);border-radius:11px;padding:0 9px;font-size:11.5px;line-height:19px;
    margin-right:5px}
- .cmp td{font-size:12.5px}
- .cmp tr.dupe td{background:#fff8f0}
+ /* the trim picker: a filter box and a bounded set of chips, not a wall */
+ .chipbar{display:flex;gap:10px;align-items:center;margin:14px 0 8px}
+ .chipbar .ptitle{margin:0}
+ #chipq{height:30px;width:220px;font-size:12.5px;margin-left:auto}
+ #chips{max-height:196px;overflow:auto;padding-right:4px}
+ /* supply summary: the figures under the capture chart, as a small grid */
+ .sumline{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px 14px;
+   margin-top:10px;padding-top:10px;border-top:1px solid var(--line-2);font-size:12px}
+ .sumline>span{display:flex;flex-direction:column;line-height:1.3}
+ .sumline b{font-size:14px;font-weight:600}
+ .sumline .flat{font-size:11.5px}
+ .sumline>span.note{grid-column:1/-1;display:block;font-size:11.5px}
+ tr.pick{cursor:pointer}tr.pick.on td{background:var(--accent-soft)}
+ .cmp tr.dupe td{background:var(--warn-soft)}
+ /* one-car verdict card */
+ #carcard{border-color:var(--accent-line);box-shadow:0 1px 3px rgba(20,50,110,.10)}
+ .verdict{font-size:15px;line-height:1.5;margin:2px 0 14px}
+ .verdict b{font-weight:600}
+ .subjtag{display:inline-block;background:var(--accent);color:#fff;border-radius:4px;
+          padding:0 7px;font-size:11px;line-height:18px;margin-left:6px;vertical-align:2px}
+ .subjtag.typed{background:var(--warn)}
+ .grid2>div{flex:1 1 300px;min-width:280px}
+ .gated{color:var(--dim);font-style:italic}
+ .mine{color:var(--warn);font-weight:600}
+ .fld{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end}
  /* the sighting-by-sighting audit table under the over-time chart */
- .prov td:last-child{color:#556;font-size:12px}
+ .prov td:last-child{color:var(--ink-2);font-size:12px}
  .prov td .flat{display:block;font-size:11px}
  .lg{display:inline-block;width:10px;height:10px;border-radius:2px;
      vertical-align:-1px;margin-right:3px}
  /* correcting stored data - visually separated from every read-only panel,
-    because this is the one place on these three pages that WRITES */
+    because this is the one place on this page that WRITES */
  .fixbox{border:1px solid #d9c9a0;background:#fffdf6;border-radius:8px;
    padding:12px 14px;margin:10px 0}
  .fixbox h4{margin:0 0 8px;font-size:13px;color:#7a5a10;font-weight:600}
  .fixgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));
    gap:8px}
- .fixgrid label{display:block;font-size:10.5px;color:#667;margin-bottom:2px}
+ .fixgrid label{margin-bottom:2px}
  .fixgrid input{width:100%;height:30px;font-size:12.5px}
  .fixgrid input.dirty{border-color:#b8860b;background:#fffbea}
  .fixobs{width:100%;border-collapse:collapse;margin-top:6px}
- .fixobs th{font-size:10.5px;color:#667;text-align:left;font-weight:600;
-   padding:2px 4px}
- .fixobs td{padding:2px 4px}
+ .fixobs th{font-size:11px;background:none;border:0;padding:2px 4px}
+ .fixobs td{padding:2px 4px;border:0}
  .fixobs input{width:100%;height:28px;font-size:12px}
  .fixdiff{font-size:12.5px;margin:8px 0}
  .fixdiff div{padding:2px 0;border-top:1px solid #f0ecdf}
  .fixdiff b{font-weight:600}
- .fixdiff .was{color:#a03030;text-decoration:line-through;margin-right:6px}
- .fixdiff .now{color:#2e7d32;font-weight:600}
+ .fixdiff .was{color:var(--bad);text-decoration:line-through;margin-right:6px}
+ .fixdiff .now{color:var(--good);font-weight:600}
  /* the watchlist. A star is YOUR annotation, so it is coloured apart from
     every computed thing on the page - nothing amber here came from a stat. */
- .star{cursor:pointer;font-size:15px;line-height:1;color:#c9ccd4;
-   background:none;border:0;padding:0 2px}
- .star.on{color:#e8a317}
- .star:hover{color:#e8a317}
+ button.star{cursor:pointer;font-size:15px;line-height:1;color:#c9ccd4;
+   background:none;border:0;padding:0 2px;height:auto;min-width:0}
+ button.star.on,button.star:hover:not(:disabled){color:var(--mine);background:none}
  tr.starred td{background:#fffaf0}
- tr.starred td:first-child{box-shadow:inset 3px 0 0 #e8a317}
- .wl{border:1px solid #ead9b0;background:#fffdf7;border-radius:8px;padding:12px 14px}
- .wlrow{display:flex;gap:10px;align-items:baseline;padding:7px 0;
+ tr.starred td:first-child{box-shadow:inset 3px 0 0 var(--mine)}
+ .wl{border:1px solid #ead9b0;background:#fffdf7;border-radius:8px;padding:4px 14px}
+ .wlrow{display:flex;gap:12px;align-items:baseline;padding:9px 0;
    border-top:1px solid #f2ead8;font-size:12.5px;flex-wrap:wrap}
  .wlrow:first-child{border-top:0}
  .wlname{flex:1 1 210px;font-weight:600}
- .wltag{font-size:10.5px;border-radius:9px;padding:1px 7px;border:1px solid}
- .wltag.live{color:#245224;background:#eef8ee;border-color:#bcdcbc}
- .wltag.stale{color:#7a4a10;background:#fff6e8;border-color:#e6cfa4}
- .wltag.gone{color:#a03030;background:#fdeeee;border-color:#e6b8b8}
- .okbox{background:#eef8ee;border:1px solid #bcdcbc;border-radius:6px;
-   padding:9px 11px;font-size:12.5px;color:#245224}
- .okbox code{background:#fff;padding:1px 4px;border-radius:3px}
- .danger{background:#a03030;color:#fff;border:0}
- .danger:hover{background:#8a2828}
+ .wltag{font-size:11px;border-radius:9px;padding:0 7px;line-height:18px;border:1px solid}
+ .wltag.live{color:#245224;background:var(--good-soft);border-color:var(--good-line)}
+ .wltag.stale{color:var(--warn);background:var(--warn-soft);border-color:var(--warn-line)}
+ .wltag.gone{color:var(--bad);background:var(--bad-soft);border-color:var(--bad-line)}
+ .okbox code{background:#fff}
  /* find-a-car bar: the primary way in, so it leads the page */
  .findbar{background:linear-gradient(180deg,#f7faff,#eef4fc);
-   border:1px solid #c9d9ef;border-radius:10px;padding:13px 16px;margin-bottom:14px}
- .findbar h2{font-size:14.5px;margin:0 0 3px;font-weight:600;color:#24457e}
- .findbar p{margin:0 0 10px;font-size:12.5px;color:#4a5566}
+   border:1px solid var(--accent-line);border-radius:var(--r);padding:14px 18px;margin-bottom:14px}
+ .findbar h2{font-size:14.5px;margin:0 0 3px;font-weight:600;color:var(--accent-2)}
+ .findbar p{margin:0 0 12px;font-size:12.5px;color:var(--ink-2)}
  .findrow{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
- .bigbtn{display:inline-flex;align-items:center;gap:8px;height:40px;padding:0 18px;
-   border:0;border-radius:8px;background:#3060a0;color:#fff;font-size:14px;
-   font-weight:600;cursor:pointer;box-shadow:0 1px 3px rgba(20,50,110,.28)}
- .bigbtn:hover{background:#27528c}
- .bigbtn.alt{background:#fff;color:#24457e;border:1px solid #9db8dd;
-   font-weight:500;box-shadow:none}
- .bigbtn.alt:hover{background:#f2f7ff}
- .findbar.drag{border-color:#3060a0;background:#e9f1fd}
- #findmsg{font-size:12.5px;margin-top:9px}
- .idcard{background:#fff;border:1px solid #c9d9ef;border-radius:8px;
+ button.bigbtn{height:38px;padding:0 16px;border:1px solid var(--accent);border-radius:8px;
+   background:var(--accent);color:#fff;font-size:13.5px;font-weight:600}
+ button.bigbtn:hover:not(:disabled){background:var(--accent-2);border-color:var(--accent-2);color:#fff}
+ button.bigbtn.alt{background:#fff;color:var(--accent-2);border-color:#9db8dd;font-weight:500}
+ button.bigbtn.alt:hover:not(:disabled){background:#f2f7ff;color:var(--accent-2)}
+ .findbar.drag{border-color:var(--accent);background:#e9f1fd}
+ #findmsg{font-size:12.5px}
+ #findmsg:not(:empty){margin-top:10px}
+ .idcard{background:#fff;border:1px solid var(--accent-line);border-radius:8px;
    padding:10px 12px;margin-top:10px;font-size:12.5px}
  .idcard b{font-weight:600}
  .swatchdot{display:inline-block;width:11px;height:11px;border-radius:3px;
    border:1px solid rgba(0,0,0,.25);vertical-align:-1px;margin-right:5px}
 </style></head><body><div class="wrap">
 __NAV__
-<h1 class="pagetitle">Explore vehicles</h1>
-<div class="sub" id="subline">loading...</div>
+<div class="pagehead"><div>
+ <h1 class="pagetitle">Explore vehicles</h1>
+ <div class="sub"><span id="subline">One trim, or one car against its trim. Read-only &mdash; nothing here changes your data.</span><span class="dbstat" id="dbstat"></span></div>
+</div>__ACTIONS__</div>
 <div id="stale"></div>
 
 <div class="card" id="help" style="display:none">
@@ -1318,6 +1278,18 @@ __NAV__
       may have sold, or may simply not have been in the search you captured
       that day - and listing identity breaks across capture eras, so absence
       is often a format artefact. Treat it as a lower bound.</li>
+  <li><b>Turnover</b> is the same caution turned into a measurement. The
+      capture chart splits each bar into cars carried over, cars back in
+      view, brand new cars, and cars with no site ad id (which cannot be
+      recognised across days at all); cars last seen on a day hang below the
+      line. The tab then rates how fast the trim clears - exits per car per
+      day, so trims captured on different rhythms are still comparable - and
+      whether the cars that went were the cheap ones for their day. It
+      refuses rather than guesses in three cases: no trackable ids, two
+      consecutive captures that share no cars (different searches, not an
+      empty market), and a pair where one capture is far bigger than the
+      other. <b>It never says "sold"</b> - a listing can vanish by selling,
+      being withdrawn, expiring, or being re-listed under a new id.</li>
   <li><b>The tabs</b> are the workbook's deeper sheets: monthly trend
       (Trend), price against odometer with the fitted curve and dealer/private
       medians (RichStats), and every trim side by side (RichStats + Supply).
@@ -1397,15 +1369,15 @@ __NAV__
 </div>
 
 <div class="card" id="wlcard" style="display:none">
- <div class="row" style="margin-bottom:6px">
-  <div style="flex:1"><div class="ptitle" style="margin:0">watchlist
-    <span id="wlspan"></span></div></div>
-  <div><button class="ghost mini" id="wlRefresh">Refresh</button></div>
+ <div class="cardhead">
+  <div class="ptitle">watchlist <span id="wlspan"></span></div>
+  <button class="ghost mini" id="wlRefresh">Refresh</button>
  </div>
  <div id="wlbody"></div>
 </div>
 
 <div class="card">
+ <div class="ptitle">what to look at</div>
  <div class="row">
   <div><label>make</label><select id="mk"></select></div>
   <div><label>model</label><select id="mo"></select></div>
@@ -1432,7 +1404,11 @@ __NAV__
   <div><button class="ghost" id="fGo">Apply</button></div>
   <div><button class="ghost" id="fClear">Clear filters</button></div>
  </div>
- <div id="chips" style="margin-top:10px"></div>
+ <div class="chipbar" id="chipbar" style="display:none">
+  <div class="ptitle">trims in this model <span id="chipspan"></span></div>
+  <input type="text" id="chipq" placeholder="filter trims..." autocomplete="off">
+ </div>
+ <div id="chips"></div>
  <div class="hint" id="pickhint"></div>
 </div>
 
@@ -1442,11 +1418,10 @@ __NAV__
 </div>
 
 <div class="card" id="carcard" style="display:none">
- <div class="row" style="margin-bottom:6px">
-  <div style="flex:1"><div class="ptitle" style="margin:0">this car vs the trim
-    <span id="carspan"></span></div></div>
-  <div><button class="ghost mini" id="fixBtn" title="correct this listing's stored details">Fix data</button></div>
-  <div><button class="ghost mini" id="carClose">Clear</button></div>
+ <div class="cardhead">
+  <div class="ptitle">this car vs the trim <span id="carspan"></span></div>
+  <button class="ghost mini" id="fixBtn" title="correct this listing's stored details">Fix data</button>
+  <button class="ghost mini" id="carClose">Clear</button>
  </div>
  <div id="fixpanel" style="display:none"></div>
  <div id="carbody"></div>
@@ -1468,6 +1443,7 @@ __NAV__
   <button class="tab" data-t="spread">Bell curve</button>
   <button class="tab" data-t="stand">Standouts</button>
   <button class="tab" data-t="mile">Price vs odometer</button>
+  <button class="tab" data-t="turn">Turnover</button>
   <button class="tab" data-t="who">Who is selling</button>
   <button class="tab" data-t="trims">Trim breakdown</button>
  </div>
@@ -1525,14 +1501,18 @@ function trendChart(byday){
   const vals=byday.flatMap(d=>[d.q25,d.q75,d.median]).filter(v=>v!=null);
   let lo=Math.min(...vals),hi=Math.max(...vals);
   if(lo===hi){lo=lo*0.95;hi=hi*1.05;}
+  // widen to the round numbers either side, so the top and bottom lines are labelled
+  const tk0=vpaTicks(lo,hi,5),st=tk0.length>1?tk0[1]-tk0[0]:0;
+  if(st){lo=Math.floor(lo/st)*st;hi=Math.ceil(hi/st)*st;}
+  const tk=vpaTicks(lo,hi,5);
   const x=i=>L+(n<2?(W-L-R)/2:i*(W-L-R)/(n-1));
   const y=v=>T+(H-T-B)*(1-(v-lo)/(hi-lo||1));
   const line=byday.map((d,i)=>`${i?"L":"M"}${x(i).toFixed(1)},${y(d.median).toFixed(1)}`).join("");
   const band=byday.map((d,i)=>`${i?"L":"M"}${x(i).toFixed(1)},${y(d.q75).toFixed(1)}`).join("")
     +byday.slice().reverse().map((d,i)=>`L${x(n-1-i).toFixed(1)},${y(d.q25).toFixed(1)}`).join("")+"Z";
-  const grid=[0,.25,.5,.75,1].map(f=>{const v=lo+(hi-lo)*f;return `
+  const grid=tk.map(v=>`
     <line x1="${L}" y1="${y(v).toFixed(1)}" x2="${W-R}" y2="${y(v).toFixed(1)}" stroke="#eef0f4"/>
-    <text x="${L-7}" y="${(y(v)+3.5).toFixed(1)}" text-anchor="end" class="ax">${money(v)}</text>`;}).join("");
+    <text x="${L-7}" y="${(y(v)+3.5).toFixed(1)}" text-anchor="end" class="ax">${vpaAxMoney(v)}</text>`).join("");
   const dots=byday.map((d,i)=>`<circle cx="${x(i).toFixed(1)}" cy="${y(d.median).toFixed(1)}" r="3.2"
     fill="#c04040"><title>${d.d}: median ${money(d.median)} (n=${d.n}, IQR ${money(d.q25)}-${money(d.q75)})</title></circle>`).join("");
   el.innerHTML=`<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img"
@@ -1543,24 +1523,62 @@ function trendChart(byday){
     <text x="${L}" y="${H-8}" class="ax">${byday[0].d}</text>
     <text x="${W-R}" y="${H-8}" text-anchor="end" class="ax">${byday[n-1].d}</text></svg>`;
 }
+/* Each capture, split into what it is actually made of.
+   A plain count of "how many were up" hides the interesting half: forty cars
+   twice running can be the same forty sitting unsold, or forty out and forty
+   in. So each bar stacks, bottom up:
+       carried over   - also in the capture before
+       back in view   - seen earlier, missed by the capture before
+       new            - never seen here before
+       not trackable  - no site ad id, so it cannot be recognised across days
+   and the cars last seen on that day hang BELOW the axis, at the day they
+   were last up rather than the day they were noticed missing.
+   The bar total still equals the count the old chart drew. */
 function supplyChart(byday){
   const el=$("supply");
   if(!byday.length){el.innerHTML='<div class="flat">nothing captured</div>';return;}
-  const W=520,H=210,L=44,R=12,T=12,B=30,n=byday.length;
-  const max=Math.max(...byday.map(d=>d.vehicles))||1;
+  const W=520,H=232,L=44,R=12,T=12,B=42,n=byday.length;
+  const up=Math.max(...byday.map(d=>d.vehicles))||1;
+  const dn=Math.max(...byday.map(d=>d.exits||0))||0;
+  const PH=H-T-B;
+  const zero=T+PH*(dn?up/(up+dn):1);
+  const sU=(zero-T)/up, sD=dn?(T+PH-zero)/dn:0;
   const bw=Math.max(6,Math.min(38,(W-L-R)/n-6));
   const x=i=>L+(n<2?(W-L-R)/2:i*(W-L-R-bw)/(n-1))+bw/2;
-  const y=v=>T+(H-T-B)*(1-v/max);
-  const grid=[0,.5,1].map(f=>{const v=Math.round(max*f);return `
-    <line x1="${L}" y1="${y(v).toFixed(1)}" x2="${W-R}" y2="${y(v).toFixed(1)}" stroke="#eef0f4"/>
-    <text x="${L-7}" y="${(y(v)+3.5).toFixed(1)}" text-anchor="end" class="ax">${v}</text>`;}).join("");
-  const bars=byday.map((d,i)=>`<rect x="${(x(i)-bw/2).toFixed(1)}" y="${y(d.vehicles).toFixed(1)}"
-     width="${bw.toFixed(1)}" height="${(y(0)-y(d.vehicles)).toFixed(1)}" fill="#88aa88" rx="2">
-     <title>${d.d}: ${d.vehicles} vehicle(s) for sale, ${d.n} price(s) recorded</title></rect>`).join("");
+  const grid=[0,.5,1].map(f=>{const v=Math.round(up*f),yy=zero-v*sU;return `
+    <line x1="${L}" y1="${yy.toFixed(1)}" x2="${W-R}" y2="${yy.toFixed(1)}" stroke="#eef0f4"/>
+    <text x="${L-7}" y="${(yy+3.5).toFixed(1)}" text-anchor="end" class="ax">${v}</text>`;}).join("");
+  const seg=(xi,base,v,fill,tip)=>v<=0?"":`<rect x="${(xi-bw/2).toFixed(1)}"
+     y="${(zero-(base+v)*sU).toFixed(1)}" width="${bw.toFixed(1)}"
+     height="${(v*sU).toFixed(1)}" fill="${fill}"><title>${tip}</title></rect>`;
+  const bars=byday.map((d,i)=>{
+    const xi=x(i), coh=d.cohort||0, untracked=Math.max(0,d.vehicles-coh);
+    // first capture of the run has nothing to be carried FROM, so its whole
+    // trackable count is drawn as one neutral block rather than guessed at
+    const known=d.carry!=null;
+    const carry=known?d.carry:0, nw=known?d.new:0;
+    const back=known?Math.max(0,coh-carry-nw):coh;
+    let b=0,out="";
+    out+=seg(xi,b,carry,"#7d9e7d",`${d.d}: ${carry} carried over from the capture before`);b+=carry;
+    out+=seg(xi,b,back,"#b7cbb0",`${d.d}: ${back} seen before, but not in the previous capture`);b+=back;
+    out+=seg(xi,b,nw,"#5b87c4",`${d.d}: ${nw} new here`);b+=nw;
+    out+=seg(xi,b,untracked,"#d4d8e0",`${d.d}: ${untracked} with no site ad id - cannot be tracked across captures`);
+    if(d.exits)out+=`<rect x="${(xi-bw/2).toFixed(1)}" y="${zero.toFixed(1)}"
+       width="${bw.toFixed(1)}" height="${(d.exits*sD).toFixed(1)}" fill="#c56b6b" opacity="${d.rated?1:.45}">
+       <title>${d.d}: ${d.exits} last seen on this day${d.rated?"":" (not rated - the next capture was much smaller)"}</title></rect>`;
+    if(d.break_before)out+=`<line x1="${(xi-bw/2-3).toFixed(1)}" y1="${T}"
+       x2="${(xi-bw/2-3).toFixed(1)}" y2="${(T+PH).toFixed(1)}" stroke="#c56b6b"
+       stroke-width="1.5" stroke-dasharray="3 3"><title>coverage break: this capture
+ shares no cars with the one before, so they cover different searches</title></line>`;
+    return out;}).join("");
   el.innerHTML=`<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img"
-    aria-label="vehicles for sale at each capture">${grid}${bars}
+    aria-label="what each capture was made of">${grid}${bars}
+    <line x1="${L}" y1="${zero.toFixed(1)}" x2="${W-R}" y2="${zero.toFixed(1)}" stroke="#c3c8d2"/>
     <text x="${L}" y="${H-8}" class="ax">${byday[0].d}</text>
-    <text x="${W-R}" y="${H-8}" text-anchor="end" class="ax">${byday[n-1].d}</text></svg>`;
+    <text x="${W-R}" y="${H-8}" text-anchor="end" class="ax">${byday[n-1].d}</text></svg>
+   <div class="lgd">${[["#7d9e7d","carried over"],["#b7cbb0","back in view"],
+      ["#5b87c4","new"],["#d4d8e0","no ad id"],["#c56b6b","last seen (below the line)"]]
+     .map(([c,t])=>`<span><i style="background:${c}"></i>${t}</span>`).join("")}</div>`;
 }
 
 /* ---------- one car judged against its trim -----------------------------
@@ -1581,6 +1599,11 @@ function positionStrip(o,subject,label,colour){
   const ticks=(o.ticks||[]).map(v=>
     `<line x1="${x(v).toFixed(1)}" y1="${T+4}" x2="${x(v).toFixed(1)}" y2="${T+22}"
       stroke="#b9c2d0" stroke-width="1" opacity=".55"/>`).join("");
+  // The subject's own price label is the one that matters, so it always
+  // shows, kept inside the frame; an end label it would overprint is
+  // dropped (it read "$89$150,0" when the car was the dearest in the trim).
+  const xs=x(subject);
+  const anchor=xs>W-R-40?"end":(xs<L+40?"start":"middle");
   return `<div class="mini-h">${label}</div>
    <svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img"
      aria-label="${esc(label)}">
@@ -1591,10 +1614,10 @@ function positionStrip(o,subject,label,colour){
     <line x1="${x(o.median).toFixed(1)}" y1="${T-2}" x2="${x(o.median).toFixed(1)}"
       y2="${T+32}" stroke="#8792a5" stroke-width="1.5" stroke-dasharray="3 2"/>
     <circle cx="${x(subject).toFixed(1)}" cy="${T+15}" r="7" fill="${colour}"/>
-    <text x="${L}" y="${H-6}" class="ax">${money(o.lo)}</text>
+    ${xs-L>78?`<text x="${L}" y="${H-6}" class="ax">${money(o.lo)}</text>`:""}
     <text x="${x(o.median).toFixed(1)}" y="${T-5}" text-anchor="middle" class="ax">median ${money(o.median)}</text>
-    <text x="${W-R}" y="${H-6}" text-anchor="end" class="ax">${money(o.hi)}</text>
-    <text x="${x(subject).toFixed(1)}" y="${H-6}" text-anchor="middle"
+    ${W-R-xs>78?`<text x="${W-R}" y="${H-6}" text-anchor="end" class="ax">${money(o.hi)}</text>`:""}
+    <text x="${xs.toFixed(1)}" y="${H-6}" text-anchor="${anchor}"
       class="ax" style="fill:${colour};font-weight:700">${money(subject)}</text>
    </svg>`;
 }
@@ -1642,9 +1665,9 @@ function overTimeChart(b){
         ?` - ${ordinal(d.rank)} cheapest of ${d.of} captured that day`
         :(d.n?` - ${d.n} other car(s) captured that day`:" - the only one captured that day")}</title>
      </circle>`).join("");
-  const grid=[0,.5,1].map(f=>{const v=lo+(hi-lo)*f;return `
+  const grid=vpaTicks(lo,hi,3).map(v=>{return `
     <line x1="${L}" y1="${y(v).toFixed(1)}" x2="${W-R}" y2="${y(v).toFixed(1)}" stroke="#eef0f4"/>
-    <text x="${L-7}" y="${(y(v)+3.5).toFixed(1)}" text-anchor="end" class="ax">${money(v)}</text>`;}).join("");
+    <text x="${L-7}" y="${(y(v)+3.5).toFixed(1)}" text-anchor="end" class="ax">${vpaAxMoney(v)}</text>`;}).join("");
 
   return `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img"
     aria-label="this car's asking price against its trim on each capture day">
@@ -2256,9 +2279,9 @@ function forecastChart(d){
   const pad=(hi-lo)*0.08;lo-=pad;hi+=pad;
   const x=i=>L+(n<2?(W-L-R)/2:i*(W-L-R)/(n-1));
   const y=v=>T+(H-T-B)*(1-(v-lo)/(hi-lo||1));
-  const grid=[0,.25,.5,.75,1].map(k=>{const v=lo+(hi-lo)*k;return `
+  const grid=vpaTicks(lo,hi,5).map(v=>{return `
     <line x1="${L}" y1="${y(v).toFixed(1)}" x2="${W-R}" y2="${y(v).toFixed(1)}" stroke="#eef0f4"/>
-    <text x="${L-7}" y="${(y(v)+3.5).toFixed(1)}" text-anchor="end" class="ax">${money(v)}</text>`;}).join("");
+    <text x="${L-7}" y="${(y(v)+3.5).toFixed(1)}" text-anchor="end" class="ax">${vpaAxMoney(v)}</text>`;}).join("");
   // the band starts at the last observed point (zero width there), so it
   // visibly fans out from what actually happened
   const last=h[h.length-1].median;
@@ -2291,14 +2314,20 @@ function forecastChart(d){
 /* ---------- deeper analysis: one tab per question ---------- */
 let TAB="month";
 const TABS={month:monthTab,spread:spreadTab,stand:standTab,mile:mileTab,
-            who:whoTab,trims:trimTab};
+            turn:turnTab,who:whoTab,trims:trimTab};
 let LIVEONLY=false, ZEND="low";
 function renderTab(){
   const el=$("tabbody");
   if(!DATA||DATA.empty){el.innerHTML="";return;}
   el.innerHTML=TABS[TAB](DATA);
   if(TAB==="trims")document.querySelectorAll("#tabbody tr.pick").forEach(tr=>tr.onclick=()=>{
-    $("va").value=(tr.dataset.v==="(no trim)"?"":tr.dataset.v);load();});
+    pickOnly(tr.dataset.v);});
+  // the Turnover tab holds two clickable tables: cars that left (judge one
+  // against the trim it left) and the trim comparison (select that trim)
+  if(TAB==="turn")document.querySelectorAll("#tabbody tr.pick").forEach(tr=>tr.onclick=()=>{
+    if(tr.dataset.v!=null){pickOnly(tr.dataset.v);return;}
+    const k=tr.dataset.k;
+    if(CAR&&CAR.subject&&CAR.subject.key===k)clearCar();else openCar({car:k});});
   if(TAB==="mile")document.querySelectorAll("circle.spt").forEach(c=>c.onclick=()=>{
     const k=c.dataset.k;
     if(CAR&&CAR.subject&&CAR.subject.key===k)clearCar();else openCar({car:k});});
@@ -2330,9 +2359,9 @@ function monthTab(d){
   if(lo===hi){lo*=0.95;hi*=1.05;}
   const x=i=>L+(n<2?(W-L-R)/2:i*(W-L-R)/(n-1));
   const y=v=>T+(H-T-B)*(1-(v-lo)/(hi-lo||1));
-  const grid=[0,.25,.5,.75,1].map(f=>{const v=lo+(hi-lo)*f;return `
+  const grid=vpaTicks(lo,hi,5).map(v=>{return `
     <line x1="${L}" y1="${y(v).toFixed(1)}" x2="${W-R}" y2="${y(v).toFixed(1)}" stroke="#eef0f4"/>
-    <text x="${L-7}" y="${(y(v)+3.5).toFixed(1)}" text-anchor="end" class="ax">${money(v)}</text>`;}).join("");
+    <text x="${L-7}" y="${(y(v)+3.5).toFixed(1)}" text-anchor="end" class="ax">${vpaAxMoney(v)}</text>`;}).join("");
   const band=m.map((r,i)=>`${i?"L":"M"}${x(i).toFixed(1)},${y(r.q75).toFixed(1)}`).join("")
     +m.slice().reverse().map((r,i)=>`L${x(n-1-i).toFixed(1)},${y(m[n-1-i].q25).toFixed(1)}`).join("")+"Z";
   const line=m.map((r,i)=>`${i?"L":"M"}${x(i).toFixed(1)},${y(r.median).toFixed(1)}`).join("");
@@ -2537,9 +2566,9 @@ function mileTab(d){
   if(x0===x1){x0*=0.95;x1*=1.05;} if(y0===y1){y0*=0.95;y1*=1.05;}
   const X=v=>L+(W-L-R)*(v-x0)/(x1-x0||1);
   const Y=v=>T+(H-T-B)*(1-(v-y0)/(y1-y0||1));
-  const grid=[0,.25,.5,.75,1].map(f=>{const v=y0+(y1-y0)*f;return `
+  const grid=vpaTicks(y0,y1,5).map(v=>{return `
     <line x1="${L}" y1="${Y(v).toFixed(1)}" x2="${W-R}" y2="${Y(v).toFixed(1)}" stroke="#eef0f4"/>
-    <text x="${L-7}" y="${(Y(v)+3.5).toFixed(1)}" text-anchor="end" class="ax">${money(v)}</text>`;}).join("");
+    <text x="${L-7}" y="${(Y(v)+3.5).toFixed(1)}" text-anchor="end" class="ax">${vpaAxMoney(v)}</text>`;}).join("");
   const xt=[0,.5,1].map(f=>{const v=x0+(x1-x0)*f;return `
     <text x="${X(v).toFixed(1)}" y="${H-10}" text-anchor="middle" class="ax">${km(v)}</text>`;}).join("");
   const cur=CAR&&CAR.subject&&CAR.subject.key;
@@ -2646,9 +2675,9 @@ function yearChart(rows){
   const maxN=Math.max(...ys.map(r=>r.n));
   const slot=(W-L-R)/n;
   const y=v=>T+(H-T-B)*(1-(v-lo)/(hi-lo||1));
-  const grid=[0,.5,1].map(f=>{const v=lo+(hi-lo)*f;return `
+  const grid=vpaTicks(lo,hi,3).map(v=>{return `
     <line x1="${L}" y1="${y(v).toFixed(1)}" x2="${W-R}" y2="${y(v).toFixed(1)}" stroke="#eef0f4"/>
-    <text x="${L-7}" y="${(y(v)+3.5).toFixed(1)}" text-anchor="end" class="ax">${money(v)}</text>`;}).join("");
+    <text x="${L-7}" y="${(y(v)+3.5).toFixed(1)}" text-anchor="end" class="ax">${vpaAxMoney(v)}</text>`;}).join("");
   const bars=ys.map((r,i)=>{
     const w=Math.max(5,Math.min(slot-6,slot*(0.35+0.55*r.n/maxN)));
     const cx=L+slot*i+slot/2;
@@ -2660,6 +2689,158 @@ function yearChart(rows){
   return `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img"
     aria-label="median price by model year">${grid}${bars}</svg>
     <div class="hint">Wider bar = more listings behind that year.</div>`;
+}
+
+/* ---------- turnover: what happened between the captures -----------------
+   Every number here comes from vpa/turnover.py, which is also where the
+   reasons for refusing to produce one live. This lays it out and does no
+   arithmetic of its own beyond formatting. */
+function turnTab(d){
+  const t=d.churn||{}, tc=d.trim_churn||{rows:[]};
+  const cmp=trimCompare(tc);
+  if(!t.usable){
+    return `<div class="warnbox"><b>No turnover figure for this selection.</b>
+      ${esc(t.reason||"not enough history")}.</div>
+     <div class="hint">What makes it work: captures saved with <b>Ctrl+S</b>
+      (those carry the site's own ad id, and only those cars can be recognised
+      from one capture to the next), taken over the <b>same search</b> each
+      time. ${t.cohort_cars||0} of ${(t.cohort_cars||0)+(t.excluded_no_id||0)}
+      car(s) here are trackable.</div>`
+     +(t.daily&&t.daily.length>1?`<div style="margin-top:14px">
+        <div class="mini-h">what each capture was made of</div>
+        <table><thead><tr><th>capture</th><th class="num">trackable</th>
+         <th class="num">carried over</th><th class="num">new</th></tr></thead><tbody>
+        ${t.daily.map(r=>`<tr><td>${r.d}${r.break_before
+          ?'<span class="tag warn">coverage break</span>':""}</td>
+         <td class="num">${r.n}</td><td class="num">${r.carry==null?"—":r.carry}</td>
+         <td class="num">${r.new==null?"—":r.new}</td></tr>`).join("")}
+        </tbody></table></div>`:"")+cmp;
+  }
+  const ps=t.price_signal||{};
+  const tiles=[
+    [t.rate30.toFixed(0)+"%","leave view per 30 days"],
+    [t.half_life==null?"—":t.half_life.toFixed(0)+" days","half the stock gone"],
+    [t.median_days_est==null?"—":t.median_days_est.toFixed(0)+" days","typical time listed"],
+    [t.median_stock_age==null?"—":t.median_stock_age.toFixed(0)+" days","age of what is still up"],
+    [t.exits,"left view"],[t.arrivals,"arrived"],[t.still,"up at the last capture"],
+  ].map(([v,l])=>`<div class="tile"><b>${esc(v)}</b><span>${esc(l)}</span></div>`).join("");
+
+  const iv=(t.intervals||[]).map(i=>`<tr>
+    <td>${i.from} &rarr; ${i.to}</td><td class="num">${i.elapsed}</td>
+    <td class="num">${i.start_n}</td>
+    <td class="num${i.counts_exits?"":" flat"}">${i.exits}${i.counts_exits?"":"*"}</td>
+    <td class="num${i.counts_arrivals?"":" flat"}">${i.arrivals}${i.counts_arrivals?"":"*"}</td>
+    <td class="num">${i.end_n}</td>
+    <td>${i.scope==="steady"?'<span class="tag good">comparable</span>'
+        :`<span class="tag warn">${i.scope==="widened"?"wider search":"narrower search"}</span>`}</td>
+   </tr>`).join("");
+
+  // "priced against its own day" is the only comparison that survives a
+  // market that drifted between the two dates
+  const rel=v=>v==null?'<span class="flat">&mdash;</span>'
+    :`<span class="${v<-1?"up":(v>1?"down":"flat")}">${v>0?"+":""}${v.toFixed(1)}%</span>`;
+  const signal=`<div class="kv">
+    <div><span class="k">cars that left, median asking</span><b>${money(ps.exit_median)}</b>
+      <span class="flat">n=${ps.exit_n}</span></div>
+    <div><span class="k">cars still up, median asking</span><b>${money(ps.still_median)}</b>
+      <span class="flat">n=${ps.still_n}</span></div>
+    <div><span class="k">what left, vs its own day's median</span>${rel(ps.exit_rel)}</div>
+    <div><span class="k">what stayed, vs its own day's median</span>${rel(ps.still_rel)}</div>
+    <div><span class="k">gap between them</span>${rel(ps.spread)}</div>
+    <div><span class="k">median odometer, left vs stayed</span>
+      <b>${km(ps.exit_odo)}</b><span class="flat">vs ${km(ps.still_odo)}</span></div>
+   </div>
+   <div class="hint">A negative gap means the cars that disappeared were the
+    cheap ones for their day &mdash; the market clearing from the bottom.
+    Near zero means price is not what decides which cars go.</div>`;
+
+  const dep=(t.departed||[]).map(v=>`<tr class="pick" data-k="${esc(v.key)}">
+    <td>${v.year||""} ${esc(v.variant||"")}</td>
+    <td class="num">${money(v.price)}</td><td class="num">${rel(v.rel_pct)}</td>
+    <td class="num">${v.odometer_km==null?"":km(v.odometer_km)}</td>
+    <td>${v.first_day}</td><td>${v.last_day}</td>
+    <td class="num">${v.censored?"&ge;"+v.days_listed
+      :v.days_listed+"&ndash;"+v.days_max}</td>
+    <td>${v.url?`<a class="ext" href="${esc(v.url)}" target="_blank" rel="noopener">open</a>`:""}</td>
+   </tr>`).join("");
+
+  return `<p class="verdict">${esc(t.verdict||"")}</p>
+   <div class="tiles">${tiles}</div>
+   ${(t.notes||[]).length?`<div class="hint">${t.notes.map(esc).join(" &middot; ")}</div>`:""}
+   <div class="cols" style="margin-top:16px">
+    <div style="flex:2 1 380px">
+     <div class="mini-h">capture by capture &mdash; ${t.span.start} to ${t.span.end}</div>
+     <table><thead><tr><th>between</th><th class="num">days</th>
+      <th class="num">up at the start</th><th class="num">left</th>
+      <th class="num">arrived</th><th class="num">up at the end</th>
+      <th>pair</th></tr></thead><tbody>${iv}</tbody></table>
+     <div class="hint">* shown but not counted: when one capture is much
+      bigger than the other, the difference is mostly the search changing
+      size. A wider capture still proves an exit, a narrower one does not.</div>
+    </div>
+    <div style="flex:1 1 300px"><div class="mini-h">was price what decided it</div>
+     ${signal}</div>
+   </div>
+   <div class="mini-h" style="margin-top:18px">the ${t.departed_total} car(s)
+    that left view &mdash; click a row to judge it against the trim it left</div>
+   ${dep?`<div class="scroll"><table><thead><tr><th>car</th>
+     <th class="num">last price</th><th class="num">vs that day</th>
+     <th class="num">odometer</th><th>first seen</th><th>last seen</th>
+     <th class="num">days listed</th><th>listing</th></tr></thead>
+     <tbody>${dep}</tbody></table></div>
+    <div class="hint">"days listed" is a range, not a measurement: the car was
+     up by the capture that first saw it and gone by the capture that first
+     missed it. &ge; means it was already there at the first capture, so only
+     the floor is known.</div>`
+    :'<div class="flat">nothing has left view within the comparable captures</div>'}
+   ${cmp}`;
+}
+
+/* the same measurement for every trim of the line, so a trim that clears in
+   three weeks is visibly different from one that sits for three months */
+function trimCompare(tc){
+  if(!tc||!tc.rows||!tc.rows.length)return "";
+  const p=tc.pooled;
+  // A model line can hold eighty trims and rate nine of them. Listing the
+  // other seventy-one as seventy-one identical "no site ad id" rows buries
+  // the comparison this table exists to make, so they are counted by reason
+  // instead - the same information, one line each.
+  const ok=tc.rows.filter(r=>r.usable), no=tc.rows.filter(r=>!r.usable);
+  const why={};
+  no.forEach(r=>{const k=r.reason||"not rateable";why[k]=(why[k]||0)+1;});
+  const row=r=>`<tr class="pick${r.selected?" on":""}" data-v="${esc(r.variant)}">
+    <td>${esc(r.variant)}${r.thin?'<span class="tag warn">thin</span>':""}</td>
+    <td class="num">${r.cars}</td><td class="num">${r.cohort}</td>
+    <td class="num">${r.rate30.toFixed(0)}%</td>
+    <td class="num">${r.half_life==null?"—":r.half_life.toFixed(0)}</td>
+    <td class="num">${r.median_days_est==null?"—":r.median_days_est.toFixed(0)}</td>
+    <td class="num">${r.median_stock_age==null?"—":r.median_stock_age.toFixed(0)}</td>
+    <td class="num">${r.exits}</td><td class="num">${r.arrivals}</td>
+    <td class="num">${r.still}</td></tr>`;
+  if(!ok.length)return `<div class="hint" style="margin-top:18px">No trim in
+    this model line has enough comparable captures to rate yet.
+    ${Object.entries(why).map(([k,n])=>`<b>${n}</b> ${esc(k)}`).join("; ")}.</div>`;
+  return `<div class="mini-h" style="margin-top:20px">how this trim clears
+    against its siblings &mdash; click a row to select it</div>
+   <table><thead><tr><th>trim</th><th class="num">cars</th>
+    <th class="num">trackable</th><th class="num">per 30 days</th>
+    <th class="num">half gone (d)</th><th class="num">typical listed (d)</th>
+    <th class="num">stock age (d)</th><th class="num">left</th>
+    <th class="num">arrived</th><th class="num">up now</th></tr></thead>
+   <tbody>${ok.map(row).join("")}
+    ${p?`<tr style="font-weight:600;background:#f7f9fd"><td>all ${p.trims} trims pooled</td>
+      <td class="num">&mdash;</td><td class="num">&mdash;</td>
+      <td class="num">${p.rate30.toFixed(0)}%</td>
+      <td class="num">${p.half_life==null?"—":p.half_life.toFixed(0)}</td>
+      <td colspan="5"></td></tr>`:""}</tbody></table>
+   <div class="hint">Each trim is measured over its own captures, which are
+    not the same days for every trim &mdash; they are made comparable by
+    counting exits per car per day rather than per capture. The pooled row is
+    the line's own rate; it is built from the trims because a whole model line
+    is searched too differently from one day to the next to measure directly.
+    ${no.length?`<br><b>${no.length}</b> other trim(s) here cannot be rated:
+      ${Object.entries(why).sort((a,b)=>b[1]-a[1])
+        .map(([k,n])=>`<b>${n}</b> ${esc(k)}`).join("; ")}.`:""}</div>`;
 }
 
 /* every trim in this model line, side by side - the workbook's RichStats
@@ -2686,8 +2867,8 @@ function trimTab(d){
         <text x="${BL-8}" y="${cy+4}" text-anchor="end" class="ax"
           style="font-size:11px;${x.selected?"fill:#c04040;font-weight:600":""}">${esc(x.variant)}</text>`;
       }).join("");
-    const bt=[0,.5,1].map(f=>{const v=lo2+(hi2-lo2)*f;return `
-      <text x="${bx(v).toFixed(1)}" y="${BH-8}" text-anchor="middle" class="ax">${money(v)}</text>`;}).join("");
+    const bt=vpaTicks(lo2,hi2,3).map(v=>{return `
+      <text x="${bx(v).toFixed(1)}" y="${BH-8}" text-anchor="middle" class="ax">${vpaAxMoney(v)}</text>`;}).join("");
     boxes=`<div class="mini-h">each trim's range and median &mdash; overlapping
       bars mean the trims are not really priced apart</div>
       <svg viewBox="0 0 ${BW} ${BH}" width="100%" height="${BH}" role="img"
@@ -2751,6 +2932,22 @@ function fillSelects(keepMake,keepModel,keepVariant){
    trims and all trims are one code path here exactly as they are on the
    server. */
 let PICK=[];
+/* Select exactly one trim (or all trims for ""). Setting the dropdown alone
+   is not enough and never was: assigning .value fires no change event, so
+   load() would re-read the OLD PICK and the click would appear to do
+   nothing. Both tables that offer "click a row to select this trim" come
+   through here. */
+function pickOnly(v){
+  v=(v==="(no trim)"?"":v)||"";
+  const changed=!(PICK.length===1&&PICK[0]===v)&&!(PICK.length===0&&!v);
+  PICK=v?[v]:[];
+  $("va").value=v;
+  // Moving to a different trim invalidates any car being judged: it was
+  // ranked against a pool that is no longer on screen, and leaving it up
+  // would rank an XR6 against a table of XR8 Sprints.
+  if(changed&&CAR)clearCar();
+  load();
+}
 function sel(){return {make:$("mk").value,model:$("mo").value,variants:PICK.slice()};}
 function selLabel(){
   const s=sel();
@@ -2765,6 +2962,47 @@ function filterQuery(q){
 }
 function anyFilter(){
   return ["fY0","fY1","fP0","fP1","fKw"].some(id=>$(id).value.trim());
+}
+
+/* Sibling trims as clickable chips (the workbook's Models sheet), in the
+   same order as the dropdown so the two never disagree. A Falcon has 180
+   trims, and drawing every one made a wall of chips that pushed the whole
+   page down a screen. So: the first CHIP_CAP in the chosen order, every
+   selected trim whatever its rank, a filter box, and "show all" on demand. */
+let CHIPS=[], CHIPS_ALL=false;
+const CHIP_CAP=24;
+function renderChips(){
+  const q=($("chipq").value||"").trim().toLowerCase();
+  $("chipbar").style.display=CHIPS.length>1?"":"none";
+  if(CHIPS.length<2){$("chips").innerHTML="";return;}
+  const hits=q?CHIPS.filter(c=>c.variant.toLowerCase().includes(q)):CHIPS;
+  const shown=(CHIPS_ALL||q)?hits
+    :hits.filter((c,i)=>i<CHIP_CAP||c.selected);
+  $("chipspan").textContent=q?`— ${hits.length} of ${CHIPS.length} match`
+    :`— ${CHIPS.length}, each with its median and prices collected`;
+  $("chips").innerHTML=shown.map(s2=>
+    `<span class="chip${s2.selected?" on":""}" data-v="${esc(s2.variant)}"
+      title="${s2.n} prices, ${s2.vehicles} vehicles over ${s2.days} capture day(s), last ${s2.last}">${esc(s2.variant)}
+      <span class="flat">${money(s2.median)} · ${s2.n}</span></span>`).join("")
+    +(()=>{const more=!q&&hits.length>shown.length,
+                  fewer=!q&&CHIPS_ALL&&hits.length>CHIP_CAP;
+      return more||fewer?`<span class="chip more" id="chipAll">${more
+        ?"show all "+hits.length:"show fewer"}</span>`:"";})()
+    +(q&&!hits.length?`<span class="flat" style="font-size:12.5px">no trim matches "${esc(q)}"</span>`:"");
+  const all=$("chipAll");
+  if(all)all.onclick=()=>{CHIPS_ALL=!CHIPS_ALL;renderChips();};
+  // Plain click selects ONE trim, which is what it always did. Ctrl/Shift
+  // click toggles that trim in and out of a pooled set, so the existing
+  // gesture keeps its meaning and the new one is additive.
+  document.querySelectorAll(".chip[data-v]").forEach(c=>c.onclick=ev=>{
+    const v=c.dataset.v==="(no trim)"?"":c.dataset.v;
+    if(ev.ctrlKey||ev.metaKey||ev.shiftKey){
+      if(!v)return;                      // "(no trim)" cannot be pooled
+      const i=PICK.indexOf(v);
+      if(i>=0)PICK.splice(i,1);else PICK.push(v);
+    }else PICK=v?[v]:[];
+    $("va").value=PICK.length===1?PICK[0]:"";
+    load();});
 }
 
 async function load(){
@@ -2784,7 +3022,7 @@ async function load(){
   if(d.empty){
     $("selspan").textContent="— "+d.reason;
     $("tiles").innerHTML="";$("trend").innerHTML="";$("supply").innerHTML="";
-    $("fc").innerHTML="";$("movers").innerHTML="";$("chips").innerHTML="";
+    $("fc").innerHTML="";$("movers").innerHTML="";CHIPS=[];renderChips();
     $("tabbody").innerHTML="";$("supplysum").innerHTML="";$("fcchart").innerHTML="";
     $("vtbl").querySelector("tbody").innerHTML="";return;
   }
@@ -2819,7 +3057,7 @@ async function load(){
     [h.observations.toLocaleString(),"price observations"],
     [h.days,"capture days"],
     [h.median_odo==null?"—":km(h.median_odo),"median odometer"],
-  ].map(([v,l])=>`<div class="tile"><b>${esc(v)}</b><span>${esc(l)}</span></div>`).join("");
+  ].map(([v,l])=>`<div class="tile"><b${String(v).includes("–")?' class="rng"':""}>${esc(v)}</b><span>${esc(l)}</span></div>`).join("");
 
   let warn="";
   if(h.collisions)warn+=`<div class="warnbox"><b>${h.collisions}</b> vehicle identity(ies) here hold
@@ -2830,13 +3068,19 @@ async function load(){
 
   trendChart(d.byday);supplyChart(d.byday);
   $("supplyspan").textContent=d.byday.length?`— peak ${Math.max(...d.byday.map(b=>b.vehicles))}`:"";
-  const sp=d.supply;
+  const sp=d.supply,ch=d.churn||{};
   $("supplysum").innerHTML=sp.captures?[
     [sp.now,"at the latest capture"],
     [sp.change==null?"—":(sp.change>0?"+":"")+sp.change,"vs the capture before"],
     [sp.avg,"average per capture"],
     [sp.most,"most"],[sp.fewest,"fewest"],[sp.captures,"captures"],
-  ].map(([v,l])=>`<span><b>${esc(v)}</b> <span class="flat">${l}</span></span>`).join(""):"";
+  ].concat(ch.usable?[
+    [ch.rate30.toFixed(0)+"%","leave view per 30 days"],
+    [ch.half_life==null?"—":ch.half_life.toFixed(0)+"d","half of the stock gone"],
+    [ch.median_days_est==null?"—":ch.median_days_est.toFixed(0)+"d","typical time listed"],
+  ]:[]).map(([v,l])=>`<span><b>${esc(v)}</b> <span class="flat">${l}</span></span>`).join("")
+   +(ch.usable?`<span class="flat note">More in the <b>Turnover</b> tab below.</span>`
+              :`<span class="flat note">Turnover not rated: ${esc(ch.reason||"")}</span>`):"";
 
   forecastChart(d);
   const f=d.forecast,m=d.mileage;
@@ -2861,24 +3105,9 @@ async function load(){
   // sibling trims as clickable chips (the workbook's Models sheet), in the
   // same order as the dropdown so the two never disagree
   const cs=SORTS[$("vsort").value]||SORTS.n;
-  const chips=d.siblings.slice().sort((a,b)=>cs.cmp(
+  CHIPS=d.siblings.slice().sort((a,b)=>cs.cmp(
     {...a,name:a.variant},{...b,name:b.variant}));
-  $("chips").innerHTML=chips.length>1?chips.map(s2=>
-    `<span class="chip${s2.selected?" on":""}" data-v="${esc(s2.variant)}"
-      title="${s2.vehicles} vehicles over ${s2.days} capture day(s), last ${s2.last}">${esc(s2.variant)}
-      <span class="flat">${s2.n} · ${money(s2.median)}</span></span>`).join(""):"";
-  // Plain click selects ONE trim, which is what it always did. Ctrl/Shift
-  // click toggles that trim in and out of a pooled set, so the existing
-  // gesture keeps its meaning and the new one is additive.
-  document.querySelectorAll(".chip").forEach(c=>c.onclick=ev=>{
-    const v=c.dataset.v==="(no trim)"?"":c.dataset.v;
-    if(ev.ctrlKey||ev.metaKey||ev.shiftKey){
-      if(!v)return;                      // "(no trim)" cannot be pooled
-      const i=PICK.indexOf(v);
-      if(i>=0)PICK.splice(i,1);else PICK.push(v);
-    }else PICK=v?[v]:[];
-    $("va").value=PICK.length===1?PICK[0]:"";
-    load();});
+  renderChips();
 
   // carry the current selection into Compare, so "how does this sit against
   // its siblings" is one click and not a re-pick
@@ -2947,8 +3176,11 @@ $("filter").oninput=renderVehicles;
 
 // Changing make or model drops the trim selection: a trim name belongs to
 // one model, and carrying "SR5" across to a Falcon would select nothing.
-$("mk").onchange=()=>{PICK=[];fillSelects($("mk").value,null,null);load();};
-$("mo").onchange=()=>{PICK=[];fillSelects($("mk").value,$("mo").value,null);load();};
+$("mk").onchange=()=>{PICK=[];resetChips();fillSelects($("mk").value,null,null);load();};
+$("mo").onchange=()=>{PICK=[];resetChips();fillSelects($("mk").value,$("mo").value,null);load();};
+// a different model is a different set of trims: start the picker afresh
+function resetChips(){CHIPS_ALL=false;$("chipq").value="";}
+$("chipq").oninput=renderChips;
 $("va").onchange=()=>{PICK=$("va").value?[$("va").value]:[];load();};
 // re-ordering must not change the selection - keep the chosen trims selected
 $("vsort").onchange=()=>{const c=sel();
@@ -2963,18 +3195,11 @@ $("fGo").onclick=load;
 $("fClear").onclick=()=>{
   ["fY0","fY1","fP0","fP1","fKw"].forEach(id=>$(id).value="");load();};
 
-$("xlsxBtn").onclick=async()=>{
-  $("xlsxBtn").disabled=true;$("xlsxBtn").textContent="updating...";
-  try{const r=await fetch("/api/viewer/open",{method:"POST",body:"{}"}).then(r=>r.json());
-    if(!r.ok)alert(r.error);else checkFresh();}catch(e){alert("could not update: "+e);}
-  $("xlsxBtn").disabled=false;$("xlsxBtn").textContent="Excel viewer";};
 
 /* ---------- stay in step with the database ---------- */
 let seenVersion=null;
 async function checkFresh(){
-  const s=await fetch("/api/status").then(r=>r.json());
-  $("subline").textContent=`${s.vehicles} vehicles, ${s.observations} observations`
-    +` — read-only view, nothing here changes your data`;
+  const s=vpaApplyStatus(await fetch("/api/status").then(r=>r.json()));
   if(seenVersion===null)seenVersion=s.data_version;
   else if(s.data_version!==seenVersion){
     seenVersion=s.data_version;
@@ -2983,12 +3208,6 @@ async function checkFresh(){
       const cur=sel();fillSelects(cur.make,cur.model,cur.variant);load();
     }
   }
-  const st=$("stale");
-  if(s.workbook&&s.workbook.stale){
-    st.style.display="block";
-    st.innerHTML=`The Excel workbook was built before your latest import`
-      +` (${esc(s.workbook.built||"never built")}). Click <b>Excel viewer</b> to rebuild it.`;
-  }else st.style.display="none";
 }
 
 (async()=>{
@@ -3020,8 +3239,6 @@ __CHROME_JS__
 """
 
 
-from .ui import action as _action, chrome as _chrome   # noqa: E402
+from .ui import chrome as _chrome   # noqa: E402
 
-PAGE = _chrome(_PAGE, "explore",
-               _action("xlsxBtn", "Excel viewer", "excel",
-                       "rebuild viewer.xlsx and open it"))
+PAGE = _chrome(_PAGE, "explore")

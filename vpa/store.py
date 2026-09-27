@@ -72,6 +72,29 @@ CREATE TABLE IF NOT EXISTS starred (
     key TEXT PRIMARY KEY,
     starred_at TEXT NOT NULL,
     note TEXT);
+
+-- One direct (no-preview) upload run. The Import page shows you every row
+-- before it lands, so a mistake is caught by eye; the Bulk page deliberately
+-- does not, which moves the whole safety net to AFTER the write. This table
+-- is that net: it names the ingest batches the run created, so undo can
+-- delete exactly those observations and nothing else, and carries the prior
+-- state of every vehicle the run touched, so a vehicle that already existed
+-- is restored rather than deleted.
+--   batches   JSON list of ingest_log.id
+--   before    JSON {key: {column: value}} for keys that ALREADY existed
+--   files     JSON list of {name, records, obs_new, error}
+-- No foreign key: the point of a run log is to outlive what it describes.
+CREATE TABLE IF NOT EXISTS bulk_runs (
+    id INTEGER PRIMARY KEY,
+    ts TEXT NOT NULL,
+    label TEXT,
+    backup_path TEXT,
+    batches TEXT NOT NULL,
+    before TEXT NOT NULL,
+    files TEXT NOT NULL,
+    rows_parsed INTEGER, vehicles_new INTEGER,
+    obs_new INTEGER, obs_duplicate INTEGER,
+    undone_at TEXT);
 """
 
 DEFAULT_DB = Path(__file__).resolve().parent.parent / "data" / "vpa.db"

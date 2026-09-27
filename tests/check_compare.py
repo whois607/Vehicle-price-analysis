@@ -103,14 +103,37 @@ def seed() -> None:
     # 18 cars, of which 14 appear again on DAY_B: the filter genuinely bites
     # (18 -> 14) while BOTH sides still clear CURVE_MIN_N, so the "refit on
     # the survivors" assertion has two real curves to compare.
+    # Its ids are the SITE's own (`SSE-AD-`), unlike every other selection
+    # here, which makes it the one column turnover can actually measure:
+    # 18 cars then 14 is a 1.29 size ratio, inside the scope gate, so four
+    # real exits over 35 days. Everything else stays deliberately
+    # untrackable, so the refusal path is exercised at the same time.
     for i in range(18):
         days = (DAY_A, DAY_B) if i >= 4 else (DAY_A,)
         for day in days:
-            raw.append({"listing_id": f"BT-{i}", "make": "Mazda",
+            raw.append({"listing_id": f"SSE-AD-BT{i}", "make": "Mazda",
                         "model": "BT-50", "variant": "XT", "year": 2015,
                         "price": 28000 + i * 1100, "odometer": 90000 + i * 6000,
                         "state": "NSW", "seller_type": "dealer",
                         "capture_date": day})
+
+    # A second BT-50 trim whose two captures share NO car - the fixture copy
+    # of the real Ford Falcon case, where 03/08 and 05/08 caught different
+    # eras of the same model. Added as a TRIM of an existing line so only the
+    # trim count moves. Without it the "a scope break is flagged" check below
+    # would assert on a fixture that has none, and pass on an empty set.
+    for i in range(8):
+        raw.append({"listing_id": f"SSE-AD-SPA{i}", "make": "Mazda",
+                    "model": "BT-50", "variant": "SPLIT", "year": 2013,
+                    "price": 26000 + i * 300, "odometer": 150000 + i * 4000,
+                    "state": "VIC", "seller_type": "private",
+                    "capture_date": DAY_A})
+    for i in range(8):
+        raw.append({"listing_id": f"SSE-AD-SPB{i}", "make": "Mazda",
+                    "model": "BT-50", "variant": "SPLIT", "year": 2013,
+                    "price": 27000 + i * 300, "odometer": 152000 + i * 4000,
+                    "state": "VIC", "seller_type": "private",
+                    "capture_date": DAY_B})
 
     recs = [r for r in (make_record(d, source="carsales") for d in raw) if r]
     with Store(DB) as store:
@@ -134,7 +157,7 @@ def run_checks() -> int:
     cat = catalogue_payload(DB)
     labels = {r["label"]: r for r in cat["rows"]}
     check("makes, model lines and trims are all listed and labelled",
-          cat["levels"] == {"make": 4, "line": 5, "trim": 6}
+          cat["levels"] == {"make": 4, "line": 5, "trim": 7}
           and labels["Ford"]["level"] == "make"
           and labels["Ford Falcon"]["level"] == "line"
           and labels["Ford Falcon XR6"]["level"] == "trim",
@@ -212,6 +235,63 @@ def run_checks() -> int:
     check("one capture day reports no change rather than 0%",
           xr8["change"] is None and xr8["first_day"] == xr8["last_day"],
           f"XR8 seen only on {xr8['first_day']}, change={xr8['change']}")
+
+    print("\n== turnover rides along, and says so when it cannot be measured ==")
+    # Mazda BT-50 XT is the only selection here with site ad ids, so it is
+    # the only one that can be measured. Comparing it against a neighbour
+    # that CANNOT be is the point: the refusal has to reach the column as a
+    # reason, because a blank cell beside a real number reads as zero.
+    mix = compare_payload(DB, ["Mazda BT-50 XT", "Ford Falcon XR6"])
+    bt, fx = mix["columns"][0], mix["columns"][1]
+    check("a selection with site ad ids IS measured, and reports what left",
+          bt["turn_rate"] is not None and bt["turn_left"] == 4
+          and "captures," in bt["turn_basis"],
+          f"BT-50: {bt['turn_rate']}%/30d, {bt['turn_left']} left, "
+          f"{bt['turn_basis']}")
+    check("a selection without them refuses IN the column, not with a blank",
+          fx["turn_rate"] is None and fx["turn_left"] is None
+          and "site ad id" in fx["turn_basis"],
+          f"XR6: {fx['turn_basis'][:56]}")
+    check("the live-only filter cannot be what removes the cars that left",
+          compare_payload(DB, ["Mazda BT-50 XT"], live_only=True
+                          )["columns"][0]["turn_left"] == bt["turn_left"] == 4,
+          "turnover is measured before the live filter, so both still see "
+          "the four cars that went - filtering to the newest capture first "
+          "would delete exactly them and report zero")
+
+    print("\n== the churn chart's data: composition per day, per interval ==")
+    check("the measured column carries an interval the chart can draw",
+          len(bt["turn_intervals"]) == 1
+          and bt["turn_intervals"][0]["exits"] == 4
+          and bt["turn_intervals"][0]["counts_exits"],
+          f"{len(bt['turn_intervals'])} interval(s): "
+          f"{bt['turn_intervals'][0]['from']}->{bt['turn_intervals'][0]['to']}, "
+          f"{bt['turn_intervals'][0]['exits']} out, "
+          f"{bt['turn_intervals'][0]['arrivals']} in")
+    check("the refused column carries no interval, so nothing is drawn for it",
+          fx["turn_intervals"] == [] and fx["turn_usable"] is False,
+          f"XR6 usable={fx['turn_usable']}, {len(fx['turn_intervals'])} intervals")
+    # The supply chart's tooltip names each part of a day's count, so the
+    # parts must never exceed the whole - a tooltip accounting for 6 of 66
+    # cars is worse than none, because the rest are assumed to be covered.
+    days_ok = [b for b in bt["byday"] if b["carry"] is not None]
+    check("a day's carried over + back in view + new never exceeds its total",
+          bool(days_ok) and all(b["cohort"] <= b["vehicles"]
+                                and b["carry"] + b["new"] <= b["cohort"]
+                                for b in days_ok),
+          "; ".join(f"{b['d']}: {b['carry']}+{b['new']}<={b['cohort']}"
+                    f"<={b['vehicles']}" for b in days_ok))
+    # BT-50 SPLIT's two captures share no car, so the supply line between
+    # them is a change of search. The chart draws that point hollow; if the
+    # flag went missing it would be drawn as an ordinary cliff and read as
+    # the whole trim clearing in five weeks.
+    sp = compare_payload(DB, ["Mazda BT-50 SPLIT"])["columns"][0]
+    flagged = [b["d"] for b in sp["byday"] if b["break_before"]]
+    check("a scope break is flagged on the day it happens, for the chart",
+          flagged == [DAY_B] and sp["turn_usable"] is False
+          and not [b["d"] for b in bt["byday"] if b["break_before"]],
+          f"SPLIT breaks at {flagged} ({sp['turn_basis'][:44]}); "
+          f"BT-50 XT, whose captures do overlap, is not flagged")
 
     print("\n== rank and 'vs cheapest' are relative to the columns on screen ==")
     meds = {c["label"]: c["median"] for c in d["columns"]}

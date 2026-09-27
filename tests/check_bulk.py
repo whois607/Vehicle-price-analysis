@@ -156,6 +156,34 @@ def run_checks() -> int:
           f"week2: {ok_files[1]['records']} listings, only "
           f"{ok_files[1]['vehicles_new']} of them cars never seen before")
 
+    print("\n== every car read comes back, in arrival order, for the session list ==")
+    cars = r3.get("cars") or []
+    got_ids = [c["price"] for c in cars]
+    check("one entry per listing read, file by file in drop order",
+          len(cars) == 18 and [c["file"] for c in cars]
+          == [FILE_A["name"]] * 8 + [FILE_B["name"]] * 10,
+          f"{len(cars)} cars; files {sorted({c['file'] for c in cars})}")
+    check("...and within a file, in the order the file lists them",
+          got_ids[:8] == [18000 + i * 500 for i in range(8)]
+          and got_ids[8:10] == [17000, 17500],
+          f"first prices {got_ids[:4]}, week2 starts {got_ids[8:11]}")
+    check("'seen before' is true for a car already read earlier in the run",
+          [c["known"] for c in cars] == [False] * 8 + [True] * 8 + [False] * 2,
+          "week1 all new; week2 re-sightings known, its two new cars not")
+    with Store(DB) as s:
+        stored = s.conn.execute("SELECT files FROM bulk_runs WHERE id=?",
+                                (r3["run"],)).fetchone()[0]
+    check("the car list is returned, never stored with the run",
+          '"cars"' not in stored and "SSE-AD-700" not in stored,
+          f"bulk_runs.files is {len(stored)} chars of per-file summary only")
+    r_pre = bulk.run([FILE_A], DB)
+    check("a car already in the database before the run is 'seen before'",
+          r_pre["cars"] and all(c["known"] for c in r_pre["cars"]),
+          f"{sum(c['known'] for c in r_pre['cars'])}/{len(r_pre['cars'])} known")
+    check("a run that wrote nothing returns an empty car list, not none",
+          bulk.run([CHALLENGE], DB).get("cars") == [],
+          "refused-only run: cars == []")
+
     print("\n== undo removes exactly what the second run added ==")
     # Set up the case undo actually has to get right: run 1 puts eight cars
     # in, run 2 re-sights those AND introduces two. Undoing run 2 must leave

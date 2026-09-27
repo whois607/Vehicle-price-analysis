@@ -124,14 +124,20 @@ def check_chrome() -> None:
     import re
 
     from vpa import bulk, compare, explore, importui, quickadd
-    from vpa.ui import PAGES
+    from vpa.ui import MODES, PAGES
 
-    pages = {"import": importui.PAGE, "bulk": bulk.PAGE, "explore": explore.PAGE,
+    pages = {"overview": importui.OVERVIEW, "import": importui.PAGE,
+             "bulk": bulk.PAGE, "explore": explore.PAGE,
              "compare": compare.PAGE, "quick": quickadd.PAGE}
+    # the nav tab each page must mark as current: the three ways of adding
+    # data are modes of ONE tab, not three tabs
+    tab_of = {"overview": "overview", "import": "add", "bulk": "add",
+              "quick": "add", "explore": "explore", "compare": "compare"}
     print("\n== the shared page chrome ==")
     check("no template placeholder survives into any served page",
           all(t not in p for p in pages.values()
-              for t in ("__NAV__", "__CHROME_CSS__", "__ACTIONS__", "__CHROME_JS__")),
+              for t in ("__NAV__", "__CHROME_CSS__", "__ACTIONS__", "__MODES__",
+                        "__CHROME_JS__")),
           f"NAV / CSS / actions / JS all substituted on {len(pages)} pages")
     # counted with a regex, not `in`: the wrapping <nav class="navtabs"> also
     # contains the substring 'class="navtab' and inflated the count by one
@@ -144,7 +150,7 @@ def check_chrome() -> None:
     for slug, page in pages.items():
         on = re.search(r'class="navtab on"[^>]*aria-current="page"[^>]*>'
                        r'.*?<span>([^<]+)</span>', page, re.S)
-        want = next(lab for s, _h, lab, _i in PAGES if s == slug)
+        want = next(lab for s, _h, lab, _i in PAGES if s == tab_of[slug])
         check(f"{slug}: the current page is the one marked active",
               bool(on) and on.group(1) == want,
               f"marked '{on.group(1) if on else None}', expected '{want}'")
@@ -172,6 +178,19 @@ def check_chrome() -> None:
           all(p.count("--ui:") == 1 and p.count(".card{") == 1
               for p in pages.values()),
           "one :root and one .card rule per page")
+    mode_re = re.compile(r'class="mode(?: on)?"')
+    for slug in ("import", "bulk", "quick"):
+        on = re.search(r'class="mode on"[^>]*aria-current="page"[^>]*>.*?<b>([^<]+)</b>',
+                       pages[slug], re.S)
+        want = next(lab for s, _h, lab, _i, _d in MODES if s == slug)
+        check(f"{slug}: one Add data tab, this mode marked",
+              len(mode_re.findall(pages[slug])) == len(MODES)
+              and bool(on) and on.group(1) == want
+              and all(f'href="{h}"' in pages[slug] for _s, h, _l, _i, _d in MODES),
+              f"{len(MODES)} modes, '{on.group(1) if on else None}' current")
+    check("no page outside Add data shows the mode switch",
+          all('class="modes"' not in pages[k] for k in ("overview", "explore", "compare")),
+          "modes only where there is something to add")
     # VACUOUS-GUARD: counting <svg> would also pass on an empty icon set, so
     # the paths themselves are required to be non-empty
     from vpa.ui import ICONS
@@ -565,23 +584,31 @@ def run_checks() -> int:
           and src.index('if __name__ == "__main__":') > src.index("PAGE = _chrome"),
           "nothing executes after main() blocks, so PAGE must be assigned "
           "before it")
-    for path in ("/", "/?v=1", "/index.html"):
+    for path in ("/", "/?v=1", "/index.html", "/add", "/import", "/bulk", "/quick"):
         code = raw_get(path)
-        check(f"GET {path} returns the import page",
-              code == 200, f"HTTP {code}")
+        check(f"GET {path} serves a page", code == 200, f"HTTP {code}")
+    with urllib.request.urlopen(f"http://127.0.0.1:{PORT}/", timeout=30) as r:
+        home = r.read().decode("utf-8")
+    check("the home page is the Overview, not an import form",
+          "dataset at a glance" in home and 'id="paste"' not in home,
+          "/ reads the data; adding it is one tab over")
 
-    print("\n== the data check sits above the dataset panels ==")
-    page = _iu.PAGE
+    print("\n== the data check leads the Overview; adding lives in Add data ==")
+    page = _iu.OVERVIEW
     at = lambda s: page.find(s)
-    check("data check comes before 'dataset at a glance', after the import box",
-          at('id="paste"') < at('id="verify"') < at("dataset at a glance"),
-          f'character offsets: import box {at(chr(34).join(["id=", "paste", ""]))}'
-          f' < data check {at(chr(34).join(["id=", "verify", ""]))}'
+    check("data check comes before 'dataset at a glance'",
+          0 <= at('id="verify"') < at("dataset at a glance"),
+          f'character offsets: data check {at(chr(34).join(["id=", "verify", ""]))}'
           f' < at a glance {at("dataset at a glance")}')
-    check("...and it appears exactly once",
-          page.count('id="verify"') == 1 and page.count('id="vfspan"') == 1,
+    check("...and it appears exactly once, and only on the Overview",
+          page.count('id="verify"') == 1 and page.count('id="vfspan"') == 1
+          and 'id="verify"' not in _iu.PAGE,
           "one data-check card, not two")
-    check("the nav offers rebuild-without-opening as its own button",
+    check("the import form is on Add data, with its preview directly under it",
+          0 <= _iu.PAGE.find('id="paste"') < _iu.PAGE.find('id="previewCard"')
+          and "dataset at a glance" not in _iu.PAGE,
+          "no dataset panels between the drop box and its preview")
+    check("rebuild-without-opening is its own button beside Excel viewer",
           'id="rebuildBtn"' in page and 'id="xlsxBtn"' in page
           and "/api/viewer/build" in page and "/api/viewer/open" in page,
           "Rebuild workbook and Excel viewer are separate actions")

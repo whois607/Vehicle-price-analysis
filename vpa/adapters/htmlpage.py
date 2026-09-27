@@ -117,9 +117,63 @@ _TRACK_STATE = re.compile(r'"tracking/item/state":"([^"]+)"')
 _TRACK_ADTYPE = re.compile(r'"tracking/item/adtype":"([^"]+)"')
 
 
+def _seller_word(v: str) -> str | None:
+    low = v.casefold()
+    if "private" in low:
+        return "private"
+    if "dealer" in low or "demo" in low:
+        return "dealer"
+    return None
+
+
+# The format carsales moved to by late July 2026: plain keys inside one flat
+# analytics object per event, with the state BEFORE the id -
+#   {..."state":"VIC","networkId":"SSE-AD-19312099",...,"adtype":"Private",...}
+# The old pattern (prefixed keys, fields AFTER the id) matched none of it, so
+# from 27/07/2026 every carsales capture stored no seller type and no state.
+_FLAT_ID = re.compile(r'"networkId":"([A-Z]{2,4}-AD-\d+)"')
+_FLAT_STATE = re.compile(r'"state":"([A-Za-z]{2,3})"')
+_FLAT_ADTYPE = re.compile(r'"ad[Tt]ype":"([^"]+)"')
+
+
+def _flat_tracking(html: str) -> dict[str, dict]:
+    """ad id -> {'state', 'seller_type'} from the flat analytics objects.
+
+    Each value is read only from the object that names the id - bounded by
+    that object's own braces - and an object naming two ids is skipped, so a
+    neighbour's fields cannot be attributed to this car. The page repeats
+    each listing's object many times; a field whose copies DISAGREE is left
+    out rather than chosen between."""
+    seen: dict[str, dict[str, set]] = {}
+    for m in _FLAT_ID.finditer(html):
+        a = html.rfind("{", 0, m.start())
+        b = html.find("}", m.end())
+        if a < 0 or b < 0:
+            continue
+        obj = html[a:b + 1]
+        if len(_FLAT_ID.findall(obj)) != 1:
+            continue
+        got = seen.setdefault(m.group(1), {"state": set(), "seller_type": set()})
+        if s := _FLAT_STATE.search(obj):
+            got["state"].add(s.group(1).upper())
+        if t := _FLAT_ADTYPE.search(obj):
+            if w := _seller_word(t.group(1)):
+                got["seller_type"].add(w)
+    out: dict[str, dict] = {}
+    for adid, got in seen.items():
+        info = {k: next(iter(v)) for k, v in got.items() if len(v) == 1}
+        if info:
+            out[adid] = info
+    return out
+
+
 def _tracking_supplement(html: str) -> dict[str, dict]:
     """ad id -> {'state', 'seller_type'} merged across the page's repeated
-    tracking clusters (some clusters carry only part of the fields)."""
+    tracking clusters (some clusters carry only part of the fields).
+
+    Two formats: the original prefixed one, read as it always was, and the
+    flat one carsales moved to (see _flat_tracking), which only fills what
+    the original found nothing for."""
     out: dict[str, dict] = {}
     matches = list(_TRACK_ID.finditer(html))
     for m, nxt in zip(matches, matches[1:] + [None]):
@@ -131,11 +185,49 @@ def _tracking_supplement(html: str) -> dict[str, dict]:
         if "state" not in info and (s := _TRACK_STATE.search(window)):
             info["state"] = s.group(1)
         if "seller_type" not in info and (a := _TRACK_ADTYPE.search(window)):
-            low = a.group(1).casefold()
-            if "private" in low:
-                info["seller_type"] = "private"
-            elif "dealer" in low or "demo" in low:
-                info["seller_type"] = "dealer"
+            if w := _seller_word(a.group(1)):
+                info["seller_type"] = w
+    for adid, info in _flat_tracking(html).items():
+        cur = out.setdefault(adid, {})
+        for k, v in info.items():
+            cur.setdefault(k, v)
+    return out
+
+
+# Each result tile lists its key details, e.g.
+#   "keyDetailsTexts":["Sedan","6cyl 4.0L T Petrol","Automatic","187,000 km"]
+# while the JSON-LD bodyType for the same car is "". The lists carry no ad
+# id, so they are tied to listings only when that can be PROVED: one list
+# per listing, in the same order, and every list's odometer equal to its
+# listing's. Anything short of that attributes nothing.
+_KEY_DETAILS = re.compile(r'"keyDetailsTexts":\[([^\]]*)\]')
+_BODY_WORDS = {"sedan", "wagon", "ute", "hatch", "hatchback", "coupe", "convertible",
+               "cab chassis", "van", "suv", "people mover", "light truck",
+               "utility", "cabriolet", "fastback", "liftback", "bus"}
+
+
+def _body_types(html: str, raws: list[dict]) -> list[str | None] | None:
+    lists = []
+    for m in _KEY_DETAILS.finditer(html):
+        try:
+            lists.append(json.loads("[" + m.group(1) + "]"))
+        except json.JSONDecodeError:
+            return None
+    if not lists or len(lists) != len(raws):
+        return None
+    out = []
+    for texts, raw in zip(lists, raws):
+        kms = [t for t in texts if isinstance(t, str) and t.strip().endswith("km")]
+        odo = raw.get("odometer")
+        try:
+            listed = int(re.sub(r"[^\d]", "", kms[0])) if len(kms) == 1 else None
+            own = int(float(str(odo))) if odo not in (None, "") else None
+        except ValueError:
+            return None
+        if listed is None or own is None or listed != own:
+            return None              # order not provable: attribute nothing
+        body = [t for t in texts if isinstance(t, str) and t.strip().casefold() in _BODY_WORDS]
+        out.append(body[0].strip() if len(body) == 1 else None)
     return out
 
 
@@ -250,6 +342,13 @@ def parse(path: str | Path) -> tuple[list[dict], str]:
                     for k in ("state", "seller_type"):
                         if raw.get(k) is None:
                             raw.pop(k, None)
+        # body type from the tiles, only where the JSON-LD left it blank and
+        # only when every tile provably lines up with its listing
+        bodies = _body_types(html, raws)
+        if bodies:
+            for raw, body in zip(raws, bodies):
+                if body and not raw.get("body_type"):
+                    raw["body_type"] = body
         return raws, source
 
     extractor = _TextExtractor()

@@ -3,6 +3,7 @@
     python -m tests.run_all        (from vehicle-price-analysis/)
 
 selfcheck (core pipeline), check_titles (make/model/variant splitting),
+check_carsales (seller/state/body from saved carsales pages, both formats),
 check_importui (import UI + FB paste + overview),
 check_explore (Explore page, selection levels, merged identities, freshness),
 check_car (one car judged against its trim: pool basis, gates, fit isolation),
@@ -23,7 +24,7 @@ import sys
 import time
 from pathlib import Path
 
-SUITES = ["tests.selfcheck", "tests.check_titles", "tests.check_importui",
+SUITES = ["tests.selfcheck", "tests.check_titles", "tests.check_carsales", "tests.check_importui",
           "tests.check_explore", "tests.check_car", "tests.check_compare",
           "tests.check_verify", "tests.check_repair", "tests.check_merge", "tests.check_edit", "tests.check_starred",
           "tests.check_turnover", "tests.check_bulk", "tests.check_perf",

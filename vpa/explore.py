@@ -1103,7 +1103,7 @@ def identify_payload(db_path: str | Path = DEFAULT_DB, html: str = "") -> dict:
                  "results page has no single car to identify.")}
     if not is_detail_page(html):
         return {"ok": False, "error":
-                ("that page lists several vehicles. Use the Import page for a "
+                ("that page lists several vehicles. Use Add data for a "
                  "search-results page; this needs the ad for one car.")}
 
     # Record has no colour fields. Both are kept for display only, and kept
@@ -1318,7 +1318,7 @@ __NAV__
       Two bases are in play and each panel says which it uses - per capture
       day counts every sighting, monthly and the mileage fit count each
       vehicle once per month, which is what <code>vpa report</code> does.</li>
-  <li><b>Compare</b> (top right) carries this selection and its nearest trims
+  <li>The <b>Compare</b> tab carries this selection and its nearest trims
       across to the side-by-side view - the workbook's Comparison sheet.</li>
   <li><b>Judging one car.</b> Click any row in the vehicles table, or any
       point on the price-vs-odometer scatter, to rank that car against the
@@ -1462,6 +1462,8 @@ __NAV__
 <div class="card">
  <div class="tabs" id="tabs">
   <button class="tab on" data-t="month">Monthly trend</button>
+  <button class="tab" data-t="fc">Projection</button>
+  <button class="tab" data-t="moves">Price changes</button>
   <button class="tab" data-t="spread">Bell curve</button>
   <button class="tab" data-t="stand">Standouts</button>
   <button class="tab" data-t="mile">Price vs odometer</button>
@@ -1470,16 +1472,6 @@ __NAV__
   <button class="tab" data-t="trims">Trim breakdown</button>
  </div>
  <div id="tabbody"></div>
-</div>
-
-<div class="card">
- <div class="act">
-  <div class="panel"><div class="ptitle">price projection
-    <span id="fcspan"></span></div>
-   <div id="fcchart"></div><div class="lst" id="fc"></div></div>
-  <div class="panel"><div class="ptitle">price movements
-    <span id="moverspan"></span></div><div class="lst" id="movers"></div></div>
- </div>
 </div>
 
 <div class="card">
@@ -1730,7 +1722,7 @@ function overTime(h){
     <td>${r.imported_at
       ?`${stamp(r.imported_at)}${r.batch_rows?`, in a batch of ${r.batch_rows}`:""}
         <span class="flat">${esc(r.source_file==="(import-ui)"
-          ?"pasted into the Import page":(r.source_file||r.adapter||""))}</span>`
+          ?"pasted into Import with preview":(r.source_file||r.adapter||""))}</span>`
       :'<span class="gated">no import recorded</span>'}</td></tr>`).join("");
   /* The point of this sentence: a car you do not remember seeing is not
      evidence of a bug until you can rule out that it simply arrived among
@@ -2336,14 +2328,46 @@ function forecastChart(d){
 }
 
 /* ---------- deeper analysis: one tab per question ---------- */
+/* The projection and the per-car price changes used to be a card of their
+   own below the tabs - the only analysis on the page that was not a tab. */
+function fcTab(d){
+  const f=d.forecast,m=d.mileage;
+  return `<div class="act"><div class="panel" style="flex:1.4 1 420px">
+      <div class="ptitle">price projection <span id="fcspan"></span></div>
+      <div id="fcchart"></div></div>
+    <div class="panel"><div class="ptitle">how it was worked out</div><div class="kv">
+     <div><span class="k">method</span><b>${esc(f.method.replace(/_/g," "))}</b></div>
+     <div><span class="k">${esc(f.verdict)}</span></div>
+     ${f.points.length?f.points.map(p=>`<div><span class="k">${p.d}</span>
+        <b>${money(p.v)}</b><span class="flat">${money(p.lo)} – ${money(p.hi)}
+        (${f.interval_level}%)</span></div>`).join(""):""}
+     <div><span class="k">mileage adjustment</span>${m.usable
+        ?`<span class="up">${m.pct_per_10k_km.toFixed(1)}% / 10,000 km</span>
+          <span class="flat">n=${m.n}</span>`
+        :`<span class="flat">not usable — ${esc(m.reason)}</span>`}</div>
+    </div></div></div>`;
+}
+function movesTab(d){
+  return `<div class="ptitle">cars re-seen at a different price
+      <span>&mdash; ${d.mover_total?`${d.movers.length} of ${d.mover_total}, biggest first`
+        :"none yet"}</span></div>
+    <div class="lst">${d.movers.length?d.movers.map(v=>
+    `<div><span class="nm" title="${esc(v.title)}">${v.year||""} ${esc(v.variant||"")}</span>
+      ${pct(v.change)}<span class="flat">${money(v.first_price)} → ${money(v.price)}</span>
+      <span class="flat">${v.first_day} → ${v.last_day}</span></div>`).join("")
+    :'<div class="flat">no vehicle here has been re-seen at a different price yet</div>'}</div>
+    <div class="hint">One car, its first price against its latest. Identities that
+      hold two prices on one day are merged cars and are left out.</div>`;
+}
 let TAB="month";
-const TABS={month:monthTab,spread:spreadTab,stand:standTab,mile:mileTab,
-            turn:turnTab,who:whoTab,trims:trimTab};
+const TABS={month:monthTab,fc:fcTab,moves:movesTab,spread:spreadTab,stand:standTab,
+            mile:mileTab,turn:turnTab,who:whoTab,trims:trimTab};
 let LIVEONLY=false, ZEND="low";
 function renderTab(){
   const el=$("tabbody");
   if(!DATA||DATA.empty){el.innerHTML="";return;}
   el.innerHTML=TABS[TAB](DATA);
+  if(TAB==="fc")forecastChart(DATA);
   if(TAB==="trims")document.querySelectorAll("#tabbody tr.pick").forEach(tr=>tr.onclick=()=>{
     pickOnly(tr.dataset.v);});
   // the Turnover tab holds two clickable tables: cars that left (judge one
@@ -3048,8 +3072,8 @@ async function load(){
   if(d.empty){
     $("selspan").textContent="— "+d.reason;
     $("tiles").innerHTML="";$("trend").innerHTML="";$("supply").innerHTML="";
-    $("fc").innerHTML="";$("movers").innerHTML="";CHIPS=[];renderChips();
-    $("tabbody").innerHTML="";$("supplysum").innerHTML="";$("fcchart").innerHTML="";
+    CHIPS=[];renderChips();
+    $("tabbody").innerHTML="";$("supplysum").innerHTML="";
     $("vtbl").querySelector("tbody").innerHTML="";return;
   }
   const h=d.head;
@@ -3108,25 +3132,6 @@ async function load(){
    +(ch.usable?`<span class="flat note">More in the <b>Turnover</b> tab below.</span>`
               :`<span class="flat note">Turnover not rated: ${esc(ch.reason||"")}</span>`):"";
 
-  forecastChart(d);
-  const f=d.forecast,m=d.mileage;
-  $("fc").innerHTML=
-     `<div><span class="nm">method</span><b>${esc(f.method)}</b></div>`
-    +`<div><span class="nm">${esc(f.verdict)}</span></div>`
-    +(f.points.length?f.points.map(p=>`<div><span class="nm">${p.d}</span>
-        <b>${money(p.v)}</b><span class="flat">${money(p.lo)} – ${money(p.hi)}
-        (${f.interval_level}%)</span></div>`).join(""):"")
-    +`<div><span class="nm">mileage adjustment</span>${m.usable
-        ?`<span class="up">${m.pct_per_10k_km.toFixed(1)}% / 10,000 km</span>
-          <span class="flat">n=${m.n}</span>`
-        :`<span class="flat">not usable — ${esc(m.reason)}</span>`}</div>`;
-
-  $("moverspan").textContent=d.mover_total?`— ${d.movers.length} of ${d.mover_total}`:"";
-  $("movers").innerHTML=d.movers.length?d.movers.map(v=>
-    `<div><span class="nm" title="${esc(v.title)}">${v.year||""} ${esc(v.variant||"")}</span>
-      ${pct(v.change)}<span class="flat">${money(v.first_price)}→${money(v.price)}</span>
-      <span class="flat">${v.first_day}→${v.last_day}</span></div>`).join("")
-    :'<div class="flat">no vehicle here has been re-seen at a different price yet</div>';
 
   // sibling trims as clickable chips (the workbook's Models sheet), in the
   // same order as the dropdown so the two never disagree
@@ -3225,7 +3230,8 @@ $("fClear").onclick=()=>{
 /* ---------- stay in step with the database ---------- */
 let seenVersion=null;
 async function checkFresh(){
-  const s=vpaApplyStatus(await fetch("/api/status").then(r=>r.json()));
+  let s;              // after Shut down the poll simply stops answering
+  try{s=vpaApplyStatus(await fetch("/api/status").then(r=>r.json()));}catch(e){return;}
   if(seenVersion===null)seenVersion=s.data_version;
   else if(s.data_version!==seenVersion){
     seenVersion=s.data_version;

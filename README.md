@@ -52,15 +52,14 @@ them and says which method it used.
 python -m vpa import-ui
 ```
 
-That opens the app at `http://127.0.0.1:8765` — five pages, all local:
+That opens the app at `http://127.0.0.1:8765` — four pages, all local:
 
 | page | what it answers |
 |---|---|
-| **Import** | preview → edit → commit. Nothing is written until you say so. |
-| **Bulk** | drop many files and they land, with no preview. For trims whose parsing you have already checked. |
-| **Explore** | what is one trim worth, and how does one specific car compare to it |
+| **Overview** | what you have collected, when, and whether the numbers add up (the data check) |
+| **Add data** | three modes: **Import with preview** (preview → edit → commit; nothing is written until you say so), **Bulk upload** (many files, no preview, backed up and undoable), **Quick add** (type a price you saw) |
+| **Explore** | what is one trim worth, where it is heading, and how one specific car compares to it |
 | **Compare** | several trims or models side by side, on identical statistics — including how fast each one clears |
-| **Quick add** | type a price you saw, without a full capture |
 
 On Windows, `Setup Import App.bat` creates a desktop shortcut so you can
 double-click it instead.
@@ -85,12 +84,12 @@ python -m vpa edit --history               # manual corrections, and undo
 
 1. Search on the listing site as you normally would, in your own browser.
 2. **Ctrl+S** the results page, or select the results and copy them.
-3. Drop the file(s) onto the Import page — several at once is fine. Each
+3. Drop the file(s) onto **Add data** — several at once is fine. Each
    file keeps its own capture date, taken from when you saved it.
 4. Check the preview, fix anything wrong, commit.
 
 Once a make, model or trim parses cleanly and you have checked it a few
-times, use **Bulk** instead: drop the whole week's files and they land with
+times, switch Add data to **Bulk upload**: drop the whole week's files and they land with
 no preview. It backs up first and any run can be undone in full.
 
 Repeat weekly and you have price history. The same listing seen on three

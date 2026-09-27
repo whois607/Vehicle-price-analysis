@@ -561,6 +561,16 @@ rewrites the capture date on re-import.
   different class of thing from actions (outlined), and Shut down is styled
   as a danger action, sits last, and is behind a confirm. It also exists on
   all four pages — before, only the import page could stop the app.
+  **Four tabs, not six (27/09/2026).** Import, Bulk and Quick add were
+  three nav tabs for one job; they are now the three modes of **Add data**
+  (`ui.MODES`, drawn by `modes()` into `__MODES__`). Each mode keeps its own
+  page and URL - `/add` (also `/import`), `/bulk`, `/quick` - so nothing
+  about their code or their fixed layouts changed; the nav marks Add data on
+  all three. The dataset panels, data check and workbook rebuild moved off
+  the import page onto **Overview** (`importui.OVERVIEW`), which is now `/`:
+  the home page reads the data, and adding it is one tab over. On Explore
+  the projection and per-car price changes became tabs - they were the only
+  analysis on the page in a card of their own.
   **One stylesheet (27/09/2026).** `CHROME_CSS` is now the whole base: colour
   tokens on `:root` (`--accent`, `--good`, `--bad`, `--warn`, `--line`, …),
   type sizes, cards, buttons, inputs, tables, tiles, tags, chips, tabs and
@@ -956,6 +966,18 @@ Keep these — each one was a bug that took a while to find.
   half-way through a test run. Use `with Store(...)` and collect first.
 
 **The layout that must not move**
+* The Bulk results box is a SESSION list (27/09/2026): every car uploaded
+  since the page was opened, appended in arrival order (drop order, then
+  the order each file lists them). `bulk.run` returns `cars` for this; it
+  is never written to `bulk_runs`. Undone runs stay listed, struck
+  through, and stop counting. Uploads are expected cheapest-first: a live
+  priced car cheaper than the live priced car before it is marked, and a
+  dismissible flag says so. Dismissals are remembered PER CAR - a count got
+  it wrong after an undo removed one drop and hid a different one.
+* Everything on that page whose TEXT changes (card title, header counts) is
+  one line and clipped. The first version let the session title wrap at
+  narrow widths and it pushed the page down 38px; measured, not eyeballed.
+  The flag is absolutely positioned over the card corner for the same reason.
 * `/bulk` was asked for with "no button moves around", which is a testable
   property, not a style note: capture `getBoundingClientRect()` for every
   control before, during (on a 40 ms interval) and after a real upload, and
@@ -964,6 +986,25 @@ Keep these — each one was a bug that took a while to find.
   below it down, and the results table growing the card instead of scrolling
   inside it. Fixed heights plus `overflow:auto` are load-bearing there;
   changing one to `max-height` reintroduces both.
+
+**A site format change fails SILENTLY (found 27/09/2026)**
+* From 27/07/2026 no carsales capture stored a seller type or state: 3,264 of
+  3,564 carsales cars have neither. Carsales moved its per-listing analytics
+  from prefixed keys with the fields after the ad id to flat objects with
+  the state BEFORE it (`{.."state":"VIC","networkId":"SSE-AD-1",..,
+  "adtype":"Private"}`). Nothing errored: the regex simply matched nothing,
+  every listing still parsed, and the gap only showed as a thin "Who is
+  selling" tab. `htmlpage._flat_tracking` reads the new shape from each
+  object's own braces, skips an object naming two cars, and drops a field
+  whose repeated copies disagree. Body type was never stored from any page:
+  JSON-LD `bodyType` is blank; each tile's `keyDetailsTexts` states it but
+  carries no ad id, so it is used only when the tiles provably line up (same
+  count, same order, every odometer equal). Across the 61 saved pages:
+  seller 12 -> 675 of 722 listings, state 9 -> 675, body 3 -> 619, and no
+  previously parsed value changed. The remaining gaps are SHRM-AD showroom
+  "New car" entries, left blank rather than called dealer.
+* Worth a periodic check: parse the newest saved page and look at the
+  per-field fill (`tests/check_carsales.py` pins both formats).
 
 **Speed (27/09/2026)**
 * Measured on the same machine, old code against new: moving to another

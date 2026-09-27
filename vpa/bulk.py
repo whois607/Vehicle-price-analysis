@@ -118,7 +118,7 @@ def _parse_one(name: str, text: str, source=None, fmt=None, capture_date=None):
         raise ValueError(
             "no listings found in this file"
             + (" - Facebook Marketplace saved pages are empty shells; use the "
-               "paste box on the Import page instead" if used_fmt == "html"
+               "paste box in Add data > Import with preview instead" if used_fmt == "html"
                else ""))
     return records, used_fmt, raw_count
 
@@ -193,7 +193,7 @@ def run(files: list[dict], db_path: str | Path = DEFAULT_DB,
 
     if not parsed:
         return {"ok": True, "wrote": False, "run": None, "backup": None,
-                "files": reports, "totals": _totals(reports),
+                "files": reports, "totals": _totals(reports), "cars": [],
                 "reason": "nothing in these files could be read as listings, "
                           "so the database was not touched"}
 
@@ -205,6 +205,10 @@ def run(files: list[dict], db_path: str | Path = DEFAULT_DB,
 
         batches, totals = [], {"rows_parsed": 0, "vehicles_new": 0,
                                "obs_new": 0, "obs_duplicate": 0}
+        # every car read, in the order the files were dropped and the order
+        # each file lists them - the page keeps a running list per session.
+        # Returned to the page only; never stored in bulk_runs.
+        cars, seen = [], set()
         for p in parsed:
             # the ingest_log row this ingest is about to create; ingest()
             # returns counts but not its own batch id, and the run must be
@@ -219,6 +223,18 @@ def run(files: list[dict], db_path: str | Path = DEFAULT_DB,
             batches.extend(new_batches)
             for k in totals:
                 totals[k] += counts[k]
+            for r in p["records"]:
+                k = r.dedupe_key()
+                cars.append({
+                    "file": p["name"], "key": k, "year": r.year,
+                    "make": r.make, "model": r.model, "variant": r.variant,
+                    "title": r.raw_title, "price": r.price_aud,
+                    "odometer_km": r.odometer_km,
+                    "capture_date": str(r.capture_date or ""),
+                    # already in the database before this run, or earlier
+                    # in this same run
+                    "known": k in before or k in seen})
+                seen.add(k)
             flagged = sum(1 for r in p["records"]
                           if r.price_aud is None or r.odometer_km is None
                           or r.year is None)
@@ -250,7 +266,7 @@ def run(files: list[dict], db_path: str | Path = DEFAULT_DB,
     reports.sort(key=lambda r: order.get(r["name"], 0))
     return {"ok": True, "wrote": True, "run": run_id, "backup": backup,
             "files": reports, "totals": _totals(reports),
-            "reason": ""}
+            "cars": cars, "reason": ""}
 
 
 def _totals(reports: list[dict]) -> dict:
@@ -433,7 +449,7 @@ def run_payload(payload: dict, db_path: str | Path) -> dict:
 # wrong one gets clicked.
 _PAGE = r"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
-<title>vpa bulk upload</title>
+<title>vpa add data - bulk</title>
 <style>
 __CHROME_CSS__
  /* ---- the fixed frame -------------------------------------------------
@@ -491,24 +507,51 @@ __CHROME_CSS__
  #runsBox{height:170px;overflow:auto;border:1px solid var(--line);
    border-radius:var(--r-sm);background:#fff}
  #runsBox button{min-width:96px}
+ /* the session list: fixed columns and one line per car, so appending a
+    hundred cars only ever lengthens the scroll inside the box */
+ #sessCard{position:relative}
+ /* text that changes with every upload is ONE line, clipped - a count that
+    grows by a digit must never wrap and push the page down (it did, at
+    narrow widths: the title went to two lines and everything below moved) */
+ #sessCard>.ptitle{height:20px;line-height:20px;white-space:nowrap;overflow:hidden;
+   text-overflow:ellipsis}
+ .pagehead .sub{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+ #rtbl{table-layout:fixed}
+ #rtbl td{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+ #rtbl .c-n{width:48px}#rtbl .c-p{width:100px}#rtbl .c-k{width:104px}
+ #rtbl .c-d{width:100px}#rtbl .c-f{width:190px}#rtbl .c-s{width:124px}
+ #rtbl tr.drop td:first-child{box-shadow:inset 3px 0 0 #e39a2b}
+ #rtbl tr.drop .pr{color:var(--warn);font-weight:600}
+ #rtbl tr.undone td{color:var(--faint);text-decoration:line-through}
+ #rtbl tr.bad td{white-space:normal}
+ /* The price-order flag floats over the card's top-right corner: it can
+    appear and be dismissed without moving a single element under it. */
+ #orderflag{position:absolute;top:10px;right:14px;z-index:3;max-width:min(620px,72%);
+   display:flex;gap:10px;align-items:center;background:var(--warn-soft);
+   border:1px solid var(--warn-line);color:var(--warn);border-radius:var(--r-sm);
+   padding:5px 6px 5px 12px;font-size:12px;box-shadow:0 3px 10px rgba(120,80,10,.14)}
+ #orderflag[hidden]{display:none}
+ #orderflag .msg{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+ #orderflag button.x{flex:none;background:#fff3de;color:var(--warn)}
 </style></head><body><div class="wrap">
 __NAV__
 <div class="pagehead"><div>
- <h1 class="pagetitle">Bulk upload</h1>
+ <h1 class="pagetitle">Add data</h1>
  <div class="sub"><span>Writes straight to the database &mdash; no preview. Backed up first; every run can be undone.</span><span class="dbstat" id="dbstat"></span></div>
 </div>__ACTIONS__</div>
+__MODES__
 
 <div class="card" id="help" style="display:none">
  <p><b>This page does not show you the rows before it writes them.</b> That is
  the whole point of it: for a make, model or trim whose parsing you have
- already checked on the Import page, dropping forty saved searches and having
- them land is the job. If you have not seen this kind of file work before,
- use <b>Import</b> instead - it previews everything and writes nothing until
- you say so.</p>
+ already checked with <b>Import with preview</b>, dropping forty saved
+ searches and having them land is the job. If you have not seen this kind of
+ file work before, use <b>Import with preview</b> instead - it shows every row
+ and writes nothing until you say so.</p>
  <ul style="font-size:13px">
   <li><b>The parsing is identical.</b> Same adapters, same normalisation, same
-   duplicate rules, same <code>Store.ingest</code> as the Import page and the
-   command line. Only the preview step is missing.</li>
+   duplicate rules, same <code>Store.ingest</code> as Import with preview and
+   the command line. Only the preview step is missing.</li>
   <li><b>A backup is taken before the run</b> - one for the whole run, before
    the first write, and the file is named in the result.</li>
   <li><b>Each file keeps its own capture date</b>, taken from when you saved
@@ -564,16 +607,19 @@ __NAV__
   <span class="bar"><i id="barfill"></i></span></div>
 </div>
 
-<div class="card">
- <div class="ptitle">what landed <span id="runspan"></span></div>
+<div class="card" id="sessCard">
+ <div class="ptitle">this session <span id="runspan">&mdash; every car uploaded
+   since this page was opened</span></div>
+ <div id="orderflag" role="status" hidden><span class="msg" id="ordermsg"></span>
+  <button class="x" id="orderX" title="dismiss - it comes back if another car arrives out of order">&times;</button></div>
  <div class="tiles" id="tiles"></div>
  <div id="resultsBox" style="margin-top:11px">
-  <div class="empty" id="resultsEmpty">Nothing uploaded yet. Results appear
-   here, one row per file.</div>
+  <div class="empty" id="resultsEmpty">Nothing uploaded yet. Every car you
+   upload while this page is open is listed here, in the order it arrived.</div>
   <table id="rtbl" style="display:none"><thead><tr>
-   <th>file</th><th class="num">listings</th><th class="num">new sightings</th>
-   <th class="num">new cars</th><th class="num">already had</th>
-   <th class="num">incomplete</th><th>capture dates</th><th>result</th>
+   <th class="num c-n">#</th><th>car</th><th class="num c-p">price</th>
+   <th class="num c-k">odometer</th><th class="c-d">captured</th>
+   <th class="c-f">file</th><th class="c-s">status</th>
   </tr></thead><tbody></tbody></table>
  </div>
  <div class="hint" id="backuphint">A backup is taken before every run.</div>
@@ -615,7 +661,7 @@ function say(text,kind,pct){
   $("barfill").style.width=(pct==null?0:pct)+"%";
 }
 function tiles(t){
-  const cells=t?[
+  const cells=t&&t.files?[
     [t.files,"files"],[t.records,"listings read"],
     [t.obs_new,"new sightings"],[t.vehicles_new,"cars not seen before"],
     [t.duplicates,"already had"],[t.incomplete,"missing a field",t.incomplete>0],
@@ -681,37 +727,102 @@ $("goBtn").onclick=async()=>{
   loadRuns();
 };
 
+/* ---- the session list --------------------------------------------------
+   Every car uploaded while this page is open, in the order it arrived:
+   file by file in the order they were dropped, and within a file in the
+   order the site listed them. Nothing here is stored - reloading the page
+   starts a new session. An undone run stays in the list, struck through,
+   and stops counting. */
+let SESSION=[];                    // cars and refused files, in arrival order
+let RUNTOTALS=[];                  // [{run, t, undone}] - one per upload
+let DISMISSED=new Set();           // out-of-order cars you have already waved off
+const money=v=>v==null?"—":"$"+Math.round(v).toLocaleString();
+const kmf=v=>v==null?"—":Math.round(v).toLocaleString()+" km";
+const carName=c=>[c.year,c.make,c.model,c.variant].filter(Boolean).join(" ")
+  ||c.title||"(no title)";
+
 function render(res){
-  const t=res.totals;
-  tiles(t);
-  $("runspan").textContent=res.run?`— run #${res.run}`:"";
-  $("resultsEmpty").style.display="none";
-  $("rtbl").style.display="";
-  $("rtbl").querySelector("tbody").innerHTML=res.files.map(f=>`
-   <tr class="${f.ok?"":"bad"}">
-    <td>${esc(f.name)}</td>
-    <td class="num">${f.ok?f.records:"—"}</td>
-    <td class="num">${f.ok?f.obs_new:"—"}</td>
-    <td class="num">${f.ok?f.vehicles_new:"—"}</td>
-    <td class="num">${f.ok?f.duplicates:"—"}</td>
-    <td class="num">${f.ok?(f.incomplete||0):"—"}</td>
-    <td>${f.ok?esc((f.days||[]).join(", ")):"—"}</td>
-    <td>${f.ok?'<span class="tag good">written</span>'
-      :`<span class="tag warn">refused</span> <div class="why">`
-       // f.html is set by the server for the one message that IS markup
-       // (the bot-protection explainer). Everything else is escaped.
-       +`${f.html?f.error:esc(f.error)}</div>`}</td>
-   </tr>`).join("");
+  const run=res.run;
+  // file by file, in drop order; a refused file keeps its place in the list
+  res.files.forEach(f=>{
+    if(!f.ok){SESSION.push({run,refused:true,file:f.name,error:f.error,html:f.html});return;}
+    (res.cars||[]).filter(c=>c.file===f.name).forEach(c=>SESSION.push({...c,run}));
+  });
+  RUNTOTALS.push({run,t:res.totals,undone:false});
+  renderSession();
+  const box=$("resultsBox");box.scrollTop=box.scrollHeight;   // newest in view
   $("backuphint").innerHTML=res.backup
     ?`Backup taken before this run: <code>${esc(res.backup)}</code>`
     :"A backup is taken before every run.";
   $("backuphint").title=res.backup||"";     // the clipped path, in full
+  const t=res.totals;
   const kind=t.failed?(t.obs_new?"work":"bad"):"good";
   say(res.wrote
-      ?`${t.obs_new} new sighting(s) from ${t.files-t.failed} file(s)`
+      ?`run #${run}: ${t.obs_new} new sighting(s) from ${t.files-t.failed} file(s)`
        +(t.failed?`, ${t.failed} refused`:"")+". Backed up first."
       :(res.reason||"nothing was written"),kind,100);
 }
+
+function isUndone(c){return RUNTOTALS.some(r=>r.run===c.run&&r.undone);}
+function renderSession(){
+  // session totals, leaving out undone runs
+  const live=RUNTOTALS.filter(r=>!r.undone);
+  const sum=k=>live.reduce((a,r)=>a+(r.t[k]||0),0);
+  tiles(live.length?{files:sum("files"),records:sum("records"),obs_new:sum("obs_new"),
+    vehicles_new:sum("vehicles_new"),duplicates:sum("duplicates"),
+    incomplete:sum("incomplete")}:null);
+  const nLive=SESSION.filter(c=>!c.refused&&!isUndone(c)).length;
+  $("runspan").textContent=RUNTOTALS.length
+    ?`— ${nLive} car(s) from ${live.length} upload(s) since this page was opened`
+    :"— every car uploaded since this page was opened";
+  // Uploads are meant to arrive cheapest first. Each live, priced car is
+  // compared with the live, priced car before it.
+  let prev=null,prevN=0,n=0;const drops=[];
+  const rows=SESSION.map(c=>{
+    if(c.refused)return `<tr class="bad"><td class="num">—</td><td colspan="5">
+      <b>${esc(c.file)}</b> refused<div class="why">${c.html?c.error:esc(c.error)}</div></td>
+      <td><span class="tag warn">refused</span></td></tr>`;
+    n++;
+    const gone=isUndone(c);
+    let drop=false;
+    if(!gone&&c.price!=null){
+      if(prev&&c.price<prev.price){drop=true;drops.push({c,prev,n,pn:prevN,id:c.run+":"+n});}
+      prev=c;prevN=n;
+    }
+    return `<tr class="${gone?"undone":drop?"drop":""}" title="${esc(c.title||"")}">
+      <td class="num">${n}</td><td>${esc(carName(c))}</td>
+      <td class="num pr">${money(c.price)}</td><td class="num">${kmf(c.odometer_km)}</td>
+      <td>${esc(c.capture_date||"")}</td><td title="${esc(c.file)}">${esc(c.file)}</td>
+      <td>${gone?'<span class="tag">run undone</span>'
+        :drop?`<span class="tag warn">cheaper than #${drops[drops.length-1].pn}</span>`
+        :c.known?'<span class="tag">seen before</span>'
+        :'<span class="tag good">new car</span>'}</td></tr>`;
+  });
+  const any=SESSION.length>0;
+  $("resultsEmpty").style.display=any?"none":"";
+  $("rtbl").style.display=any?"":"none";
+  $("rtbl").querySelector("tbody").innerHTML=rows.join("");
+  // The flag: shown while any out-of-order car has not been waved off.
+  // Remembered per car, not as a count - after an undo removes one drop, a
+  // count would wrongly treat a different, never-dismissed drop as seen.
+  const fresh=drops.filter(d=>!DISMISSED.has(d.id));
+  if(fresh.length){
+    const d=fresh[fresh.length-1];
+    $("ordermsg").innerHTML=`<b>Out of price order:</b> ${drops.length} car(s) came in
+      cheaper than the car before - latest #${d.n} ${esc(carName(d.c))} at
+      ${money(d.c.price)} after #${d.pn} at ${money(d.prev.price)}. Uploads should run cheapest first.`;
+    $("ordermsg").title=$("ordermsg").textContent.replace(/\s+/g," ");
+    $("orderflag").hidden=false;
+  }else $("orderflag").hidden=true;
+  FLAG_IDS=drops.map(d=>d.id);
+}
+let FLAG_IDS=[];
+function markUndone(run){
+  RUNTOTALS.forEach(r=>{if(r.run===run)r.undone=true;});
+  renderSession();
+}
+$("orderX").onclick=()=>{FLAG_IDS.forEach(id=>DISMISSED.add(id));
+  $("orderflag").hidden=true;};
 
 async function loadRuns(){
   vpaStatus();                       // the header's vehicle count moves with every run
@@ -744,6 +855,7 @@ async function undoRun(btn){
     body:JSON.stringify({run:Number(id)})}).then(r=>r.json());
   }catch(e){res={ok:false,error:String(e)};}
   if(!res.ok){say(res.error||"undo failed","bad",0);btn.disabled=false;return;}
+  markUndone(Number(id));           // strike its cars through in the session list
   say(`run #${id} undone: ${res.observations_removed} sighting(s) removed, `
      +`${res.vehicles_removed} car(s) deleted, ${res.vehicles_restored} `
      +`restored. Backed up first.`,"good",100);
@@ -757,4 +869,4 @@ __CHROME_JS__
 
 from .ui import chrome as _chrome   # noqa: E402
 
-PAGE = _chrome(_PAGE, "bulk")
+PAGE = _chrome(_PAGE, "add", mode="bulk")

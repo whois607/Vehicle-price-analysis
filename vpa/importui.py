@@ -459,7 +459,9 @@ class _Handler(BaseHTTPRequestHandler):
         # perfectly ordinary URL to arrive with (a bookmark, a reload with a
         # cache-buster) and used to 404
         bare = self.path.split("?", 1)[0]
-        if bare in ("/", "/index.html"):
+        if bare in ("/", "/index.html", "/overview"):
+            self._send(200, OVERVIEW.encode("utf-8"), "text/html; charset=utf-8")
+        elif bare in ("/add", "/import"):
             self._send(200, PAGE.encode("utf-8"), "text/html; charset=utf-8")
         elif bare == "/bulk":
             from . import bulk
@@ -689,7 +691,7 @@ def main(argv=None) -> int:
 # -------------------------------------------------------------------- page
 _PAGE = r"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
-<title>vpa import</title>
+<title>vpa add data - import</title>
 <style>
 __CHROME_CSS__
  /* ---- bringing data in ---- */
@@ -743,10 +745,10 @@ __CHROME_CSS__
 </style></head><body><div class="wrap">
 __NAV__
 <div class="pagehead"><div>
- <h1 class="pagetitle">Import listings</h1>
+ <h1 class="pagetitle">Add data</h1>
  <div class="sub"><span>Preview first &mdash; nothing is written until you commit.</span><span class="dbstat" id="dbstat"></span></div>
 </div>__ACTIONS__</div>
-
+__MODES__
 <div class="card" id="help">
  <p><b>The one rule:</b> nothing is written to the database until you press
  <b>Commit selected</b>. Preview is free - parse anything, look at it, discard it.</p>
@@ -807,41 +809,6 @@ __NAV__
    <li>Re-importing the same file later is safe: everything already stored is
        flagged and skipped.</li>
   </ul></details>
- <details><summary>Reading the overview</summary>
-  <ul>
-   <li><b>Top models</b> ranks by how many prices you have collected, not by
-       price. Switch between <b>Model lines</b> ("Ford Falcon", pools every
-       trim) and <b>Trims</b> ("Ford Falcon XR6 FG X") - the same two levels
-       the Excel picker offers, using the same names.</li>
-   <li><b>trend</b> is the median for that model on each day it was captured.
-       Each sparkline is scaled to its own range, so compare shapes, not
-       heights.</li>
-   <li><span class="flag">mix changed</span> means the number of listings
-       roughly doubled or halved between those two captures, so the medians
-       describe <i>different stock</i>. A broad sweep that adds cheap trims
-       drags the median down and looks like a crash - it isn't one.</li>
-   <li><b>Biggest movers</b> prefers <span class="flag info">same cars</span>:
-       the median over vehicles priced on <i>both</i> days, which is a real
-       price move. <span class="flag info">asking mix</span> means no cars
-       could be matched, so it is only the medians of whatever was listed.</li>
-   <li><b>Trims captured once or twice</b> cannot show a trend. That is thin
-       coverage, not lost data - the rows are all still there.</li>
-   <li><b>ad IDs in the latest capture</b>: pasted text carries no ad ID, so
-       those listings can never be matched to a later sighting. Save the page
-       with <code>Ctrl+S</code> when you care about same-car movement.</li>
-  </ul></details>
- <details><summary>Quick Add (the fast path)</summary>
-  <p>The <b>Quick add</b> link (top right) is for jotting a handful of asking
-  prices for one model with no other fields: pick or type a model, type
-  prices, <code>Enter</code> after each, <code>Ctrl+Enter</code> to commit.
-  The stats panel shows median / mode / highest / lowest over ALL stored
-  prices for that model plus your batch, with % change since the model's
-  previous capture date. Use the full importer when you have odometer, year
-  and location - quick-added rows carry only model + price.</p></details>
- <details><summary>Closing the app</summary>
-  <p>Click <b>Shut down</b> (top right), then close this tab. There is no
-  console window to find - the server runs quietly in the background until you
-  shut it down (or you sign out / restart Windows).</p></details>
 </div>
 
 <div class="card">
@@ -882,7 +849,319 @@ __NAV__
 
 <div class="card" id="resultCard" style="display:none"><div id="result"></div></div>
 
-<!-- Data check sits directly under the import box, ABOVE the dataset panels.
+<script>
+const $=id=>document.getElementById(id);
+let pending=null;           // [{name,text,size,capture_date}] - several files
+let rows=[];                // parse result rows, from every file merged
+let SOURCES=[];             // rows[i] came from SOURCES[i] - which file
+const EDITABLE=["capture_date","make","model","variant","year","price_aud",
+                "odometer_km","state","seller_type"];
+
+const localISO=d=>{const x=new Date(d);x.setMinutes(x.getMinutes()-x.getTimezoneOffset());
+  return x.toISOString().slice(0,10)};
+$("capdate").value=localISO(Date.now());
+
+const money=v=>"$"+Math.round(v).toLocaleString();
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+/* Several files at once. Each keeps ITS OWN capture date, taken from that
+   file's own mtime - a folder of pages saved across three evenings is three
+   capture days, and collapsing them onto one date would invent price history
+   that never happened. */
+function takeFiles(list){
+  const files=[...list];
+  if(!files.length)return;
+  Promise.all(files.map(f=>f.text().then(t=>({
+    name:f.name,text:t,size:f.size,
+    capture_date:f.lastModified?localISO(f.lastModified):null}))))
+    .then(loaded=>{
+      pending=pending&&pending.length?pending.concat(loaded):loaded;
+      // NOTE: write the label span, never drop.textContent - that would
+      // destroy #drop's children (this was the "works only once" bug when
+      // the file input lived inside #drop)
+      const kb=pending.reduce((a,f)=>a+f.size,0)/1024;
+      $("droplabel").textContent=pending.length===1
+        ?`${pending[0].name} (${kb.toFixed(1)} kB) - ready`
+        :`${pending.length} files (${(kb/1024).toFixed(1)} MB) - ready`;
+      // one file: show its date, and let it be overridden. Several: the
+      // field cannot speak for all of them, so it is left blank and each
+      // file's own date is used.
+      $("capdate").value=pending.length===1&&pending[0].capture_date
+        ?pending[0].capture_date:"";
+      $("capdate").disabled=pending.length>1;
+      $("parseBtn").disabled=false;
+      // clear the input so picking the same (or a re-saved) file fires
+      // 'change' again - browsers only fire it when the value differs
+      $("file").value="";});}
+$("drop").onclick=()=>$("file").click();
+$("file").onchange=e=>takeFiles(e.target.files);
+["dragover","dragenter"].forEach(ev=>$("drop").addEventListener(ev,e=>{e.preventDefault();$("drop").classList.add("hover");}));
+["dragleave","drop"].forEach(ev=>$("drop").addEventListener(ev,e=>{e.preventDefault();$("drop").classList.remove("hover");}));
+$("drop").addEventListener("drop",e=>takeFiles(e.dataTransfer.files));
+$("paste").oninput=()=>{$("parseBtn").disabled=!($("paste").value.trim()||(pending&&pending.length));};
+
+$("parseBtn").onclick=async()=>{
+  const queue=(pending&&pending.length)?pending
+    :[{name:"pasted.txt",text:$("paste").value,capture_date:null}];
+  $("parseBtn").disabled=true;
+  rows=[];SOURCES=[];
+  let dropped=0,fmt=null,notes=[],failed=[];
+  for(let i=0;i<queue.length;i++){
+    const f=queue[i];
+    $("parseBtn").textContent=queue.length>1
+      ?`parsing ${i+1}/${queue.length}...`:"parsing...";
+    const body={name:f.name,text:f.text,source:$("source").value,
+      format:$("format").value,
+      // the date box wins only when it is usable: one file, or a paste
+      capture_date:($("capdate").value||f.capture_date||"")};
+    if(f.name==="pasted.txt"&&!body.format)body.format="text";
+    let res;
+    try{
+      res=await fetch("/api/parse",{method:"POST",
+        body:JSON.stringify(body)}).then(r=>r.json());
+    }catch(e){res={ok:false,error:String(e)};}
+    if(!res.ok){failed.push({name:f.name,error:res.error,challenge:!!res.challenge});continue;}
+    fmt=fmt||res.format;dropped+=res.dropped||0;
+    if(res.note)notes.push(res.note);
+    // remember which file each row came from, so the preview can say
+    res.rows.forEach(r=>{rows.push(r);SOURCES.push(f.name);});
+  }
+  $("parseBtn").disabled=false;$("parseBtn").textContent="Preview";
+  if(!rows.length&&failed.length){reportFailures(failed);return;}
+  renderTable({format:fmt||"text",dropped:dropped,
+    note:notes.join(" "),rows:rows,files:queue.length,
+    failed:failed,
+    summary:{parsed:rows.length,
+      duplicates:rows.filter(r=>!r.checked&&r.flags.some(f=>/duplicate|already/.test(f))).length,
+      no_price:rows.filter(r=>r.price_aud==null).length,
+      no_odometer:rows.filter(r=>r.odometer_km==null).length}});
+};
+
+/* A file the server refused is shown in full, not alerted away: a
+   bot-protection page needs re-saving and the message says how. */
+function reportFailures(failed){
+  $("previewCard").style.display="none";
+  $("resultCard").style.display="";
+  $("result").innerHTML=failed.map(f=>
+    `<div class="${f.challenge?"warn":"warn"}" style="margin-bottom:8px">${f.error}</div>`
+  ).join("");
+  $("resultCard").scrollIntoView({behavior:"smooth",block:"nearest"});
+}
+
+function fmtPrice(v){return v==null?"":Number(v).toLocaleString();}
+function renderTable(res){
+  const s=res.summary;
+  // per-file breakdown, so a folder of pages does not become one opaque
+  // number - and so a file that yielded NOTHING is visible rather than
+  // averaged away by the ones that worked
+  let perFile="";
+  if(res.files>1){
+    const counts={};SOURCES.forEach(n=>{counts[n]=(counts[n]||0)+1;});
+    const names=[...new Set(SOURCES)];
+    perFile=`<div class="hint" style="margin-top:6px">from
+      <b>${res.files}</b> file(s): `
+      +names.map(n=>`${n.replace(/ cars for sale.*$/,"")} <b>${counts[n]}</b>`).join(" &middot; ")
+      +(names.length<res.files-(res.failed||[]).length
+        ?` &middot; <span class="warn">${res.files-(res.failed||[]).length-names.length}
+           file(s) produced no rows</span>`:"")
+      +`. Each file keeps its own capture date.</div>`;
+  }
+  const refused=(res.failed||[]).length
+    ? (res.failed||[]).map(f=>`<div class="warn" style="margin-top:6px">${f.error}</div>`).join("")
+    : "";
+  $("summary").innerHTML=`<span class="count">${s.parsed}</span> row(s) parsed as
+   <b>${res.format}</b>${res.dropped?` - <span class="warn">${res.dropped} raw block(s) could not be parsed at all</span>`:""}.
+   ${res.note?`<span class="warn">${res.note}</span> `:""}
+   Flags: ${s.duplicates} duplicate(s), ${s.no_price} without a price, ${s.no_odometer} without odometer.
+   Flagged duplicates and no-price rows start unticked.`+perFile+refused;
+  const tb=$("tbl").querySelector("tbody");tb.innerHTML="";
+  rows.forEach((r,i)=>{
+    const tr=document.createElement("tr");tr.dataset.i=i;
+    const flags=r.flags.map(f=>`<span class="flag${f.startsWith("known")?" info":""}">${f}</span>`).join("");
+    tr.innerHTML=`<td><input type="checkbox" class="sel" ${r.checked?"checked":""}></td>
+     <td title="${String(r.raw_title||"").replace(/"/g,"&quot;")}">${r.status==="new"?"":r.status.replace("_"," ")} ${flags}</td>
+     <td>${r.source}</td>`+
+     EDITABLE.slice(0).map(f=>{
+       const v=r[f]==null?"":(f==="price_aud"?fmtPrice(r[f]):r[f]);
+       const cls=(f==="price_aud"||f==="odometer_km"||f==="year")?" class=num":"";
+       return `<td${cls}><input data-f="${f}" value="${String(v).replace(/"/g,"&quot;")}"></td>`;}).join("");
+    if(!r.checked)tr.classList.add("off");
+    tr.querySelector(".sel").onchange=e=>{tr.classList.toggle("off",!e.target.checked);count();};
+    tb.appendChild(tr);});
+  $("previewCard").style.display="";$("resultCard").style.display="none";count();
+}
+function count(){const n=document.querySelectorAll(".sel:checked").length;
+  $("selcount").textContent=`${n} of ${rows.length} selected`;
+  $("commitBtn").disabled=!n;}
+$("all").onchange=e=>{document.querySelectorAll(".sel").forEach(cb=>{
+  cb.checked=e.target.checked;cb.closest("tr").classList.toggle("off",!e.target.checked);});count();};
+
+$("commitBtn").onclick=async()=>{
+  const out=[];
+  document.querySelectorAll("#tbl tbody tr").forEach(tr=>{
+    if(!tr.querySelector(".sel").checked)return;
+    const r={...rows[tr.dataset.i]};
+    delete r.flags;delete r.checked;delete r.status;delete r.key;
+    tr.querySelectorAll("input[data-f]").forEach(inp=>{r[inp.dataset.f]=inp.value.trim()||null;});
+    out.push(r);});
+  $("commitBtn").disabled=true;$("commitBtn").textContent="writing...";
+  const res=await fetch("/api/commit",{method:"POST",body:JSON.stringify({rows:out})}).then(r=>r.json());
+  $("commitBtn").disabled=false;$("commitBtn").textContent="Commit selected";
+  if(!res.ok){alert(res.error);return;}
+  $("previewCard").style.display="none";$("resultCard").style.display="";
+  let msg=`<span class="ok">Committed: ${res.committed} observation(s), ${res.new_vehicles} new vehicle(s).</span>`;
+  if(res.duplicates_skipped)msg+=`\n${res.duplicates_skipped} exact duplicate(s) skipped by the store.`;
+  if(res.rejected.length)msg+=`\n<span class="warn">Rejected: ${res.rejected.join("; ")}</span>`;
+  msg+=`\n\nRe-parse the same file to confirm: every committed row should now show as a duplicate.`;
+  $("result").innerHTML=msg;
+  // The point of an import, for anyone with a shortlist: what did it just do
+  // to the cars I am following? Shown here rather than left to be found on
+  // another page two clicks away.
+  showStarredAfterImport();
+  // the header's counts and the workbook's age both moved; the dataset
+  // panels live on the Overview page and recompute when it is opened
+  vpaStatus();
+  pending=null;SOURCES=[];
+  $("droplabel").textContent="drop CSV / JSON / saved-HTML files here, or click to choose";
+  $("capdate").value="";$("capdate").disabled=false;
+  $("paste").value="";$("parseBtn").disabled=true;
+};
+/* What the import just did to the starred cars. Read-only: it asks the same
+   /api/watchlist the Explore page uses, so the two can never tell different
+   stories about the same shortlist. */
+async function showStarredAfterImport(){
+  let w;
+  try{w=await fetch("/api/watchlist").then(r=>r.json());}catch(e){return;}
+  if(!w||!w.ok||!w.total)return;
+  const cash=v=>v==null?"—":"$"+Number(v).toLocaleString();
+  const pc=v=>`<span class="${v>0?"warn":"ok"}">${v>0?"+":""}${v}%</span>`;
+  const moved=w.cars.filter(c=>c.present&&c.since&&c.since.move!=null);
+  const stale=w.cars.filter(c=>c.present&&!c.live&&!moved.includes(c));
+  const missing=w.cars.filter(c=>!c.present);
+  const line=c=>`<div style="padding:3px 0">&#9733; <b>${c.label}</b>`
+    +(c.since&&c.since.move!=null
+      ?` ${cash(c.since.was)} &rarr; ${cash(c.since.now)} ${pc(c.since.move)}`
+       +(c.since.vs_trim!=null
+         ?` <span class="muted">(${c.since.vs_trim>0?"+":""}${c.since.vs_trim}% against its own trim)</span>`:"")
+      :c.present?` ${cash(c.price)}`:"")
+    +(!c.present?' <span class="warn">no longer in the database</span>'
+      :!c.live?` <span class="warn">not in the ${c.trim_last_day} sweep of its trim</span>`:"")
+    +`</div>`;
+  const interesting=[...moved,...stale,...missing];
+  $("result").innerHTML+=
+    `<div style="margin-top:12px;padding-top:10px;border-top:1px solid #e6e9ef">`
+    +`<b>Your watchlist after this import</b> &mdash; ${w.total} car(s) followed`
+    +(interesting.length
+      ?`:</div>`+interesting.map(line).join("")
+       +`<div class="muted" style="margin-top:6px">Full watchlist on the `
+       +`<a href="/explore">Explore</a> page.</div>`
+      :`. Nothing on it changed.</div>`);
+}
+
+$("cancelBtn").onclick=()=>{$("previewCard").style.display="none";rows=[];SOURCES=[];
+  pending=null;$("capdate").disabled=false;
+  $("droplabel").textContent="drop CSV / JSON / saved-HTML files here, or click to choose";};
+
+__CHROME_JS__
+</script></div></body></html>
+"""
+
+#: The Overview page: the dataset at a glance, the data check and the
+#: workbook rebuild. It was the bottom two thirds of the import page,
+#: which made "Import" the home page and the place to read the data.
+_OVERVIEW = r"""<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<title>vpa overview</title>
+<style>
+__CHROME_CSS__
+ /* ---- bringing data in ---- */
+ .inrow{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap}
+ #drop{border:2px dashed #b3bccd;border-radius:9px;padding:0 18px;text-align:center;
+       color:var(--ink-2);cursor:pointer;flex:1;min-width:260px;background:#fafbfe;
+       height:74px;display:flex;align-items:center;justify-content:center;font-size:13px}
+ #drop:hover{background:#f2f6ff;border-color:#8fa8cf}
+ #drop.hover{background:var(--accent-soft);border-color:var(--accent)}
+ #paste{width:100%;height:92px;margin-top:10px;resize:vertical}
+ input[type=date]{width:148px}
+ select{min-width:128px}
+ /* the preview table: every cell is an input, so it reads as a sheet */
+ #tbl td{padding:2px 4px;vertical-align:top}
+ td input{border:1px solid transparent;border-radius:4px;height:26px;
+          font-size:12.5px;padding:0 4px;background:transparent;color:var(--ink)}
+ td input[data-f=capture_date]{width:96px}td input[data-f=make]{width:82px}
+ td input[data-f=model]{width:92px}td input[data-f=variant]{width:130px}
+ td input[data-f=year]{width:50px}td input[data-f=price_aud]{width:76px}
+ td input[data-f=odometer_km]{width:80px}td input[data-f=state]{width:48px}
+ td input[data-f=seller_type]{width:68px}
+ td input:hover{border-color:var(--field)}
+ td input:focus{border-color:var(--accent);background:#fff;outline:0}
+ tr.off{opacity:.45}
+ .flag{margin:1px 3px 1px 0}
+ .count{font-weight:600}
+ #summary{margin:0 0 10px;color:var(--ink-2);font-size:13px}
+ .commitbar{display:flex;gap:10px;align-items:center;margin-top:12px}
+ #selcount{color:var(--dim);font-size:12.5px}
+ #result{white-space:pre-line;font-size:13.5px}
+ /* ---- overview ---- */
+ #heat{display:grid;grid-auto-flow:column;grid-template-rows:repeat(7,11px);gap:2px}
+ #heat div{width:11px;height:11px;border-radius:2px;background:#e8eaee}
+ .h1{background:#c9e6c9!important}.h2{background:#8fcb8f!important}
+ .h3{background:#4d9e4d!important}.h4{background:#256e25!important}
+ .heatlegend{font-size:11.5px;color:var(--dim);display:flex;gap:3px;align-items:center;
+             margin-top:10px}
+ .heatlegend div{width:11px;height:11px;border-radius:2px;background:#e8eaee}
+ .ov td{vertical-align:middle}
+ .ov .nm{font-weight:600}
+ .bar{height:6px;border-radius:3px;background:var(--line-2);overflow:hidden;margin-top:3px}
+ .bar i{display:block;height:100%;background:var(--accent)}
+ /* data check rows wrap freely - .lst clips to one line, which would hide
+    exactly the explanation that makes a warning actionable */
+ .vf>div{display:flex;gap:9px;align-items:flex-start;padding:6px 0;
+         border-top:1px solid var(--line-2);font-size:12.5px}
+ .vf>div:first-child{border-top:0}
+ .vf .mk{font-weight:700;width:13px;flex:none;text-align:center;line-height:1.4}
+ .vf .bd{flex:1}
+ .vf .bd b{font-weight:600}
+</style></head><body><div class="wrap">
+__NAV__
+<div class="pagehead"><div>
+ <h1 class="pagetitle">Overview</h1>
+ <div class="sub"><span>Everything collected so far, and whether it adds up.</span><span class="dbstat" id="dbstat"></span></div>
+</div>__ACTIONS__</div>
+
+<div class="card" id="help">
+ <p>This page reads the database and writes nothing. Add listings from
+ <b>Add data</b>; look at one trim in <b>Explore</b>; set several side by side
+ in <b>Compare</b>.</p>
+ <details><summary>Reading the overview</summary>
+  <ul>
+   <li><b>Top models</b> ranks by how many prices you have collected, not by
+       price. Switch between <b>Model lines</b> ("Ford Falcon", pools every
+       trim) and <b>Trims</b> ("Ford Falcon XR6 FG X") - the same two levels
+       the Excel picker offers, using the same names.</li>
+   <li><b>trend</b> is the median for that model on each day it was captured.
+       Each sparkline is scaled to its own range, so compare shapes, not
+       heights.</li>
+   <li><span class="flag">mix changed</span> means the number of listings
+       roughly doubled or halved between those two captures, so the medians
+       describe <i>different stock</i>. A broad sweep that adds cheap trims
+       drags the median down and looks like a crash - it isn't one.</li>
+   <li><b>Biggest movers</b> prefers <span class="flag info">same cars</span>:
+       the median over vehicles priced on <i>both</i> days, which is a real
+       price move. <span class="flag info">asking mix</span> means no cars
+       could be matched, so it is only the medians of whatever was listed.</li>
+   <li><b>Trims captured once or twice</b> cannot show a trend. That is thin
+       coverage, not lost data - the rows are all still there.</li>
+   <li><b>ad IDs in the latest capture</b>: pasted text carries no ad ID, so
+       those listings can never be matched to a later sighting. Save the page
+       with <code>Ctrl+S</code> when you care about same-car movement.</li>
+  </ul></details>
+ <details><summary>Closing the app</summary>
+  <p>Click <b>Shut down</b> (top right), then close this tab. There is no
+  console window to find - the server runs quietly in the background until you
+  shut it down (or you sign out / restart Windows).</p></details>
+</div>
+
+<!-- Data check leads the page, ABOVE the dataset panels.
      It is the thing you want immediately after committing rows, and it used
      to be the last card on a long page. -->
 <div class="card">
@@ -943,19 +1222,10 @@ __NAV__
  </div>
 </div>
 
-
 <script>
 const $=id=>document.getElementById(id);
-let pending=null;           // [{name,text,size,capture_date}] - several files
-let rows=[];                // parse result rows, from every file merged
-let SOURCES=[];             // rows[i] came from SOURCES[i] - which file
-const EDITABLE=["capture_date","make","model","variant","year","price_aud",
-                "odometer_km","state","seller_type"];
-
 const localISO=d=>{const x=new Date(d);x.setMinutes(x.getMinutes()-x.getTimezoneOffset());
   return x.toISOString().slice(0,10)};
-$("capdate").value=localISO(Date.now());
-
 function drawHeatmap(){
   fetch("/api/heatmap").then(r=>r.json()).then(h=>{
     const grid=$("heat"), today=new Date();
@@ -995,7 +1265,7 @@ function drawChart(days){
   const x=i=>L+(n<2?(W-L-R)/2:i*(W-L-R)/(n-1));
   const y=v=>T+(H-T-B)*(1-v/max);
   const path=pts.map((p,i)=>`${i?"L":"M"}${x(i).toFixed(1)},${y(p.v).toFixed(1)}`).join("");
-  const grid=[0,.5,1].map(f=>{const v=Math.round(max*f);return `
+  const grid=vpaTicks(0,max,4).map(v=>{return `
       <line x1="${L}" y1="${y(v).toFixed(1)}" x2="${W-R}" y2="${y(v).toFixed(1)}" stroke="#edeff3"/>
       <text x="${L-7}" y="${(y(v)+3.5).toFixed(1)}" text-anchor="end" class="ax">${v.toLocaleString()}</text>`;}).join("");
   const dots=pts.map((p,i)=>`<circle cx="${x(i).toFixed(1)}" cy="${y(p.v).toFixed(1)}" r="3"
@@ -1162,204 +1432,6 @@ drawHeatmap();
 loadOverview();
 refreshStatus();
 
-/* Several files at once. Each keeps ITS OWN capture date, taken from that
-   file's own mtime - a folder of pages saved across three evenings is three
-   capture days, and collapsing them onto one date would invent price history
-   that never happened. */
-function takeFiles(list){
-  const files=[...list];
-  if(!files.length)return;
-  Promise.all(files.map(f=>f.text().then(t=>({
-    name:f.name,text:t,size:f.size,
-    capture_date:f.lastModified?localISO(f.lastModified):null}))))
-    .then(loaded=>{
-      pending=pending&&pending.length?pending.concat(loaded):loaded;
-      // NOTE: write the label span, never drop.textContent - that would
-      // destroy #drop's children (this was the "works only once" bug when
-      // the file input lived inside #drop)
-      const kb=pending.reduce((a,f)=>a+f.size,0)/1024;
-      $("droplabel").textContent=pending.length===1
-        ?`${pending[0].name} (${kb.toFixed(1)} kB) - ready`
-        :`${pending.length} files (${(kb/1024).toFixed(1)} MB) - ready`;
-      // one file: show its date, and let it be overridden. Several: the
-      // field cannot speak for all of them, so it is left blank and each
-      // file's own date is used.
-      $("capdate").value=pending.length===1&&pending[0].capture_date
-        ?pending[0].capture_date:"";
-      $("capdate").disabled=pending.length>1;
-      $("parseBtn").disabled=false;
-      // clear the input so picking the same (or a re-saved) file fires
-      // 'change' again - browsers only fire it when the value differs
-      $("file").value="";});}
-$("drop").onclick=()=>$("file").click();
-$("file").onchange=e=>takeFiles(e.target.files);
-["dragover","dragenter"].forEach(ev=>$("drop").addEventListener(ev,e=>{e.preventDefault();$("drop").classList.add("hover");}));
-["dragleave","drop"].forEach(ev=>$("drop").addEventListener(ev,e=>{e.preventDefault();$("drop").classList.remove("hover");}));
-$("drop").addEventListener("drop",e=>takeFiles(e.dataTransfer.files));
-$("paste").oninput=()=>{$("parseBtn").disabled=!($("paste").value.trim()||(pending&&pending.length));};
-
-$("parseBtn").onclick=async()=>{
-  const queue=(pending&&pending.length)?pending
-    :[{name:"pasted.txt",text:$("paste").value,capture_date:null}];
-  $("parseBtn").disabled=true;
-  rows=[];SOURCES=[];
-  let dropped=0,fmt=null,notes=[],failed=[];
-  for(let i=0;i<queue.length;i++){
-    const f=queue[i];
-    $("parseBtn").textContent=queue.length>1
-      ?`parsing ${i+1}/${queue.length}...`:"parsing...";
-    const body={name:f.name,text:f.text,source:$("source").value,
-      format:$("format").value,
-      // the date box wins only when it is usable: one file, or a paste
-      capture_date:($("capdate").value||f.capture_date||"")};
-    if(f.name==="pasted.txt"&&!body.format)body.format="text";
-    let res;
-    try{
-      res=await fetch("/api/parse",{method:"POST",
-        body:JSON.stringify(body)}).then(r=>r.json());
-    }catch(e){res={ok:false,error:String(e)};}
-    if(!res.ok){failed.push({name:f.name,error:res.error,challenge:!!res.challenge});continue;}
-    fmt=fmt||res.format;dropped+=res.dropped||0;
-    if(res.note)notes.push(res.note);
-    // remember which file each row came from, so the preview can say
-    res.rows.forEach(r=>{rows.push(r);SOURCES.push(f.name);});
-  }
-  $("parseBtn").disabled=false;$("parseBtn").textContent="Preview";
-  if(!rows.length&&failed.length){reportFailures(failed);return;}
-  renderTable({format:fmt||"text",dropped:dropped,
-    note:notes.join(" "),rows:rows,files:queue.length,
-    failed:failed,
-    summary:{parsed:rows.length,
-      duplicates:rows.filter(r=>!r.checked&&r.flags.some(f=>/duplicate|already/.test(f))).length,
-      no_price:rows.filter(r=>r.price_aud==null).length,
-      no_odometer:rows.filter(r=>r.odometer_km==null).length}});
-};
-
-/* A file the server refused is shown in full, not alerted away: a
-   bot-protection page needs re-saving and the message says how. */
-function reportFailures(failed){
-  $("previewCard").style.display="none";
-  $("resultCard").style.display="";
-  $("result").innerHTML=failed.map(f=>
-    `<div class="${f.challenge?"warn":"warn"}" style="margin-bottom:8px">${f.error}</div>`
-  ).join("");
-  $("resultCard").scrollIntoView({behavior:"smooth",block:"nearest"});
-}
-
-function fmtPrice(v){return v==null?"":Number(v).toLocaleString();}
-function renderTable(res){
-  const s=res.summary;
-  // per-file breakdown, so a folder of pages does not become one opaque
-  // number - and so a file that yielded NOTHING is visible rather than
-  // averaged away by the ones that worked
-  let perFile="";
-  if(res.files>1){
-    const counts={};SOURCES.forEach(n=>{counts[n]=(counts[n]||0)+1;});
-    const names=[...new Set(SOURCES)];
-    perFile=`<div class="hint" style="margin-top:6px">from
-      <b>${res.files}</b> file(s): `
-      +names.map(n=>`${n.replace(/ cars for sale.*$/,"")} <b>${counts[n]}</b>`).join(" &middot; ")
-      +(names.length<res.files-(res.failed||[]).length
-        ?` &middot; <span class="warn">${res.files-(res.failed||[]).length-names.length}
-           file(s) produced no rows</span>`:"")
-      +`. Each file keeps its own capture date.</div>`;
-  }
-  const refused=(res.failed||[]).length
-    ? (res.failed||[]).map(f=>`<div class="warn" style="margin-top:6px">${f.error}</div>`).join("")
-    : "";
-  $("summary").innerHTML=`<span class="count">${s.parsed}</span> row(s) parsed as
-   <b>${res.format}</b>${res.dropped?` - <span class="warn">${res.dropped} raw block(s) could not be parsed at all</span>`:""}.
-   ${res.note?`<span class="warn">${res.note}</span> `:""}
-   Flags: ${s.duplicates} duplicate(s), ${s.no_price} without a price, ${s.no_odometer} without odometer.
-   Flagged duplicates and no-price rows start unticked.`+perFile+refused;
-  const tb=$("tbl").querySelector("tbody");tb.innerHTML="";
-  rows.forEach((r,i)=>{
-    const tr=document.createElement("tr");tr.dataset.i=i;
-    const flags=r.flags.map(f=>`<span class="flag${f.startsWith("known")?" info":""}">${f}</span>`).join("");
-    tr.innerHTML=`<td><input type="checkbox" class="sel" ${r.checked?"checked":""}></td>
-     <td title="${String(r.raw_title||"").replace(/"/g,"&quot;")}">${r.status==="new"?"":r.status.replace("_"," ")} ${flags}</td>
-     <td>${r.source}</td>`+
-     EDITABLE.slice(0).map(f=>{
-       const v=r[f]==null?"":(f==="price_aud"?fmtPrice(r[f]):r[f]);
-       const cls=(f==="price_aud"||f==="odometer_km"||f==="year")?" class=num":"";
-       return `<td${cls}><input data-f="${f}" value="${String(v).replace(/"/g,"&quot;")}"></td>`;}).join("");
-    if(!r.checked)tr.classList.add("off");
-    tr.querySelector(".sel").onchange=e=>{tr.classList.toggle("off",!e.target.checked);count();};
-    tb.appendChild(tr);});
-  $("previewCard").style.display="";$("resultCard").style.display="none";count();
-}
-function count(){const n=document.querySelectorAll(".sel:checked").length;
-  $("selcount").textContent=`${n} of ${rows.length} selected`;
-  $("commitBtn").disabled=!n;}
-$("all").onchange=e=>{document.querySelectorAll(".sel").forEach(cb=>{
-  cb.checked=e.target.checked;cb.closest("tr").classList.toggle("off",!e.target.checked);});count();};
-
-$("commitBtn").onclick=async()=>{
-  const out=[];
-  document.querySelectorAll("#tbl tbody tr").forEach(tr=>{
-    if(!tr.querySelector(".sel").checked)return;
-    const r={...rows[tr.dataset.i]};
-    delete r.flags;delete r.checked;delete r.status;delete r.key;
-    tr.querySelectorAll("input[data-f]").forEach(inp=>{r[inp.dataset.f]=inp.value.trim()||null;});
-    out.push(r);});
-  $("commitBtn").disabled=true;$("commitBtn").textContent="writing...";
-  const res=await fetch("/api/commit",{method:"POST",body:JSON.stringify({rows:out})}).then(r=>r.json());
-  $("commitBtn").disabled=false;$("commitBtn").textContent="Commit selected";
-  if(!res.ok){alert(res.error);return;}
-  $("previewCard").style.display="none";$("resultCard").style.display="";
-  let msg=`<span class="ok">Committed: ${res.committed} observation(s), ${res.new_vehicles} new vehicle(s).</span>`;
-  if(res.duplicates_skipped)msg+=`\n${res.duplicates_skipped} exact duplicate(s) skipped by the store.`;
-  if(res.rejected.length)msg+=`\n<span class="warn">Rejected: ${res.rejected.join("; ")}</span>`;
-  msg+=`\n\nRe-parse the same file to confirm: every committed row should now show as a duplicate.`;
-  $("result").innerHTML=msg;
-  // The point of an import, for anyone with a shortlist: what did it just do
-  // to the cars I am following? Shown here rather than left to be found on
-  // another page two clicks away.
-  showStarredAfterImport();
-  // every derived view on this page recomputes from the database, so refresh
-  // them all together - overview, heatmap, chart, status and workbook age
-  drawHeatmap();loadOverview();refreshStatus();
-  pending=null;SOURCES=[];
-  $("droplabel").textContent="drop CSV / JSON / saved-HTML files here, or click to choose";
-  $("capdate").value="";$("capdate").disabled=false;
-  $("paste").value="";$("parseBtn").disabled=true;
-};
-/* What the import just did to the starred cars. Read-only: it asks the same
-   /api/watchlist the Explore page uses, so the two can never tell different
-   stories about the same shortlist. */
-async function showStarredAfterImport(){
-  let w;
-  try{w=await fetch("/api/watchlist").then(r=>r.json());}catch(e){return;}
-  if(!w||!w.ok||!w.total)return;
-  const cash=v=>v==null?"—":"$"+Number(v).toLocaleString();
-  const pc=v=>`<span class="${v>0?"warn":"ok"}">${v>0?"+":""}${v}%</span>`;
-  const moved=w.cars.filter(c=>c.present&&c.since&&c.since.move!=null);
-  const stale=w.cars.filter(c=>c.present&&!c.live&&!moved.includes(c));
-  const missing=w.cars.filter(c=>!c.present);
-  const line=c=>`<div style="padding:3px 0">&#9733; <b>${c.label}</b>`
-    +(c.since&&c.since.move!=null
-      ?` ${cash(c.since.was)} &rarr; ${cash(c.since.now)} ${pc(c.since.move)}`
-       +(c.since.vs_trim!=null
-         ?` <span class="muted">(${c.since.vs_trim>0?"+":""}${c.since.vs_trim}% against its own trim)</span>`:"")
-      :c.present?` ${cash(c.price)}`:"")
-    +(!c.present?' <span class="warn">no longer in the database</span>'
-      :!c.live?` <span class="warn">not in the ${c.trim_last_day} sweep of its trim</span>`:"")
-    +`</div>`;
-  const interesting=[...moved,...stale,...missing];
-  $("result").innerHTML+=
-    `<div style="margin-top:12px;padding-top:10px;border-top:1px solid #e6e9ef">`
-    +`<b>Your watchlist after this import</b> &mdash; ${w.total} car(s) followed`
-    +(interesting.length
-      ?`:</div>`+interesting.map(line).join("")
-       +`<div class="muted" style="margin-top:6px">Full watchlist on the `
-       +`<a href="/explore">Explore</a> page.</div>`
-      :`. Nothing on it changed.</div>`);
-}
-
-$("cancelBtn").onclick=()=>{$("previewCard").style.display="none";rows=[];SOURCES=[];
-  pending=null;$("capdate").disabled=false;
-  $("droplabel").textContent="drop CSV / JSON / saved-HTML files here, or click to choose";};
-
 /* Two buttons, one rebuild. `open` also launches Excel; `build` does not,
    which is what you want when the only goal is to clear the stale-workbook
    banner or leave a current file behind before shutting down. */
@@ -1389,16 +1461,16 @@ __CHROME_JS__
 
 from .ui import action as _action, chrome as _chrome   # noqa: E402
 
-#: Assembled after _PAGE exists. The import page owns the Data check button
-#: as well as the workbook one; the nav itself is shared by every page.
-PAGE = _chrome(_PAGE, "import",
-               _action("vfBtn", "Data check", "check",
-                       "cross-check the database against itself and the workbook")
-               + _action("rebuildBtn", "Rebuild workbook", "rebuild",
-                         "rebuild viewer.xlsx from the database WITHOUT opening "
-                         "it - use this to clear the stale-workbook banner, or "
-                         "before closing the app")
-)
+#: Assembled after the templates exist. Import is one of the three modes of
+#: Add data; the Overview page owns the data check and the workbook rebuild.
+PAGE = _chrome(_PAGE, "add", mode="import")
+OVERVIEW = _chrome(_OVERVIEW, "overview",
+                   _action("vfBtn", "Data check", "check",
+                           "cross-check the database against itself and the workbook")
+                   + _action("rebuildBtn", "Rebuild workbook", "rebuild",
+                             "rebuild viewer.xlsx from the database WITHOUT opening "
+                             "it - use this to clear the stale-workbook flag, or "
+                             "before closing the app"))
 
 
 # MUST stay the last statement in the file. `main()` blocks in serve_forever(),

@@ -199,7 +199,7 @@ def commit_payload(payload: dict, db_path: str | Path) -> dict:
 # -------------------------------------------------------------------- page
 _PAGE = r"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
-<title>vpa quick add</title>
+<title>vpa add data - quick</title>
 <style>
 __CHROME_CSS__
  .cols{gap:14px}
@@ -226,9 +226,10 @@ __CHROME_CSS__
 </style></head><body><div class="wrap">
 __NAV__
 <div class="pagehead"><div>
- <h1 class="pagetitle">Quick add prices</h1>
+ <h1 class="pagetitle">Add data</h1>
  <div class="sub"><span>Jot asking prices for one model, without a full capture. Nothing is written until you commit.</span><span class="dbstat" id="dbstat"></span></div>
 </div>__ACTIONS__</div>
+__MODES__
 
 <div class="card">
  <label for="model">model or specific trim &mdash; type to search, or type a new one</label>
@@ -402,4 +403,4 @@ __CHROME_JS__
 
 from .ui import chrome as _chrome   # noqa: E402
 
-PAGE = _chrome(_PAGE, "quick")
+PAGE = _chrome(_PAGE, "add", mode="quick")

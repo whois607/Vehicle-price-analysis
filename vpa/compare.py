@@ -1114,7 +1114,8 @@ $("topBtn").onclick=()=>{
 /* ---------- stay in step with the database ---------- */
 let seenVersion=null;
 async function checkFresh(){
-  const s=vpaApplyStatus(await fetch("/api/status").then(r=>r.json()));
+  let s;              // after Shut down the poll simply stops answering
+  try{s=vpaApplyStatus(await fetch("/api/status").then(r=>r.json()));}catch(e){return;}
   if(seenVersion===null)seenVersion=s.data_version;
   else if(s.data_version!==seenVersion){
     seenVersion=s.data_version;

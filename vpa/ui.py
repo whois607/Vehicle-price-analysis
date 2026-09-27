@@ -17,6 +17,8 @@ from __future__ import annotations
 #: 16x16 stroke icons on a 24-unit grid, drawn from one visual family:
 #: 2-unit round strokes, no fills, so they sit evenly beside 13px text.
 ICONS = {
+    # four panels - the dataset at a glance
+    "overview": "M4 4h7v7H4zM13 4h7v4h-7zM13 10h7v10h-7zM4 13h7v7H4z",
     # tray with an arrow coming down into it - bringing listings in
     "import": "M12 3v10m0 0 4-4m-4 4-4-4M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3",
     # magnifier - looking one vehicle up
@@ -39,16 +41,26 @@ ICONS = {
     "rebuild": "M20 12a8 8 0 1 1-2.6-5.9M20 4v4h-4",
 }
 
-#: (slug, href, label, icon) - the pages you can be ON. Order is the order
-#: of the workflow: bring data in, look at one, compare many, jot prices.
-#: Bulk sits directly after Import because it is the same job without the
-#: preview - next to the careful version, never instead of it.
+#: (slug, href, label, icon) - the pages you can be ON. Four, not six:
+#: Import, Bulk and Quick add were three tabs for one job, and are now the
+#: three modes of Add data (MODES below). The dataset overview, which used to
+#: be the bottom of the Import page, is the home page.
 PAGES = [
-    ("import", "/", "Import", "import"),
-    ("bulk", "/bulk", "Bulk", "bulk"),
+    ("overview", "/", "Overview", "overview"),
+    ("add", "/add", "Add data", "import"),
     ("explore", "/explore", "Explore", "explore"),
     ("compare", "/compare", "Compare", "compare"),
-    ("quick", "/quick", "Quick add", "quick"),
+]
+
+#: (slug, href, label, icon, what it is for) - the ways of adding data, in
+#: order of care: the careful one first, the fast ones after it.
+MODES = [
+    ("import", "/add", "Import with preview", "import",
+     "saved pages, CSV or pasted text; check each row first"),
+    ("bulk", "/bulk", "Bulk upload", "bulk",
+     "many files at once, no preview; backed up first and undoable"),
+    ("quick", "/quick", "Quick add", "quick",
+     "type in asking prices you saw, a model at a time"),
 ]
 
 
@@ -81,6 +93,18 @@ def nav(active: str) -> str:
   <button class="navbtn danger" id="quitBtn" title="stops the app - your data is already saved">{icon("power")}<span>Shut down</span></button>
  </div>
 </header>"""
+
+
+def modes(active: str) -> str:
+    """The mode switch shared by the three Add data pages. Each mode is its
+    own page and URL (so a bookmark or the desktop shortcut can land on one),
+    but they read as one tab with three ways of working."""
+    items = "".join(
+        f'<a class="mode{" on" if slug == active else ""}" href="{href}"'
+        f'{" aria-current=\"page\"" if slug == active else ""}>'
+        f'{icon(ic)}<span class="mode-t"><b>{label}</b><span>{desc}</span></span></a>'
+        for slug, href, label, ic, desc in MODES)
+    return f'<nav class="modes" aria-label="ways to add data">{items}</nav>'
 
 
 def action(btn_id: str, label: str, ic: str, title: str = "") -> str:
@@ -158,6 +182,21 @@ CHROME_CSS = """
  .sub{color:var(--dim);font-size:12.5px;margin-top:3px}
  .dbstat{white-space:nowrap;cursor:help}
  .dbstat:not(:empty)::before{content:"\\00b7";margin:0 7px;color:var(--faint)}
+
+ /* ---- mode switch (Add data): one tab, three ways of working ---- */
+ .modes{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:0 0 14px}
+ .mode{display:flex;gap:10px;align-items:flex-start;padding:10px 13px;border-radius:var(--r);
+   border:1px solid var(--line);background:var(--card);text-decoration:none;color:var(--ink-2);
+   box-shadow:var(--shadow)}
+ .mode .ico{margin-top:2px;color:var(--dim)}
+ .mode:hover{border-color:var(--accent-line);background:#fbfcff}
+ .mode-t{display:flex;flex-direction:column;min-width:0}
+ .mode-t b{font-size:13px;font-weight:600;color:var(--ink)}
+ .mode-t span{font-size:11.5px;color:var(--dim);line-height:1.35;margin-top:1px}
+ .mode.on{border-color:var(--accent);background:var(--accent-soft);
+   box-shadow:inset 0 0 0 1px var(--accent)}
+ .mode.on .ico,.mode.on b{color:var(--accent-2)}
+ @media (max-width:760px){.mode-t span{display:none}}
 
  /* ---- cards ---- */
  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);
@@ -428,11 +467,13 @@ function vpaAxMoney(v){
 """
 
 
-def chrome(page: str, active: str, actions: str = "") -> str:
-    """Substitute the shared CSS, nav, page actions and behaviour into a page
-    template. `actions` lands in the page header, beside the title."""
+def chrome(page: str, active: str, actions: str = "", mode: str = "") -> str:
+    """Substitute the shared CSS, nav, page actions, mode switch and
+    behaviour into a page template. `actions` lands in the page header,
+    beside the title; `mode` marks which Add data mode this page is."""
     return (page.replace("__CHROME_CSS__", CHROME_CSS)
                 .replace("__NAV__", nav(active))
+                .replace("__MODES__", modes(mode) if mode else "")
                 .replace("__ACTIONS__",
                          f'<div class="pageacts">{actions}</div>' if actions else "")
                 .replace("__CHROME_JS__", CHROME_JS))

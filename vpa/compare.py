@@ -403,7 +403,7 @@ __NAV__
  <div class="sub"><span id="subline">Several makes, model lines or trims side by side, on identical statistics. Read-only.</span><span class="dbstat" id="dbstat"></span></div>
 </div>__ACTIONS__</div>
 
-<div class="card" id="help" style="display:none">
+<div class="card keep" id="help" style="display:none">
  <p><b>This page never writes anything.</b> It is the workbook's
  <b>Comparison</b> and <b>Models</b> sheets: the same selections, the same
  stat rows, the same definitions.</p>
@@ -438,7 +438,7 @@ __NAV__
   <li id="basis" class="flat"></li>
  </ul></div>
 
-<div class="card">
+<div class="card keep">
  <div class="ptitle">what to compare</div>
  <div class="row">
   <div style="flex:1;min-width:260px"><label>add a selection</label>
@@ -1047,7 +1047,9 @@ async function apply(){
   pushUrl();renderPicks();
   const q=new URLSearchParams();PICKS.forEach(p=>q.append("sel",p));
   if($("live").value==="1")q.set("live","1");
-  DATA=await fetch("/api/compare?"+q).then(r=>r.json());
+  const got=await vpaLatest("compare","/api/compare?"+q);
+  if(!got)return;                        // a newer pick has taken over
+  DATA=got;
   if(DATA.unknown&&DATA.unknown.length){
     PICKS=PICKS.filter(p=>!DATA.unknown.some(u=>u.toLowerCase()===p.toLowerCase()));
     alert("Not a selection that exists: "+DATA.unknown.join(", "));

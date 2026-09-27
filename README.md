@@ -155,7 +155,7 @@ The database is the point of the tool, so writing to it is deliberately hard:
 python -m tests.run_all
 ```
 
-Fifteen suites, ~475 checks: the core pipeline, title parsing, the import UI
+Sixteen suites, ~500 checks: the core pipeline, title parsing, the import UI
 over live HTTP, the analysis pages, manual editing, the watchlist, turnover
 (and every case where it must refuse), bulk upload and its undo, identity
 repair and merge, and the Excel workbook driven through real Excel via COM (that last one needs Excel

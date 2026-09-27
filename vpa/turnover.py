@@ -59,9 +59,14 @@ later day is vetoed and counted under `vetoed`.
 """
 from __future__ import annotations
 
+import copy
+import hashlib
 import math
+import threading
+from collections import OrderedDict
 from datetime import date
 
+import numpy as np
 import pandas as pd
 
 from .merge import SITE_ID_PREFIXES
@@ -124,21 +129,31 @@ def cohort(df: pd.DataFrame) -> pd.DataFrame:
     ids are excluded rather than merely distrusted."""
     if df.empty or "listing_id" not in df.columns:
         return df.iloc[0:0]
-    lid = df["listing_id"].astype("string").fillna("")
-    mask = lid.str.startswith(SITE_ID_PREFIXES[0], na=False)
-    for p in SITE_ID_PREFIXES[1:]:
-        mask = mask | lid.str.startswith(p, na=False)
-    return df[mask.fillna(False)]
+    # A plain pass rather than .astype("string").str.startswith: this runs
+    # once per trim per page load, and pandas' string machinery cost ~4 ms a
+    # call for a few hundred values. Missing ids are None/NaN, never str, so
+    # they fall out exactly as the old fillna("") did.
+    mask = np.fromiter((isinstance(v, str) and v.startswith(SITE_ID_PREFIXES)
+                        for v in df["listing_id"]), dtype=bool, count=len(df))
+    return df[mask]
 
 
 def _day_sets(df: pd.DataFrame) -> dict:
-    """day -> set of keys seen that day."""
+    """day -> set of keys seen that day, in day order.
+
+    One pass over two columns. It used to be a groupby with a Python loop
+    per group, which on a model line with 150 trims ran a few hundred
+    thousand pandas indexing calls per page load for what is a dict of sets.
+    Same result: groupby skips a missing day and sorts the days, so this does
+    both."""
     out = {}
     if df.empty:
         return out
-    for day, g in df.groupby("day"):
-        out[str(day)] = set(str(k) for k in g["key"])
-    return out
+    for day, k in zip(df["day"], df["key"]):
+        if pd.isna(day):
+            continue
+        out.setdefault(str(day), set()).add(str(k))
+    return {d: out[d] for d in sorted(out)}
 
 
 def _scope(n_a: int, n_b: int) -> str:
@@ -368,13 +383,17 @@ def turnover(sub: pd.DataFrame, full: pd.DataFrame | None = None,
     half_life = (math.log(2) / hazard) if hazard > 0 else None
 
     # ---- what left, and what is still standing
-    price_by = {(str(r["key"]), str(r["day"])): _num(r["price_aud"])
-                for _, r in sub.iterrows() if pd.notna(r["price_aud"])}
+    # Vectorised rather than iterrows/per-car sorts: a model line has
+    # thousands of rows, and these two lookups were most of a page load.
+    priced = sub[sub["price_aud"].notna()]
+    price_by = {(str(k), str(d)): _num(v) for k, d, v in
+                zip(priced["key"], priced["day"], priced["price_aud"])}
     day_median = {}
     for day, g in sub.dropna(subset=["price_aud"]).groupby("day"):
         day_median[str(day)] = _num(g["price_aud"].median())
-    last_row = {str(k): g.sort_values("day").iloc[-1]
-                for k, g in sub.groupby("key")}
+    # each car's latest sighting: one stable sort, then the last row per car
+    tail = sub.sort_values("day", kind="stable").groupby("key").tail(1)
+    last_row = {str(k): r for k, r in zip(tail["key"], tail.to_dict("records"))}
 
     def rel(price, day):
         m = day_median.get(day)
@@ -419,7 +438,11 @@ def turnover(sub: pd.DataFrame, full: pd.DataFrame | None = None,
                 "title": None if pd.isna(r["raw_title"]) else str(r["raw_title"]),
                 "url": None if pd.isna(r["url"]) else str(r["url"]),
             })
-    departed.sort(key=lambda v: (v["last_day"], v["price"] or 0), reverse=True)
+    # the key breaks exact ties (same day, same price). Without it the order
+    # of tied cars came from iterating a set of strings, which Python
+    # reshuffles on every restart - the same data drew a different list.
+    departed.sort(key=lambda v: (v["last_day"], v["price"] or 0, v["key"]),
+                  reverse=True)
 
     end = span[-1]
     standing = []
@@ -563,8 +586,61 @@ def _verdict(t: dict) -> str:
 
 
 # ------------------------------------------------------- trim vs trim vs line
+#: by_variant results, keyed by a hash of the rows they were computed from.
+#: Clicking from trim to trim within one model asks the same question of the
+#: same rows every time - only the highlighted row differs - and answering it
+#: afresh was the single largest cost of an Explore page load.
+_BV_CACHE: "OrderedDict[str, dict]" = OrderedDict()
+_BV_MAX = 16
+_BV_LOCK = threading.Lock()      # the server answers requests on threads
+
+
+def _fingerprint(df: pd.DataFrame | None) -> str:
+    """A hash of every value, column, dtype and index label in `df`.
+
+    This, not a row count or an import counter, is the cache key: a manual
+    correction changes a price without changing any count, and a key that
+    missed it would serve the old answer. Any change to any cell of the
+    input changes the key, so a stale hit is not possible - only a miss."""
+    if df is None:
+        return "none"
+    h = hashlib.sha1()
+    h.update(repr((list(df.columns), [str(t) for t in df.dtypes])).encode())
+    h.update(pd.util.hash_pandas_object(df, index=True).to_numpy().tobytes())
+    return h.hexdigest()
+
+
 def by_variant(line: pd.DataFrame, selected=None,
                full_line: pd.DataFrame | None = None) -> dict:
+    """by_variant_uncached, remembered per input. Returns a fresh copy every
+    time, with `selected` applied to the copy, so no caller can alter what
+    the next one is given."""
+    try:
+        key = _fingerprint(line) + ":" + _fingerprint(full_line)
+    except Exception:             # unhashable input: just compute it
+        key = None
+    hit = None
+    if key is not None:
+        with _BV_LOCK:
+            hit = _BV_CACHE.get(key)
+            if hit is not None:
+                _BV_CACHE.move_to_end(key)
+    if hit is None:
+        hit = by_variant_uncached(line, None, full_line)
+        if key is not None:
+            with _BV_LOCK:
+                _BV_CACHE[key] = hit
+                while len(_BV_CACHE) > _BV_MAX:
+                    _BV_CACHE.popitem(last=False)
+    out = copy.deepcopy(hit)
+    picked = set(selected or [])
+    for r in out["rows"]:
+        r["selected"] = r["variant"] in picked
+    return out
+
+
+def by_variant_uncached(line: pd.DataFrame, selected=None,
+                        full_line: pd.DataFrame | None = None) -> dict:
     """The same measurement for every trim of one model, side by side.
 
     Each trim is measured on ITS OWN span — trims are captured on different

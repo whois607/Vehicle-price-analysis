@@ -926,6 +926,7 @@ In the order I'd do them:
 | `tests/check_importui.py` (74) | live HTTP: preview writes nothing, commit matches preview, FB price-led paste binds prices correctly, empty-HTML hint, `/api/overview` totals agree with `/api/status`, and `_mix_scenario_db()` proves a changed pool (pooled median −61.5%) still reports the true same-cars +10%; the workbook rebuilds into a throwaway file with `os.startfile` watched, proving `/api/viewer/build` opens nothing while `/api/viewer/open` opens exactly once; the data check card precedes 'dataset at a glance'; `/`, `/?v=1` and `/index.html` all serve, with the module run in a SUBPROCESS because importing it hides the `NameError: PAGE` this catches; and all five pages share one header, one stylesheet (placed first, never re-declared) and unique element ids |
 | `tests/check_turnover.py` (30) | seeds four trims, one per failure mode, because the value of `turnover.py` is its refusals: a clean weekly run rates correctly (exits, arrivals, and car-days asserted as a PROPERTY of the intervals rather than a hand-computed constant, so a reseed cannot silently break it); a trim with `IMG-` ids is refused and its untrackable cars counted; two captures sharing NO car break the span instead of reporting a 100% clearance; a capture a sixth the size of its predecessor has its ten 'exits' shown but never rated, and `_scope()` is asserted to treat widening and narrowing OPPOSITELY; a car that repriced out of a page filter is vetoed rather than counted as a delisting; time on market is bracketed with the floor strictly below the ceiling, asserted on a car seeded to both arrive AND leave inside the window so the check cannot pass vacuously; and the word "sold" is asserted absent from every verdict and note |
 | `tests/check_bulk.py` (24) | writing with no preview, and undoing it: the backup is proved to hold the state from BEFORE the run (a copy taken after would restore the very thing you are undoing); one file through the preview path and the bulk path produces an identical key set, so the fast path cannot drift into being a second importer; a bot-protection page and an empty file are refused by name while the good files in the same run land; undo returns the counts exactly, keeps pre-existing cars WITH their earlier sightings, empties a column the run filled by COALESCE, and leaves an unrelated observation-less car alone; a forced failure in the restore step rolls back byte-identical and the run is still undoable afterwards |
+| `tests/check_perf.py` (19) | every speed-up against the code it replaced, kept verbatim in the test: numpy Theil-Sen equals `scipy.stats.theilslopes` bit for bit on 5,000 random, tied and all-x-equal inputs; the forecast bootstrap gives identical intervals to the old `rng.choice` loop; `cohort`/`_day_sets` equal the old pandas versions on None/NaN/pd.NA/int/derived ids and a missing day; the `by_variant` cache computes once for two requests, applies the highlighted trim per request, hands out copies, and MISSES after a one-dollar price edit that changes no count; Explore and Compare fetch latest-wins and show a busy state |
 | `tests/check_quickadd.py` (16) | stats/percentage maths, mode edge cases, commit into the shared store |
 | `tests/check_viewer.py` (45) | opens the workbook in **real Excel via COM** and reads what the formulas compute; styling preservation, MyView untouched, block sizing, layout migration, and an error scan that separates intentional `#N/A` chart gaps from real `#REF!`/`#VALUE!` |
 
@@ -963,6 +964,52 @@ Keep these — each one was a bug that took a while to find.
   below it down, and the results table growing the card instead of scrolling
   inside it. Fixed heights plus `overflow:auto` are load-bearing there;
   changing one to `max-height` reintroduces both.
+
+**Speed (27/09/2026)**
+* Measured on the same machine, old code against new: moving to another
+  Falcon trim 4.1 s -> 0.5 s, the whole Falcon line 6.5 s -> 1.0 s, all of
+  Ford 5.3 s -> 1.1 s, Compare with three trims 4.9 s -> 0.75 s. The
+  database was never the cost - reading all 6,344 rows takes 0.05 s. It was
+  Python-level work repeated per row or per trim:
+  - `forecast._theil_sen` called `scipy.stats.theilslopes` 501 times per
+    forecast (the 500-draw bootstrap), and scipy spends ~2 ms a call on
+    validation for arithmetic on five numbers. Replaced by scipy's own
+    algorithm in numpy - bit-identical, ~100x faster per call.
+  - `turnover.by_variant` measured every sibling trim on every click (155
+    turnover runs for one Falcon trim), and each run sorted every car's rows
+    separately and walked the frame with `iterrows`. Now vectorised, and the
+    whole result is cached keyed on a hash of every input cell, so moving
+    between trims of one model computes it once.
+  - Explore's vehicle table re-sorted and sliced a DataFrame per car, and
+    the sibling-trim list ran ten small filters per trim (one grouped
+    aggregation now).
+  - The bootstrap itself: `x` is the same on all 500 draws, so the pairwise
+    set-up is done once, and `rng.choice(a, size=n, replace=True)` is
+    `a[rng.integers(0, n, size=n)]` draw for draw (checked over 42,000
+    draws), minus its overhead. Same random stream, same intervals.
+* The cache key is a CONTENT hash on purpose. The status endpoint's
+  `data_version` (last import id : counts) would miss a manual correction,
+  which changes a price and no count - a cache keyed on it would serve the
+  pre-edit numbers. With a content key the worst case is a miss.
+* Proving it changed nothing: the committed code was extracted as a second
+  package (`git archive <commit> vpa`, renamed `vpa_ref`) and both were run
+  against the same copy of the real database for every make, model line and
+  trim, pooled trims, filters, 21 Compare sets and 16 one-car verdicts - 667
+  payloads, compared as sorted JSON: 667/667 identical. Keep doing that for
+  any change sold as "only faster". Fix PYTHONHASHSEED on both sides when
+  you do: the first run reported 8 mismatches, and they were the OLD code
+  disagreeing with itself.
+* That was a real, pre-existing wobble. Turnover's list of cars that left
+  was sorted by (day, price), and exact ties kept the iteration order of a
+  set of strings - which Python reshuffles on every restart, so the same
+  data listed tied cars in a different order each launch (four different
+  orders across six seeds, on three Lexus IS350s all last seen 05/08 at
+  $22,990). The car's key now breaks the tie; the new code gives
+  byte-identical output under three different seeds.
+* Slow is survivable; wrong is not. The server answers on threads, so two
+  quick clicks could land in the wrong order and draw trim A's numbers under
+  trim B's name. `vpaLatest(channel, url)` aborts the older request and
+  resolves a superseded one to null; the pages render nothing for null.
 
 **The shared stylesheet**
 * A page-level class with a generic name will fight the chrome. Explore had

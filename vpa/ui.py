@@ -71,7 +71,8 @@ def nav(active: str) -> str:
         f'{" aria-current=\"page\"" if slug == active else ""}>'
         f'{icon(ic)}<span>{label}</span></a>'
         for slug, href, label, ic in PAGES)
-    return f"""<header class="topbar">
+    return f"""<div id="vpaload" aria-hidden="true"><i></i></div>
+<header class="topbar">
  <div class="brand"><span class="dot"></span>vehicle prices</div>
  <nav class="navtabs">{tabs}</nav>
  <div class="navacts">
@@ -160,7 +161,7 @@ CHROME_CSS = """
 
  /* ---- cards ---- */
  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);
-   padding:16px 18px;margin-bottom:14px;box-shadow:var(--shadow)}
+   padding:16px 18px;margin-bottom:14px;box-shadow:var(--shadow);transition:opacity .2s}
  .ptitle{font-size:13px;color:var(--ink);font-weight:600;margin-bottom:10px}
  .ptitle::first-letter,label::first-letter,th::first-letter{text-transform:uppercase}
  .ptitle>span:not([class]),.ptitle span[id]{font-weight:400;color:var(--dim)}
@@ -284,6 +285,20 @@ CHROME_CSS = """
  kbd{background:var(--line-2);border:1px solid var(--field);border-radius:4px;padding:0 5px;
    font-size:11px;font-family:inherit}
 
+ /* ---- working: a thin bar across the top, and the results it will replace
+    faded, so a click visibly did something and stale numbers are never
+    mistaken for the new ones. Shown only after 150 ms - a fast answer
+    should not flicker. ---- */
+ #vpaload{position:fixed;top:0;left:0;right:0;height:3px;z-index:100;overflow:hidden;
+   opacity:0;transition:opacity .12s;pointer-events:none}
+ #vpaload i{position:absolute;top:0;bottom:0;left:-35%;width:35%;background:var(--accent);
+   border-radius:2px;animation:vpaslide 1s ease-in-out infinite}
+ body.vpa-busy #vpaload{opacity:1}
+ body.vpa-busy{cursor:progress}
+ body.vpa-busy .card:not(.keep){opacity:.5;transition:opacity .12s}
+ @keyframes vpaslide{0%{left:-35%}100%{left:100%}}
+ @media (prefers-reduced-motion:reduce){#vpaload i{animation:none;left:0;width:100%;opacity:.6}}
+
  /* ---- help panel, identical on every page ---- */
  #help{border-color:var(--accent-line)}
  #help>p,#help li,#help details p{font-size:13px;color:var(--ink-2)}
@@ -322,6 +337,31 @@ function vpaApplyStatus(s){
 function vpaStatus(){
   return fetch("/api/status").then(function(r){return r.json();})
     .then(vpaApplyStatus).catch(function(){return null;});
+}
+/* Busy state, counted so overlapping requests do not clear each other's bar. */
+var _vpaBusyN=0,_vpaBusyT=null;
+function vpaBusy(on){
+  _vpaBusyN=Math.max(0,_vpaBusyN+(on?1:-1));
+  if(_vpaBusyN&&!_vpaBusyT){
+    _vpaBusyT=setTimeout(function(){document.body.classList.add("vpa-busy");},150);
+  }else if(!_vpaBusyN){
+    clearTimeout(_vpaBusyT);_vpaBusyT=null;document.body.classList.remove("vpa-busy");
+  }
+}
+/* Fetch JSON for one channel, latest request wins. The server answers in
+   parallel, so a quick second click could otherwise be overwritten by the
+   first click's slower answer - the page showing trim A under trim B's name.
+   A newer call aborts the older one; a superseded call resolves to null and
+   the caller renders nothing. */
+var _vpaChan={};
+function vpaLatest(channel,url){
+  if(_vpaChan[channel])_vpaChan[channel].abort();
+  var ctl=new AbortController();_vpaChan[channel]=ctl;
+  vpaBusy(true);
+  return fetch(url,{signal:ctl.signal}).then(function(r){return r.json();})
+    .then(function(j){return _vpaChan[channel]===ctl?j:null;})
+    .catch(function(e){if(e&&e.name==="AbortError")return null;throw e;})
+    .finally(function(){vpaBusy(false);if(_vpaChan[channel]===ctl)delete _vpaChan[channel];});
 }
 /* Axis ticks on round numbers. The charts used to label 0/25/50/75/100% of
    the data range, which gave axes reading $30,794 / $53,627 / $76,460. */

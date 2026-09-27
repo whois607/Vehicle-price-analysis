@@ -36,9 +36,24 @@ def _month_index(buckets) -> np.ndarray:
 
 
 def _theil_sen(x: np.ndarray, y: np.ndarray) -> tuple[float, float]:
-    from scipy.stats import theilslopes
-    slope, intercept, _, _ = theilslopes(y, x)
-    return float(slope), float(intercept)
+    """Theil-Sen slope and intercept - exactly scipy.stats.theilslopes with
+    its default method='separate', without scipy's per-call overhead.
+
+    The bootstrap below calls this 500 times on five or six monthly medians.
+    scipy spends ~2 ms per call on input validation and array-API dispatch
+    for arithmetic that takes microseconds, so it was over a second of every
+    Explore page load. The algorithm is scipy's own: the median of the slope
+    of every pair of points with distinct x, then median(y) - slope *
+    median(x). tests/check_perf.py holds it to theilslopes on random and
+    degenerate inputs.
+    """
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+    i, j = np.triu_indices(len(x), k=1)
+    dx, dy = x[i] - x[j], y[i] - y[j]
+    ok = dx != 0
+    slope = float(np.median(dy[ok] / dx[ok])) if ok.any() else float("nan")
+    return slope, float(np.median(y) - slope * np.median(x))
 
 
 def _direction(slope: float, level: float, horizon: int) -> str:
@@ -124,15 +139,27 @@ def _robust_trend(prepped, stats, x, y, fx, future, interval, price_col) -> pd.D
     buckets = list(stats["bucket"])
     groups = {b: g[price_col].to_numpy(dtype=float)
               for b, g in prepped.groupby("bucket", observed=True)}
+    pools = [groups[b] for b in buckets]
+    sizes = [len(p) for p in pools]
+    # x is the same on every draw, so the Theil-Sen pairs are set up once
+    # (the arithmetic is _theil_sen's, operation for operation). And
+    # rng.choice(a, size=n, replace=True) is a[rng.integers(0, n, size=n)]
+    # draw for draw - same generator calls in the same order - minus the
+    # per-call overhead, which across 500 draws x every bucket was most of
+    # the forecast's cost. The intervals come out bit-identical.
+    pi, pj = np.triu_indices(len(x), k=1)
+    dx = x[pi] - x[pj]
+    ok = dx != 0
+    dx_ok, mx = dx[ok], np.median(x)
+    nr = len(resid)
     sims = np.empty((BOOTSTRAP_B, len(fx)))
     for i in range(BOOTSTRAP_B):
-        med = np.array([np.median(rng.choice(groups[b], size=len(groups[b]),
-                                             replace=True)) for b in buckets])
-        try:
-            s, c = _theil_sen(x, med)
-        except Exception:
-            s, c = slope, intercept
-        noise = rng.choice(resid, size=len(fx), replace=True) if len(resid) else 0.0
+        med = np.array([np.median(p[rng.integers(0, n, size=n)])
+                        for p, n in zip(pools, sizes)])
+        s = (float(np.median((med[pi] - med[pj])[ok] / dx_ok))
+             if ok.any() else float("nan"))
+        c = float(np.median(med) - s * mx)
+        noise = resid[rng.integers(0, nr, size=len(fx))] if nr else 0.0
         sims[i] = c + s * fx + noise
     lo_q, hi_q = (1 - interval) / 2, 1 - (1 - interval) / 2
     lo = np.maximum(np.quantile(sims, lo_q, axis=0), 0)

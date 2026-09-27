@@ -502,11 +502,17 @@ def detail_payload(db_path: str | Path = DEFAULT_DB, make: str | None = None,
     collided = analyze.collided_keys(sub)
     head["collisions"] = len(collided)
 
+    # One stable sort and positional lookups. This used to re-sort and slice
+    # a DataFrame per car (a sort, an iloc and a Series per vehicle), which
+    # on a model line of 1,200 cars was a large share of every page load.
     vehicles, movers = [], []
-    for key, g in sub.sort_values("capture_date").groupby("key"):
-        g = g.sort_values("capture_date")
-        prices = [p for p in g["price_aud"].tolist() if pd.notna(p)]
-        last = g.iloc[-1]
+    srt = sub.sort_values("capture_date", kind="stable")
+    recs = srt.to_dict("records")
+    groups = srt.groupby("key").indices          # key -> row positions, in date order
+    for key in sorted(groups):                   # groupby's own key order
+        rows = [recs[i] for i in groups[key]]
+        prices = [r["price_aud"] for r in rows if pd.notna(r["price_aud"])]
+        last = rows[-1]
         first_price = _num(prices[0]) if prices else None
         last_price = _num(prices[-1]) if prices else None
         clash = key in collided
@@ -526,8 +532,8 @@ def detail_payload(db_path: str | Path = DEFAULT_DB, make: str | None = None,
             "title": None if pd.isna(last["raw_title"]) else str(last["raw_title"]),
             "listing_id": None if pd.isna(last["listing_id"]) else str(last["listing_id"]),
             "detail": str(last["detail_level"]),
-            "sightings": int(len(g)),
-            "first_day": str(g["day"].iloc[0]), "last_day": str(g["day"].iloc[-1]),
+            "sightings": len(rows),
+            "first_day": str(rows[0]["day"]), "last_day": str(last["day"]),
             "moved": moved, "clash": clash,
             "starred": str(last["key"]) in STARS,
             "change": (round((last_price - first_price) / first_price * 100, 1)
@@ -538,8 +544,8 @@ def detail_payload(db_path: str | Path = DEFAULT_DB, make: str | None = None,
             movers.append({**{k: v[k] for k in
                               ("key", "year", "variant", "first_price", "price",
                                "change", "first_day", "last_day", "url", "title")},
-                           "steps": [{"d": str(d), "v": _num(p)} for d, p in
-                                     zip(g["day"], g["price_aud"]) if pd.notna(p)]})
+                           "steps": [{"d": str(r["day"]), "v": _num(r["price_aud"])}
+                                     for r in rows if pd.notna(r["price_aud"])]})
 
     # most recently seen first; that is the useful order when shopping
     vehicles.sort(key=lambda v: (v["last_day"], v["price"] or 0), reverse=True)
@@ -550,26 +556,42 @@ def detail_payload(db_path: str | Path = DEFAULT_DB, make: str | None = None,
     siblings = []
     if make and model:
         fam = _select(df, make, model, None).dropna(subset=["price_aud"])
-        for va, g in fam.groupby(fam["variant"].fillna("(no trim)")):
-            # same fields the picker carries, so the page can order chips and
-            # the dropdown with one comparator
-            last_day = str(g["day"].max())
-            siblings.append({"variant": str(va), "n": int(len(g)),
-                             "vehicles": int(g["key"].nunique()),
-                             "days": int(g["day"].nunique()),
-                             "median": _num(g["price_aud"].median()),
-                             "lo": _num(g["price_aud"].min()),
-                             "hi": _num(g["price_aud"].max()),
-                             "odo": _num(g["odometer_km"].median()),
-                             "full": int((g["detail_level"] == "full").sum()),
-                             "last": last_day,
-                             # the Supply sheet's per-variant block: how many
-                             # were up at THAT trim's own latest capture, which
-                             # is not always the selection's latest capture
-                             "now": int(g[g["day"] == last_day]["key"].nunique()),
-                             "now_median": _num(
-                                 g[g["day"] == last_day]["price_aud"].median()),
-                             "selected": str(va) in set(picked)})
+        if not fam.empty:
+            # One grouped aggregation for every trim at once. This was a loop
+            # of ten small filters per trim - on a 154-trim model line, about
+            # a second of every page load, including when only one trim was
+            # being looked at.
+            f2 = fam.assign(_v=fam["variant"].fillna("(no trim)"),
+                            _full=(fam["detail_level"] == "full"))
+            agg = f2.groupby("_v").agg(
+                n=("key", "size"), vehicles=("key", "nunique"),
+                days=("day", "nunique"), median=("price_aud", "median"),
+                lo=("price_aud", "min"), hi=("price_aud", "max"),
+                odo=("odometer_km", "median"), full=("_full", "sum"),
+                last=("day", "max"))
+            # the Supply sheet's per-variant block: how many were up at THAT
+            # trim's own latest capture, which is not always the selection's
+            # latest capture
+            at_last = f2[f2["day"].astype(str) == f2["_v"].map(agg["last"]).astype(str)]
+            now = at_last.groupby("_v").agg(now=("key", "nunique"),
+                                            now_median=("price_aud", "median"))
+            chosen = set(picked)
+            for va, r in agg.iterrows():
+                # same fields the picker carries, so the page can order chips
+                # and the dropdown with one comparator
+                has_now = va in now.index
+                siblings.append({"variant": str(va), "n": int(r["n"]),
+                                 "vehicles": int(r["vehicles"]),
+                                 "days": int(r["days"]),
+                                 "median": _num(r["median"]),
+                                 "lo": _num(r["lo"]), "hi": _num(r["hi"]),
+                                 "odo": _num(r["odo"]),
+                                 "full": int(r["full"]),
+                                 "last": str(r["last"]),
+                                 "now": int(now.at[va, "now"]) if has_now else 0,
+                                 "now_median": (_num(now.at[va, "now_median"])
+                                                if has_now else None),
+                                 "selected": str(va) in chosen})
         siblings.sort(key=lambda s: -s["n"])
 
     # ---- the same churn measurement for every trim of this model line, so
@@ -1254,7 +1276,7 @@ __NAV__
 </div>__ACTIONS__</div>
 <div id="stale"></div>
 
-<div class="card" id="help" style="display:none">
+<div class="card keep" id="help" style="display:none">
  <p><b>This page never writes anything.</b> It reads the same database the
  importer fills, using the same statistics engine as <code>vpa report</code>
  and the Excel workbook - a median here equals the median there.</p>
@@ -1345,7 +1367,7 @@ __NAV__
  <div id="findmsg"></div>
 </div>
 
-<div class="card" id="seencard" style="display:none">
+<div class="card keep" id="seencard" style="display:none">
  <div class="ptitle">score a car you have seen
    <span>&mdash; nothing is saved; the numbers stay in the address bar</span></div>
  <div class="fld">
@@ -1376,7 +1398,7 @@ __NAV__
  <div id="wlbody"></div>
 </div>
 
-<div class="card">
+<div class="card keep">
  <div class="ptitle">what to look at</div>
  <div class="row">
   <div><label>make</label><select id="mk"></select></div>
@@ -2129,7 +2151,9 @@ async function openCar(opts){
   delete opts.variant;
   const q=new URLSearchParams({make:c.make,model:c.model,variant:va});
   Object.entries(opts).forEach(([k,v])=>{if(v!=null&&v!=="")q.set(k,v);});
-  CAR=await fetch("/api/explore/car?"+q).then(r=>r.json());
+  const got=await vpaLatest("car","/api/explore/car?"+q);
+  if(!got)return;                        // another car was clicked meanwhile
+  CAR=got;
   renderCar();renderVehicles();
   const u=new URLSearchParams(location.search);
   ["car","price","odo","year","seller","state","note"].forEach(k=>u.delete(k));
@@ -3016,7 +3040,9 @@ async function load(){
   const q=new URLSearchParams({make:s.make,model:s.model});
   PICK.forEach(v=>q.append("variant",v));
   filterQuery(q);
-  const d=await fetch("/api/explore/detail?"+q).then(r=>r.json());
+  $("selspan").textContent=`— loading ${selLabel()}…`;
+  const d=await vpaLatest("detail","/api/explore/detail?"+q);
+  if(!d)return;                          // a newer selection has taken over
   if(!d.ok){$("selspan").textContent=d.error||"failed";return;}
   DATA=d;
   if(d.empty){

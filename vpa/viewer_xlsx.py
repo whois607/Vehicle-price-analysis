@@ -46,7 +46,14 @@ Functions newer than Excel 2007 need the _xlfn. prefix or Excel shows #NAME?.
 """
 from __future__ import annotations
 
+import hashlib
+import json
+import os
+import re
+import shutil
+import zipfile
 from datetime import datetime
+from html import unescape
 from pathlib import Path
 
 import pandas as pd
@@ -237,11 +244,23 @@ def _name(wb, name: str, ref: str):
 
 # ---------------------------------------------------------------- generate
 def generate(db_path=DEFAULT_DB, out_path: Path = DEFAULT_OUT,
-             reset_styles: bool = False) -> Path:
+             reset_styles: bool = False, progress=None) -> Path:
+    """Rebuild the workbook. `progress(fraction, text)`, if given, is called
+    as the build moves on, so the app and the CLI can show where it is - a
+    build takes seconds, and a button that just greys out for that long reads
+    as a hang."""
+    out_path = Path(out_path)
+    prog = _Progress(progress)
+    prog.stage("read", "Reading the database")
+    # Fail in a second, not after the whole build: a workbook open in Excel
+    # cannot be replaced, and that used to be discovered only at the save.
+    _check_writable(out_path)
     with Store(db_path) as store:
-        df = add_segment_cols(store.frame())
-    if df.empty:
+        raw = store.frame()
+    if raw.empty:
         raise RuntimeError("Dataset is empty - ingest something first.")
+    data_fp = _fingerprint(raw)
+    df = add_segment_cols(raw)
     df = df.sort_values(["model_line", "capture_date"]).reset_index(drop=True)
     df["day"] = df["capture_date"].dt.strftime("%Y-%m-%d")
     df["sel_key"] = df.apply(
@@ -270,7 +289,39 @@ def generate(db_path=DEFAULT_DB, out_path: Path = DEFAULT_OUT,
                                               df["capture_date"].max(), freq="M")]
     days = sorted(df["day"].unique())
 
-    out_path = Path(out_path)
+    # Forecasts first: they are pure computation and the slow part, and
+    # knowing how many must actually be computed sizes the progress bar.
+    prog.stage("read", "Checking which forecasts changed")
+    entries = _forecast_entries(df)
+    cache = _FcCache(out_path)
+    todo = sum(1 for e in entries if not cache.has(e[2]))
+    n = len(df)
+    prog.plan([("libs", 1.2 if todo else 0),
+               ("fc", 0.002 * len(entries) + 0.032 * todo),
+               ("open", 0.0002 * n if out_path.exists() else 0.05),
+               ("data", 0.00012 * n), ("views", 0.1),
+               ("save", 0.00045 * n)])
+    if todo:
+        # the first forecast pays for importing statsmodels/scipy (a second
+        # or more); name that wait rather than stall on "Forecasts 0 of N"
+        prog.stage("libs", "Loading the forecasting library")
+        import statsmodels.api  # noqa: F401
+        import scipy.stats  # noqa: F401
+    fc_rows, done = [], 0
+    for name, sub, digest in entries:
+        if cache.has(digest):
+            row = cache.get(digest)
+        else:
+            row = _forecast_row(name, sub)
+            cache.put(digest, row)
+            done += 1
+            prog.stage("fc", f"Forecasts {done} of {todo}", done / todo)
+        if row is not None:
+            fc_rows.append(row)
+    cache.save()
+    prog.stage("fc", "Forecasts done", 1)
+
+    prog.stage("open", "Opening the current workbook")
     wb = load_workbook(out_path) if out_path.exists() else Workbook()
     if "Sheet" in wb.sheetnames and len(wb.sheetnames) == 1:
         wb.remove(wb["Sheet"])
@@ -311,8 +362,10 @@ def generate(db_path=DEFAULT_DB, out_path: Path = DEFAULT_OUT,
         return ws
 
     # --- backend -----------------------------------------------------------
+    prog.stage("data", "Writing the data sheets")
     _sheet_data(sheet("_Data"), df)
-    fc_rows = _sheet_forecasts_data(sheet("_Forecasts"), df)
+    prog.stage("data", "Writing the data sheets", 0.6)
+    fc_rows = _sheet_forecasts_data(sheet("_Forecasts"), fc_rows)
     _sheet_picks(sheet("_Picks"), makes, mm, mmv, vpairs, selections, days)
     _sheet_listings(sheet("_Listings"), full_df)
     last = len(df) + 2                 # backend rows: banner=1, header=2, data 3+
@@ -334,8 +387,12 @@ def generate(db_path=DEFAULT_DB, out_path: Path = DEFAULT_OUT,
     _name(wb, "vpa_vp_var", f"'_Picks'!$M$3:$M${len(vpairs) + 2}")
     _name(wb, "vpa_selection", "Picker!$B$6")
     _name(wb, "vpa_layout", f'"{LAYOUT_VERSION}"')
+    # which data this file was built from - how the app knows it is stale
+    # after ANY change (an edit, a merge, an undo), not just an import
+    _name(wb, "vpa_data", f'"{data_fp}"')
 
     # --- views: refreshed, sized to the data, your styling kept -------------
+    prog.stage("views", "Writing the views")
     _view_picker(sheet("Picker"), top)
     _view_trend(sheet("Trend"), months, days)
     _view_supply(sheet("Supply"), days, len(vpairs))
@@ -352,9 +409,241 @@ def generate(db_path=DEFAULT_DB, out_path: Path = DEFAULT_OUT,
     order += [n for n in wb.sheetnames if n not in order]   # user's own sheets
     wb._sheets = [wb[n] for n in order]
 
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    wb.save(out_path)
+    prog.stage("save", "Saving viewer.xlsx")
+    _save_safely(wb, out_path, prog)
+    prog.stage("save", "Saved", 1)
     return out_path
+
+
+# ------------------------------------------------------------ build support
+class _Progress:
+    """Turns named stages into one 0..1 fraction. Weights are rough seconds,
+    set once the amount of forecast work is known, so the bar moves at an
+    even pace whether 3 forecasts need computing or 190."""
+
+    def __init__(self, fn):
+        self.fn, self.w, self.order = fn, {"read": 0.3}, ["read"]
+        self.last = 0.0
+
+    def plan(self, stages):
+        for k, w in stages:
+            self.w[k] = w
+            self.order.append(k)
+
+    def stage(self, key, text, sub=0.0):
+        if not self.fn:
+            return
+        total = sum(self.w.values()) or 1
+        before = sum(self.w[k] for k in self.order[:self.order.index(key)])
+        # never backwards: a bar that retreats reads as something going wrong
+        frac = round(min(1.0, (before + self.w[key] * sub) / total), 4)
+        self.last = max(self.last, frac)
+        self.fn(self.last, text)
+
+
+def _fingerprint(frame: pd.DataFrame) -> str:
+    """Hash of every stored value the workbook is built from. Equal hashes =
+    the workbook shows exactly what the database holds."""
+    h = pd.util.hash_pandas_object(frame, index=False).values.tobytes()
+    return hashlib.sha1(h).hexdigest()[:16]
+
+
+def data_fingerprint(db_path=DEFAULT_DB) -> str | None:
+    with Store(db_path) as store:
+        raw = store.frame()
+    return None if raw.empty else _fingerprint(raw)
+
+
+_STAMP_CACHE: dict = {}
+
+
+def workbook_stamp(path: Path = DEFAULT_OUT) -> dict | None:
+    """{data, built} as stamped into a workbook, read straight from the file's
+    workbook.xml - cheap enough for the status poll, and it never loads the
+    sheets. None if there is no file or it cannot be read; data is None for a
+    workbook built before stamps existed."""
+    path = Path(path)
+    try:
+        st = path.stat()
+    except OSError:
+        return None
+    key = (str(path), st.st_mtime_ns, st.st_size)
+    if _STAMP_CACHE.get("key") == key:
+        return _STAMP_CACHE["val"]
+    try:
+        with zipfile.ZipFile(path) as z:
+            xml = z.read("xl/workbook.xml").decode("utf-8", "replace")
+        m = re.search(r'<definedName[^>]*name="vpa_data"[^>]*>([^<]*)<', xml)
+        val = {"data": unescape(m.group(1)).strip('"') if m else None,
+               "built": datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M")}
+    except (OSError, zipfile.BadZipFile, KeyError):
+        val = None
+    _STAMP_CACHE.update(key=key, val=val)
+    return val
+
+
+def _check_writable(out: Path):
+    """PermissionError now if Excel (or a sync) holds the workbook."""
+    if out.exists():
+        with open(out, "r+b"):
+            pass
+
+
+def _write_xlsx(wb, path: Path, prog=None):
+    """wb.save(path), reporting progress sheet by sheet - the save is a
+    third of a build and otherwise one long silent step. Uses openpyxl's own
+    writer (what wb.save runs); if that internal API ever moves, it falls
+    back to a plain save and simply reports nothing during it."""
+    try:
+        from zipfile import ZIP_DEFLATED, ZipFile
+        from openpyxl.writer.excel import ExcelWriter
+    except ImportError:
+        wb.save(path)
+        return
+    sizes = [max(ws.max_row, 1) * max(ws.max_column, 1) for ws in wb.worksheets]
+    total, done = sum(sizes) or 1, [0]
+
+    class _Writer(ExcelWriter):
+        def write_worksheet(self, ws):
+            super().write_worksheet(ws)
+            done[0] += max(ws.max_row, 1) * max(ws.max_column, 1)
+            if prog:
+                prog.stage("save", f"Saving viewer.xlsx ({ws.title})",
+                           0.95 * done[0] / total)
+
+    import datetime as _dt
+    with ZipFile(path, "w", ZIP_DEFLATED, allowZip64=True) as archive:
+        wb.properties.modified = (_dt.datetime.now(tz=_dt.timezone.utc)
+                                  .replace(tzinfo=None))
+        _Writer(wb, archive).save()
+
+
+def _save_safely(wb, out: Path, prog=None):
+    """Save beside the target, then swap it in. A crash or a full disk mid-
+    save used to leave a half-written viewer.xlsx - and with it the MyView
+    sheet, the one sheet here that is the user's own work. The file being
+    replaced is kept as viewer.previous.xlsx."""
+    out.parent.mkdir(parents=True, exist_ok=True)
+    tmp = out.with_name(f"{out.stem}.building{out.suffix}")
+    try:
+        _write_xlsx(wb, tmp, prog)
+        if out.exists():
+            shutil.copy2(out, out.with_name(f"{out.stem}.previous{out.suffix}"))
+        os.replace(tmp, out)
+    finally:
+        if tmp.exists():
+            tmp.unlink()
+
+
+def _forecast_entries(df: pd.DataFrame) -> list:
+    """(name, rows, digest) for every model line, and every trim with 8+
+    prices. The digest covers every value of those rows, so a cached forecast
+    is reused only for exactly the input it was computed from."""
+    out = []
+    for line, sub in df.groupby("model_line"):
+        subs = [(str(line), sub)]
+        for var, tsub in sub.dropna(subset=["variant"]).groupby("variant"):
+            if tsub["price_aud"].notna().sum() >= 8:
+                subs.append((f"{line} {var}", tsub))
+        for name, part in subs:
+            h = hashlib.sha1(name.encode())
+            h.update(pd.util.hash_pandas_object(part, index=False).values.tobytes())
+            out.append((name, part, h.hexdigest()))
+    return out
+
+
+def _plain(v):
+    """numpy scalars -> Python, so a computed row and a cached row (JSON) are
+    the same values."""
+    if hasattr(v, "item") and not isinstance(v, (str, bytes)):
+        v = v.item()
+    return v
+
+
+def _forecast_row(name: str, sub: pd.DataFrame) -> list | None:
+    """One _Forecasts row (19 values), or None if the rows prep to nothing."""
+    prepped = analyze.prep(sub)
+    if prepped.empty:
+        return None
+    mfit = analyze.fit_mileage(prepped)
+    prepped = analyze.apply_mileage_adjustment(prepped, mfit)
+    pcol = "price_adj" if mfit.get("usable") else "price_aud"
+    stats = analyze.bucket_stats(prepped, pcol)
+    fc = forecast.forecast_segment(
+        prepped, stats, horizon=3, price_col=pcol,
+        extra_caveats=analyze.data_caveats(prepped, stats))
+    row = [name, fc["method"], fc["n_total"], fc["n_buckets"], fc.get("level"),
+           fc.get("direction")]
+    pts = fc.get("points")
+    for h in range(3):
+        if pts is not None and h < len(pts):
+            p = pts.iloc[h]
+            row += [f"{pd.Timestamp(p['bucket']):%Y-%m}", float(p["forecast"]),
+                    float(p["lo"]), float(p["hi"])]
+        else:
+            row += [None] * 4
+    row.append(fc.get("verdict", "")
+               + (" | " + "; ".join(fc["caveats"]) if fc["caveats"] else ""))
+    return [_plain(v) for v in row]
+
+
+def _code_signature() -> str:
+    """Anything that could change a forecast for the same rows: this code,
+    the analysis code, and the numeric libraries."""
+    from importlib import metadata
+    h = hashlib.sha1()
+    here = Path(__file__).resolve().parent
+    for f in ("viewer_xlsx.py", "analyze.py", "forecast.py"):
+        h.update((here / f).read_bytes())
+    for pkg in ("pandas", "numpy", "scipy", "statsmodels"):
+        try:
+            h.update(f"{pkg}={metadata.version(pkg)}".encode())
+        except metadata.PackageNotFoundError:
+            h.update(f"{pkg}=none".encode())
+    return h.hexdigest()
+
+
+class _FcCache:
+    """Forecast rows from the last build, kept beside the workbook
+    (viewer_cache.json). Most builds follow an import that touched a few
+    models, so most of the ~200 forecasts are for rows that have not changed
+    - recomputing them was half of every rebuild. Keyed by a digest of the
+    exact input rows, and void whenever this code, the analysis code or a
+    numeric library changes, so a reused row is the row a fresh computation
+    gives. Deleting the file is always safe; it only costs one slow build."""
+
+    def __init__(self, out_path: Path):
+        self.path = Path(out_path).with_name("viewer_cache.json")
+        self.sig = _code_signature()
+        self.old, self.rows = {}, {}
+        try:
+            d = json.loads(self.path.read_text(encoding="utf-8"))
+            if d.get("sig") == self.sig:
+                self.old = d.get("rows") or {}
+        except (OSError, ValueError, AttributeError):
+            pass
+
+    def has(self, digest) -> bool:
+        return digest in self.rows or digest in self.old
+
+    def get(self, digest):
+        if digest not in self.rows:
+            self.rows[digest] = self.old[digest]
+        return self.rows[digest]
+
+    def put(self, digest, row):
+        self.rows[digest] = row
+
+    def save(self):
+        """Write only what this build used, so rows for data that no longer
+        exists do not pile up."""
+        tmp = self.path.with_name(self.path.name + ".tmp")
+        try:
+            tmp.write_text(json.dumps({"sig": self.sig, "rows": self.rows}),
+                           encoding="utf-8")
+            os.replace(tmp, self.path)
+        except OSError:
+            pass                      # an unwritable cache only costs speed
 
 
 # ----------------------------------------------------------------- backend
@@ -398,8 +687,9 @@ def _sheet_data(ws, df: pd.DataFrame):
                  "O": 9, "P": 24, "Q": 30, "R": 11, "S": 30})
 
 
-def _sheet_forecasts_data(ws, df: pd.DataFrame) -> int:
-    """The ladder's output as values - predictions can't be formulas."""
+def _sheet_forecasts_data(ws, rows: list) -> int:
+    """The ladder's output as values - predictions can't be formulas. `rows`
+    come from _forecast_row, computed now or reused from the cache."""
     _backend_banner(ws, "BACKEND - rewritten on every refresh. Forecast values "
                         "from vpa forecast.py; the Forecasts view reads these.")
     _put(ws, 1, 6, f"generated {datetime.now():%d/%m/%Y %H:%M}", font=F_NOTE)
@@ -409,42 +699,19 @@ def _sheet_forecasts_data(ws, df: pd.DataFrame) -> int:
     for j, h in enumerate(hdr, start=1):
         _put(ws, 2, j, h, font=F_BOLD, fill=FILL_HDR)
 
-    entries = []
-    for line, sub in df.groupby("model_line"):
-        entries.append((str(line), sub))
-        for var, tsub in sub.dropna(subset=["variant"]).groupby("variant"):
-            if tsub["price_aud"].notna().sum() >= 8:
-                entries.append((f"{line} {var}", tsub))
-
     r = 3
-    for name, sub in entries:
-        prepped = analyze.prep(sub)
-        if prepped.empty:
-            continue
-        mfit = analyze.fit_mileage(prepped)
-        prepped = analyze.apply_mileage_adjustment(prepped, mfit)
-        pcol = "price_adj" if mfit.get("usable") else "price_aud"
-        stats = analyze.bucket_stats(prepped, pcol)
-        fc = forecast.forecast_segment(
-            prepped, stats, horizon=3, price_col=pcol,
-            extra_caveats=analyze.data_caveats(prepped, stats))
-        _put(ws, r, 1, name, font=F_PASTED)
-        _put(ws, r, 2, fc["method"], font=F_PASTED)
-        _put(ws, r, 3, fc["n_total"], font=F_PASTED)
-        _put(ws, r, 4, fc["n_buckets"], font=F_PASTED)
-        _put(ws, r, 5, fc.get("level"), font=F_PASTED, fmt=FMT_MONEY)
-        _put(ws, r, 6, fc.get("direction"), font=F_PASTED)
-        pts = fc.get("points")
+    for row in rows:
+        for j, v in enumerate(row[:6], start=1):
+            _put(ws, r, j, v, font=F_PASTED, fmt=FMT_MONEY if j == 5 else None)
         for h in range(3):
             base = 7 + h * 4
-            if pts is not None and h < len(pts):
-                p = pts.iloc[h]
-                _put(ws, r, base, f"{pd.Timestamp(p['bucket']):%Y-%m}", font=F_PASTED)
-                for k, key in enumerate(("forecast", "lo", "hi"), start=1):
-                    _put(ws, r, base + k, float(p[key]), font=F_PASTED, fmt=FMT_MONEY)
-        _put(ws, r, 19, fc.get("verdict", "")
-             + (" | " + "; ".join(fc["caveats"]) if fc["caveats"] else ""),
-             font=F_PASTED, wrap=True)
+            if row[base - 1] is None:          # no point this far out
+                continue
+            _put(ws, r, base, row[base - 1], font=F_PASTED)
+            for k in range(1, 4):
+                _put(ws, r, base + k, row[base - 1 + k], font=F_PASTED,
+                     fmt=FMT_MONEY)
+        _put(ws, r, 19, row[18], font=F_PASTED, wrap=True)
         r += 1
     ws.auto_filter.ref = f"A2:S{max(r - 1, 3)}"
     ws.freeze_panes = "A3"
@@ -1075,7 +1342,12 @@ def _view_richstats(ws, last: int, n_variants: int):
     _style_bar(sb, BLUE, "median (AUD)", "seller", y_money=True)
     sb.height, sb.width = 7, 9
     ws.add_chart(sb, "H22")
-    _widths(ws, {"A": 26, "B": 20, "C": 6, "D": 12, "E": 12, "F": 12})
+    _widths(ws, {"A": 26, "B": 20, "C": 11, "D": 12, "E": 12, "F": 12})
+    # C was 6 wide until 28/09/2026 - too narrow for the dealer/private
+    # medians in C5:C6, which showed as #####. Widths on an existing sheet
+    # are yours and are kept, so only that exact old default is corrected.
+    if ws.column_dimensions["C"].width == 6:
+        ws.column_dimensions["C"].width = 11
 
 
 def _view_forecasts(ws, n_months: int):

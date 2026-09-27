@@ -247,18 +247,27 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _cmd_viewer(args) -> int:
+    import time
     from .viewer_xlsx import generate, DEFAULT_OUT
+    t0, last = time.time(), [""]
+
+    def show(frac, text):
+        # one line, rewritten in place: "[ 42%] Forecasts 80 of 190"
+        line = f"\r[{frac * 100:3.0f}%] {text}"
+        print(line.ljust(len(last[0])), end="", flush=True)
+        last[0] = line
+
     try:
         out = generate(args.db, Path(args.out) if args.out else DEFAULT_OUT,
-                       reset_styles=args.reset_styles)
+                       reset_styles=args.reset_styles, progress=show)
     except PermissionError:
-        print("Cannot write the workbook - it is open in Excel. "
-              "Close viewer.xlsx and run this again.")
+        print("\nCannot write the workbook - it is open in Excel. "
+              "Close viewer.xlsx and run this again. Nothing was changed.")
         return 1
     except RuntimeError as e:
-        print(str(e))
+        print("\n" + str(e))
         return 1
-    print(f"viewer workbook written: {out}")
+    print(f"\nviewer workbook written in {time.time() - t0:.0f}s: {out}")
     print("Sheets refreshed (your fonts/fills/widths kept). MyView and any "
           "sheets you added are untouched.")
     return 0

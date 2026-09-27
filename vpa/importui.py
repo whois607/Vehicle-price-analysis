@@ -23,6 +23,8 @@ import os
 import sys
 import tempfile
 import threading
+import time
+import traceback
 import urllib.request
 import webbrowser
 from datetime import date
@@ -364,8 +366,8 @@ def status_payload(db_path: str | Path) -> dict:
     """Cheap poll target. `data_version` changes whenever the data changes,
     so any open page can notice an import made in another tab and refresh
     instead of quietly showing stale numbers. `workbook` reports whether
-    viewer.xlsx predates the newest ingest - the Excel file is the one view
-    that does NOT recompute itself."""
+    viewer.xlsx shows the data as it is now - the Excel file is the one view
+    that does NOT recompute itself - and any build in progress."""
     with Store(db_path) as store:
         s = store.status()
         last = store.conn.execute(
@@ -373,19 +375,18 @@ def status_payload(db_path: str | Path) -> dict:
     last_id, last_ts = (last or (None, None))
     version = f"{last_id or 0}:{s['observations']}:{s['vehicles']}"
 
-    from datetime import datetime
-    from .viewer_xlsx import DEFAULT_OUT
-    built, stale = None, False
-    if DEFAULT_OUT.exists():
-        built_dt = datetime.fromtimestamp(DEFAULT_OUT.stat().st_mtime)
-        built = built_dt.strftime("%Y-%m-%d %H:%M")
-        if last_ts:
-            try:
-                stale = built_dt < datetime.fromisoformat(str(last_ts))
-            except ValueError:
-                stale = False
+    # Stale = the data the workbook was stamped with is not the data now.
+    # It used to compare the file's date with the last IMPORT, so an edit, a
+    # merge or an undo left a workbook showing old numbers marked as current.
+    from . import viewer_xlsx
+    stamp = viewer_xlsx.workbook_stamp(viewer_xlsx.DEFAULT_OUT)
+    built = stamp["built"] if stamp else None
+    if stamp is None:
+        stale = bool(s["observations"])          # never built, or unreadable
+    elif stamp["data"] is None:
+        stale = True        # built before stamps: cannot vouch for it
     else:
-        stale = bool(s["observations"])
+        stale = stamp["data"] != _data_fp(db_path)
 
     # Possible duplicates, re-checked whenever the data changes - so an
     # import that re-captures a car already stored under another identity
@@ -399,7 +400,106 @@ def status_payload(db_path: str | Path) -> dict:
     return {"ok": True, "app": "vpa-import", "build": _BUILD, "db": s["db_path"],
             "vehicles": s["vehicles"], "observations": s["observations"],
             "data_version": version, "last_ingest": last_ts,
-            "workbook": {"built": built, "stale": stale}, "dupes": dup}
+            "workbook": {"built": built, "stale": stale,
+                         "job": xl_state(recent=True)},
+            "dupes": dup}
+
+
+_FP_CACHE: dict = {}
+
+
+def _data_fp(db_path) -> str | None:
+    """The database's data fingerprint, recomputed only when the database
+    file has been written since - every open page polls status."""
+    p = Path(db_path)
+    key = [str(p)]
+    for f in (p, p.with_name(p.name + "-wal")):
+        try:
+            st = f.stat()
+            key += [st.st_mtime_ns, st.st_size]
+        except OSError:
+            key += [None, None]
+    if _FP_CACHE.get("key") != key:
+        from .viewer_xlsx import data_fingerprint
+        _FP_CACHE.update(key=key, val=data_fingerprint(db_path))
+    return _FP_CACHE["val"]
+
+
+# ---- the Excel build, as a background job ---------------------------------
+# A build takes several seconds. Run inside the request, the button just sat
+# greyed out with no sign of life. Now the request starts a job and returns,
+# and every open page polls its progress. One job at a time: a second click
+# (from any tab) joins the running one instead of starting a rival build of
+# the same file.
+_XL_LOCK = threading.Lock()
+_XL: dict = {"id": 0, "running": False}
+_XL_DONE: dict = {}
+
+
+def xl_state(recent: bool = False) -> dict | None:
+    """Snapshot of the current/last build. With `recent`, None unless one is
+    running or finished in the last half minute (for the status poll)."""
+    with _XL_LOCK:
+        st = {k: v for k, v in _XL.items()}
+    if not st["id"]:
+        return None
+    end = st.get("finished") or time.time()
+    st["elapsed"] = round(end - st["started"], 1)
+    if recent and not st["running"] and time.time() - end > 30:
+        return None
+    return st
+
+
+def xl_start(db_path, open_after: bool) -> dict:
+    with _XL_LOCK:
+        if _XL["running"]:
+            if open_after:
+                _XL["open"] = True       # a joining "Excel viewer" click opens too
+            return {"ok": True, "job": _XL["id"], "joined": True}
+        job = _XL["id"] + 1
+        _XL.clear()
+        _XL.update(id=job, running=True, frac=0.0, text="Starting",
+                   started=time.time(), finished=None, ok=None, error=None,
+                   open=open_after, opened=False, path=None)
+        _XL_DONE[job] = threading.Event()
+        threading.Thread(target=_xl_run, args=(db_path, job), daemon=True).start()
+    return {"ok": True, "job": job, "joined": False}
+
+
+def _xl_run(db_path, job: int):
+    from . import viewer_xlsx
+
+    def prog(frac, text):
+        with _XL_LOCK:
+            _XL.update(frac=round(frac, 3), text=text)
+
+    res = {"ok": False}
+    try:
+        p = viewer_xlsx.generate(db_path, viewer_xlsx.DEFAULT_OUT, progress=prog)
+        res = {"ok": True, "path": str(p)}
+        with _XL_LOCK:
+            want = _XL["open"]
+        if want:
+            prog(1.0, "Opening in Excel")
+            os.startfile(str(p))             # opens in Excel (Windows)
+            res["opened"] = True
+    except PermissionError:
+        res["error"] = ("viewer.xlsx is locked - it is open in Excel, or "
+                        "OneDrive is syncing it. Close it / wait a moment, "
+                        "then click again. Nothing was changed.")
+    except RuntimeError as e:
+        res["error"] = str(e)
+    except Exception as e:                    # say it; never leave a dead job
+        traceback.print_exc()
+        res["error"] = (f"the workbook build failed ({type(e).__name__}: {e}). "
+                        "The previous viewer.xlsx is untouched.")
+    finally:
+        with _XL_LOCK:
+            _XL.update(running=False, finished=time.time(),
+                       ok=res.get("ok", False), error=res.get("error"),
+                       opened=bool(res.get("opened")), path=res.get("path"),
+                       frac=1.0 if res.get("ok") else _XL.get("frac", 0))
+        _XL_DONE[job].set()
 
 
 def _running_instance(port: int) -> bool:
@@ -487,6 +587,8 @@ class _Handler(BaseHTTPRequestHandler):
         elif self.path == "/api/dupes":
             from . import dupes
             self._json(dupes.payload(self.db_path))
+        elif self.path == "/api/viewer/progress":
+            self._json({"ok": True, "job": xl_state()})
         elif bare == "/compare":
             from . import compare
             self._send(200, compare.PAGE.encode("utf-8"), "text/html; charset=utf-8")
@@ -592,23 +694,21 @@ class _Handler(BaseHTTPRequestHandler):
                 from . import quickadd
                 self._json(quickadd.commit_payload(payload, self.db_path))
             elif self.path in ("/api/viewer/open", "/api/viewer/build"):
-                # Same rebuild either way; only the last step differs. Kept as
-                # one branch so the two can never build the workbook
-                # differently — "rebuild" must produce the identical file that
-                # "rebuild and open" would have opened.
-                from .viewer_xlsx import generate, DEFAULT_OUT
-                open_after = self.path.endswith("/open")
-                try:
-                    p = generate(self.db_path, DEFAULT_OUT)
-                except PermissionError:
-                    self._json({"ok": False, "error":
-                                "viewer.xlsx is locked - it is open in Excel, "
-                                "or OneDrive is syncing it. Close it / wait a "
-                                "moment, then click again."})
-                    return
-                if open_after:
-                    os.startfile(str(p))      # opens in Excel (Windows)
-                self._json({"ok": True, "path": str(p), "opened": open_after})
+                # Same build either way; only the last step differs. Kept as
+                # one job so the two can never build the workbook differently
+                # — "rebuild" must produce the identical file that "rebuild
+                # and open" would have opened. Returns at once with a job id;
+                # the page polls /api/viewer/progress. {"wait": true} blocks
+                # until it is done instead (the tests, and scripts).
+                started = xl_start(self.db_path, self.path.endswith("/open"))
+                if payload.get("wait"):
+                    _XL_DONE[started["job"]].wait()
+                    st = xl_state()
+                    self._json({"ok": st["ok"], "path": st["path"],
+                                "opened": st["opened"], "error": st["error"],
+                                "job": st["id"], "elapsed": st["elapsed"]})
+                else:
+                    self._json(started)
             elif self.path == "/api/star":
                 from . import starred
                 self._json(starred.star(self.db_path,
@@ -1459,26 +1559,8 @@ refreshStatus();
 /* Two buttons, one rebuild. `open` also launches Excel; `build` does not,
    which is what you want when the only goal is to clear the stale-workbook
    banner or leave a current file behind before shutting down. */
-async function rebuildWorkbook(btn,endpoint,label,busy){
-  const b=$(btn);b.disabled=true;const span=b.querySelector("span")||b;
-  const was=span.textContent;span.textContent=busy;
-  try{
-    const res=await fetch(endpoint,{method:"POST",body:"{}"}).then(r=>r.json());
-    if(!res.ok)alert(String(res.error).includes("unknown endpoint")
-      ?"The app is running an older version - click Shut down, then reopen Vehicle Import."
-      :res.error);
-    else{refreshStatus();          // it is fresh again - drop the banner
-      if(!res.opened)flash(b,"rebuilt");}
-  }catch(e){alert("could not update the workbook: "+e);}
-  b.disabled=false;span.textContent=was===busy?label:was;
-}
-/* a rebuild that opens nothing gives no visible sign it worked, so say so */
-function flash(btn,word){
-  const span=btn.querySelector("span")||btn,was=span.textContent;
-  span.textContent=word;setTimeout(()=>{span.textContent=was;},1600);
-}
-$("rebuildBtn").onclick=()=>rebuildWorkbook(
-  "rebuildBtn","/api/viewer/build","Rebuild workbook","rebuilding...");
+// same background build as the header's Excel viewer button, minus opening
+$("rebuildBtn").onclick=()=>vpaWorkbook(false);
 __CHROME_JS__
 </script></div></body></html>
 """

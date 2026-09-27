@@ -409,10 +409,41 @@ def run_checks() -> int:
     _iu.os.startfile = lambda p: opened.append(p)     # type: ignore[attr-defined]
     _vx.DEFAULT_OUT = tmp_out
     try:
-        built = api("/api/viewer/build", {})
+        built = api("/api/viewer/build", {"wait": True})
         after_build, built_stamp = list(opened), (
             tmp_out.stat().st_mtime_ns if tmp_out.exists() else None)
-        shown = api("/api/viewer/open", {})
+        status_fresh = api("/api/status")["workbook"]
+        shown = api("/api/viewer/open", {"wait": True})
+
+        # The normal path: the request returns AT ONCE with a job, and the
+        # page polls progress. A second click while it runs joins the same
+        # job rather than starting a rival build of the same file.
+        # held at the start by a gate, so "still running" is certain when
+        # the second click lands - a tiny test database builds in a blink
+        gate, real_generate = threading.Event(), _vx.generate
+
+        def held(*a, **k):
+            gate.wait(10)
+            return real_generate(*a, **k)
+        _vx.generate = held
+        try:
+            t0 = time.time()
+            first = api("/api/viewer/build", {})
+            quick = time.time() - t0
+            second = api("/api/viewer/build", {})
+        finally:
+            gate.set()
+            _vx.generate = real_generate
+        seen, frac_seen, job = [], [], None
+        for _ in range(600):
+            job = api("/api/viewer/progress")["job"]
+            if job and job.get("text"):
+                seen.append(job["text"])
+                frac_seen.append(job["frac"])
+            if job and not job["running"]:
+                break
+            time.sleep(0.05)
+        polled_status = api("/api/status")["workbook"]
     finally:
         _vx.DEFAULT_OUT = real_out
         if real_startfile is not None:
@@ -433,10 +464,31 @@ def run_checks() -> int:
           and built_stamp is not None
           and tmp_out.stat().st_mtime_ns >= built_stamp,
           "one generate(), two endings - a rebuild is never a stale no-op")
+    check("the build runs in the background: the click returns at once",
+          first.get("ok") is True and first.get("job") and quick < 1.5
+          and first.get("joined") is False,
+          f"answered in {quick:.2f}s with job {first.get('job')}")
+    check("...a second click while it runs joins that job, not a rival build",
+          second.get("job") == first.get("job") and second.get("joined") is True,
+          f"first job {first.get('job')}, second {second.get('job')} "
+          f"joined={second.get('joined')}")
+    check("...progress is reported stage by stage and only moves forward",
+          job and job["ok"] is True and frac_seen == sorted(frac_seen)
+          and job["frac"] == 1.0 and len(set(seen)) >= 2,
+          f"{len(set(seen))} distinct stages seen, last '{seen[-1] if seen else None}', "
+          f"finished ok={job and job['ok']} in {job and job['elapsed']}s")
+    check("...and the status poll carries the finished job to every page",
+          (polled_status.get("job") or {}).get("id") == first.get("job"),
+          f"status job id {(polled_status.get('job') or {}).get('id')}")
+    check("a freshly built workbook is reported as up to date",
+          status_fresh.get("stale") is False and status_fresh.get("built"),
+          f"stale={status_fresh.get('stale')} built={status_fresh.get('built')}")
     check("the user's real viewer.xlsx was never touched by this test",
           _vx.DEFAULT_OUT == real_out and not opened[0].endswith(real_out.name),
           f"built {tmp_out.name}, left {real_out.name} alone")
-    tmp_out.unlink(missing_ok=True)
+    for f in (tmp_out, tmp_out.with_name("viewer_cache.json"),
+              tmp_out.with_name(f"{tmp_out.stem}.previous{tmp_out.suffix}")):
+        f.unlink(missing_ok=True)
 
     print("\n== a bot-protection page is named, not reported as empty ==")
     # The real interstitial, byte for byte, from data/raw. It parses to zero

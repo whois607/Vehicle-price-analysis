@@ -170,6 +170,11 @@ CHROME_CSS = """
  .navbtn.danger{color:#8d3b3b;border-color:var(--bad-line)}
  .navbtn.danger:hover{background:var(--bad-soft);color:#7a2f2f}
  .navbtn.busy{opacity:.6;cursor:progress}
+ /* workbook build in progress: the button fills as it goes */
+ .navbtn.building,.navbtn.building:disabled{opacity:1;cursor:progress;
+   border-color:var(--accent-line);color:var(--accent-2);
+   background:linear-gradient(90deg,var(--accent-soft) var(--p,0%),#fff var(--p,0%))}
+ .navbtn.built{border-color:var(--good-line,#9ccaa6);color:var(--good,#2e7d32)}
  a.navbtn{text-decoration:none}
  .navbtn[hidden]{display:none}
  /* possible duplicates: amber, because it asks for a decision */
@@ -387,11 +392,79 @@ function vpaApplyStatus(s){
   if(xb&&s.workbook){
     var st=!!s.workbook.stale;
     xb.classList.toggle("stale",st);
-    xb.title=st?"The Excel workbook is older than your latest import (built "
+    if(!_vpaXl.polling)xb.title=st?"The Excel workbook does not show your current data (built "
       +(s.workbook.built||"never")+"). Click to rebuild it and open it in Excel."
-      :"rebuild viewer.xlsx from the database and open it in Excel";
+      :"viewer.xlsx is up to date (built "+s.workbook.built+"). Click to rebuild and open it in Excel.";
+    // a build started from another tab shows its progress here too
+    var j=s.workbook.job;
+    if(j&&j.running&&!_vpaXl.polling)vpaXlPoll(false);
   }
   return s;
+}
+/* Excel workbook build: a background job on the server. Every workbook
+   button on the page (the header's, and Overview's Rebuild) shows the one
+   job's progress; only the tab that asked reports the outcome. */
+var _vpaXl={polling:false,mine:false};
+function _vpaXlButtons(){
+  return ["xlsxBtn","rebuildBtn"].map(function(id){return document.getElementById(id);})
+    .filter(Boolean);
+}
+function _vpaXlShow(j){
+  _vpaXlButtons().forEach(function(b){
+    var sp=b.querySelector("span");
+    if(!b.dataset.label&&sp)b.dataset.label=sp.textContent;
+    if(j&&j.running){
+      var pc=Math.round((j.frac||0)*100);
+      b.disabled=true;b.classList.add("building");b.classList.remove("built");
+      b.style.setProperty("--p",pc+"%");
+      if(sp)sp.textContent="Building "+pc+"%";
+      b.title=(j.text||"Building")+" \u00b7 "+(j.elapsed||0)+"s so far";
+    }else{
+      b.disabled=false;b.classList.remove("building");b.style.removeProperty("--p");
+      if(sp)sp.textContent=b.dataset.label||sp.textContent;
+    }
+  });
+}
+function _vpaXlDone(j){
+  _vpaXlShow(null);
+  if(!_vpaXl.mine||!j)return;
+  _vpaXl.mine=false;
+  if(!j.ok){alert(j.error||"the workbook build failed");return;}
+  // say it worked: a rebuild that opens nothing is otherwise invisible
+  _vpaXlButtons().forEach(function(b){
+    var sp=b.querySelector("span");
+    b.classList.add("built");
+    if(sp)sp.textContent=j.opened?"Opening Excel\u2026":"Rebuilt \u2713 "+Math.round(j.elapsed)+"s";
+    setTimeout(function(){b.classList.remove("built");
+      if(sp&&!b.classList.contains("building"))sp.textContent=b.dataset.label||sp.textContent;},2600);
+  });
+}
+function vpaXlPoll(mine){
+  if(mine)_vpaXl.mine=true;
+  if(_vpaXl.polling)return;
+  _vpaXl.polling=true;
+  (function tick(){
+    fetch("/api/viewer/progress").then(function(r){return r.json();}).then(function(res){
+      var j=res.job;
+      if(j&&j.running){_vpaXlShow(j);setTimeout(tick,350);return;}
+      _vpaXl.polling=false;_vpaXlDone(j);vpaStatus();
+    }).catch(function(){setTimeout(tick,1000);});
+  })();
+}
+function vpaWorkbook(open){
+  _vpaXlShow({running:true,frac:0,text:"Starting",elapsed:0});
+  fetch(open?"/api/viewer/open":"/api/viewer/build",{method:"POST",body:"{}"})
+    .then(function(r){return r.json();})
+    .then(function(res){
+      if(!res.ok||!res.job){
+        _vpaXlShow(null);
+        alert(res.stale||String(res.error).indexOf("unknown endpoint")>=0
+          ?"The app is running an older version - click Shut down, then reopen Vehicle Import."
+          :(res.error||"could not start the workbook build"));
+        return;
+      }
+      vpaXlPoll(true);
+    }).catch(function(e){_vpaXlShow(null);alert("could not update the workbook: "+e);});
 }
 function vpaStatus(){
   return fetch("/api/status").then(function(r){return r.json();})
@@ -495,21 +568,11 @@ function vpaAxMoney(v){
       if(!open)vpaReveal(help);
     };
   }
-  /* Excel viewer: one button, one place, every page (it used to exist on
-     three of five, each with its own copy of the handler, and two of those
-     overwrote the button's icon with "updating..."). The label never
-     changes - progress is the button's busy state. */
+  /* Excel viewer: one button, one place, every page. While it builds, the
+     button fills left to right and says how far it is (the icon stays; the
+     text span is what changes). */
   var xb=document.getElementById("xlsxBtn");
-  if(xb)xb.onclick=function(){
-    xb.disabled=true;xb.classList.add("busy");
-    fetch("/api/viewer/open",{method:"POST",body:"{}"}).then(function(r){return r.json();})
-      .then(function(res){
-        if(!res.ok)alert(String(res.error).indexOf("unknown endpoint")>=0
-          ?"The app is running an older version - click Shut down, then reopen Vehicle Import."
-          :res.error);
-      }).catch(function(e){alert("could not update the workbook: "+e);})
-      .then(function(){xb.disabled=false;xb.classList.remove("busy");vpaStatus();});
-  };
+  if(xb)xb.onclick=function(){vpaWorkbook(true);};
   var qb=document.getElementById("quitBtn");
   if(qb)qb.onclick=function(){
     // Confirm: it used to be one click, sitting in a row of identical grey

@@ -143,6 +143,24 @@ def run_checks() -> int:
     check("rebuilding the workbook clears the disagreement",
           status_of(rebuilt, "workbook") == "pass",
           detail_of(rebuilt, "workbook"))
+    # A change no total can see: two sightings swap cars, as a duplicate
+    # merge re-points rows. Row count, price total and date range all stay
+    # put; the data stamp is what notices.
+    with sqlite3.connect(grown) as conn:
+        a = conn.execute("SELECT id, key FROM observations "
+                         "ORDER BY id LIMIT 1").fetchone()
+        keys = [k for (k,) in conn.execute("SELECT DISTINCT key FROM observations")]
+        other = next(k for k in keys if k != a[1])
+        conn.execute("UPDATE observations SET key = ? WHERE id = ?", (other, a[0]))
+    moved = verify_payload(grown, XLSX)
+    check("a change the totals cannot see (a row moved to another car) is caught",
+          status_of(moved, "workbook") == "warn"
+          and "totals agree" in detail_of(moved, "workbook"),
+          detail_of(moved, "workbook"))
+    generate(grown, XLSX)
+    check("...and rebuilding clears that too",
+          status_of(verify_payload(grown, XLSX), "workbook") == "pass",
+          detail_of(verify_payload(grown, XLSX), "workbook"))
 
     print("\n== impossible values are caught ==")
     odd = fresh("odd")

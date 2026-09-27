@@ -129,7 +129,9 @@ dates is three observations sharing one identity, not three cars.
 - **A watchlist**: star specific cars and see what each new import did to
   them, including the figure that matters — how a car moved *relative to its
   own trim*.
-- **Excel workbook**: a full pivot-and-chart view, rebuilt on demand.
+- **Excel workbook**: a full pivot-and-chart view, rebuilt on demand (a few
+  seconds, with progress on the button; the button shows a dot when the
+  workbook no longer matches the database).
 
 ## Data integrity
 
@@ -155,8 +157,8 @@ The database is the point of the tool, so writing to it is deliberately hard:
 python -m tests.run_all
 ```
 
-Nineteen suites, ~550 checks: the core pipeline, title parsing, carsales
-pages, advert links, duplicates, the import UI
+Twenty suites, ~585 checks: the core pipeline, title parsing, carsales
+pages, advert links, duplicates, building the workbook, the import UI
 over live HTTP, the analysis pages, manual editing, the watchlist, turnover
 (and every case where it must refuse), bulk upload and its undo, identity
 repair and merge, and the Excel workbook driven through real Excel via COM (that last one needs Excel

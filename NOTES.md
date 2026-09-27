@@ -1006,6 +1006,38 @@ Keep these — each one was a bug that took a while to find.
 * Worth a periodic check: parse the newest saved page and look at the
   per-field fill (`tests/check_carsales.py` pins both formats).
 
+**Excel workbook build (28/09/2026)**
+* The real viewer.xlsx was a month stale (built 23/08) - and the stale flag
+  could not have been trusted anyway: it compared the file's date with the
+  last IMPORT, so an edit, a merge or an undo left old numbers marked current.
+  Now every build stamps the workbook (defined name `vpa_data`) with a hash of
+  every value it was built from; `/api/status` and the Data check compare that
+  with the database (`workbook_stamp()` reads it from workbook.xml without
+  loading the sheets). The Data check also catches a change the totals cannot
+  see, e.g. a merge re-pointing rows.
+* Build time ~12s -> ~8s from scratch, ~5s after an import. Half was
+  recomputing ~190 forecasts every time; they are now cached beside the
+  workbook in `output/viewer_cache.json`, keyed by a digest of each forecast's
+  exact input rows and voided by any change to viewer_xlsx/analyze/forecast.py
+  or pandas/numpy/scipy/statsmodels. `tests/check_workbook.py` proves a cached
+  build equals a build from scratch cell for cell. Deleting the file is safe.
+  The rest is openpyxl reading and writing the 1.4 MB file; installing `lxml`
+  would roughly halve that (openpyxl uses it when present) - not done.
+* Excel itself opens and recalculates the real workbook in ~1.5s; the wait
+  was never Excel.
+* The app builds in a background job (`/api/viewer/open|build` return a job
+  id at once, `/api/viewer/progress` reports stage and fraction; {"wait":
+  true} blocks, for tests). Both workbook buttons fill as it runs and say
+  "Building 42%" with the stage in the tooltip; a second click joins the
+  running build. The CLI prints the same progress on one line.
+* Safer: a workbook open in Excel is refused in under a second, before any
+  work, instead of after the whole build. Saves go to viewer.building.xlsx
+  and are swapped in, so a failed save can no longer corrupt the file (and
+  MyView with it); the replaced file is kept as viewer.previous.xlsx.
+* RichStats' dealer/private medians showed as ##### (column C was 6 wide);
+  widened, and corrected on existing workbooks only where C is still that
+  exact old default.
+
 **Duplicates (28/09/2026)**
 * WHAT IT IS: one car stored as two identities. Identity is the site ad id
   when a capture carried one, a fingerprint otherwise, and every capture

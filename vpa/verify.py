@@ -162,7 +162,7 @@ def _read_workbook_data(path: Path) -> dict | None:
         wb.close()
 
 
-def _check_workbook(df: pd.DataFrame, path: Path, stale_hint: bool) -> dict:
+def _check_workbook(df: pd.DataFrame, path: Path) -> dict:
     if not path.exists():
         return _check("workbook", "Excel workbook matches the database", _SKIP,
                       "viewer.xlsx has not been built yet",
@@ -196,12 +196,25 @@ def _check_workbook(df: pd.DataFrame, path: Path, stale_hint: bool) -> dict:
                       "the workbook was built from different data - its "
                       "charts are showing an older dataset",
                       "click 'Excel viewer', or run: python -m vpa viewer")
+    # Totals cannot see a merge (rows move between cars, every total stays
+    # put) or an edit that swaps values. The stamp can: it is a hash of every
+    # value the workbook was built from.
+    from .viewer_xlsx import _fingerprint, workbook_stamp
+    stamp = workbook_stamp(path) or {}
+    if stamp.get("data") and stamp["data"] != _fingerprint(df):
+        return _check("workbook", "Excel workbook matches the database", _WARN,
+                      f"built {built}; the totals agree, but the data has "
+                      f"changed since it was built",
+                      "an edit, a duplicate merge or an undo changed stored "
+                      "values without changing the row count or price total",
+                      "click 'Excel viewer', or run: python -m vpa viewer")
     return _check("workbook", "Excel workbook matches the database", _PASS,
                   f"built {built}; all {got['rows']:,} rows, "
                   f"${got['total']:,.0f} of prices and the "
                   f"{got['first']} to {got['last']} range are identical"
-                  + (" (rebuild pending by timestamp, but the numbers agree)"
-                     if stale_hint else ""))
+                  + ("" if stamp.get("data") else
+                     " (built before data stamps, so only the totals could "
+                     "be compared)"))
 
 
 def _check_values(df: pd.DataFrame) -> dict:
@@ -419,14 +432,7 @@ def verify_payload(db_path: str | Path = DEFAULT_DB,
         checks = [_check_sqlite(store), _check_orphans(store),
                   _check_engine(store, df)]
         checks.append(_check_identities(df))
-        stale = False
-        if wb_path.exists() and last_ingest:
-            try:
-                stale = (datetime.fromtimestamp(wb_path.stat().st_mtime)
-                         < datetime.fromisoformat(str(last_ingest)))
-            except ValueError:
-                stale = False
-        checks.append(_check_workbook(df, wb_path, stale))
+        checks.append(_check_workbook(df, wb_path))
         checks.append(_check_values(df))
         checks.append(_check_duplicates(store))
         checks.append(_check_trims(store))

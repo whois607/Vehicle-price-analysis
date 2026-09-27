@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from . import analyze, charts, forecast
+from . import analyze, charts, forecast, links
 from .segments import add_segment_cols, filter_segment, segment_groups, slugify
 from .store import Store
 
@@ -51,7 +51,11 @@ def _segment_report(name: str, sub: pd.DataFrame, outdir: Path, freq: str,
     cols = ["key", "capture_date", "source", "make", "model", "variant", "year",
             "price_aud", "price_adj", "odometer_km", "state", "seller_type",
             "raw_title", "url"]
-    prepped[[c for c in cols if c in prepped.columns]].to_csv(
+    out = prepped[[c for c in cols if c in prepped.columns]].copy()
+    if "url" in out.columns:   # full addresses - see links.py
+        src = prepped["source"] if "source" in prepped.columns else [None] * len(out)
+        out["url"] = [links.ad_url(u, s) for u, s in zip(out["url"], src)]
+    out.to_csv(
         seg_dir / "listings.csv", index=False)
 
     if make_charts and not prepped.empty:

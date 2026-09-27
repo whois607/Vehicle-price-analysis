@@ -28,6 +28,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from . import links
 from .store import Store, DEFAULT_DB
 
 
@@ -151,7 +152,7 @@ def watchlist_payload(db_path: str | Path = DEFAULT_DB) -> dict:
             "state": None if pd.isna(row["state"]) else str(row["state"]),
             "seller_type": (None if pd.isna(row["seller_type"])
                             else str(row["seller_type"])),
-            "url": None if pd.isna(row["url"]) else str(row["url"]),
+            "url": links.ad_url(row["url"], row.get("source")),
             "price": _num(row["price_aud"]),
             "odometer_km": _num(row["odometer_km"]),
             "first_price": _num(prices[0]) if prices else None,

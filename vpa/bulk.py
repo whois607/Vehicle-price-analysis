@@ -64,6 +64,7 @@ from pathlib import Path
 
 from .adapters import parse_file
 from .adapters.challenge import explain as _challenge
+from . import links
 from .store import DEFAULT_DB, Store
 
 #: columns of `vehicles` snapshotted before a run, so undo can put a
@@ -231,6 +232,7 @@ def run(files: list[dict], db_path: str | Path = DEFAULT_DB,
                     "title": r.raw_title, "price": r.price_aud,
                     "odometer_km": r.odometer_km,
                     "capture_date": str(r.capture_date or ""),
+                    "url": links.ad_url(r.url, r.source),
                     # already in the database before this run, or earlier
                     # in this same run
                     "known": k in before or k in seen})
@@ -520,6 +522,7 @@ __CHROME_CSS__
  #rtbl td{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
  #rtbl .c-n{width:48px}#rtbl .c-p{width:100px}#rtbl .c-k{width:104px}
  #rtbl .c-d{width:100px}#rtbl .c-f{width:190px}#rtbl .c-s{width:124px}
+ #rtbl .c-a{width:86px}
  #rtbl tr.drop td:first-child{box-shadow:inset 3px 0 0 #e39a2b}
  #rtbl tr.drop .pr{color:var(--warn);font-weight:600}
  #rtbl tr.undone td{color:var(--faint);text-decoration:line-through}
@@ -619,7 +622,7 @@ __MODES__
   <table id="rtbl" style="display:none"><thead><tr>
    <th class="num c-n">#</th><th>car</th><th class="num c-p">price</th>
    <th class="num c-k">odometer</th><th class="c-d">captured</th>
-   <th class="c-f">file</th><th class="c-s">status</th>
+   <th class="c-f">file</th><th class="c-a">advert</th><th class="c-s">status</th>
   </tr></thead><tbody></tbody></table>
  </div>
  <div class="hint" id="backuphint">A backup is taken before every run.</div>
@@ -738,6 +741,8 @@ let RUNTOTALS=[];                  // [{run, t, undone}] - one per upload
 let DISMISSED=new Set();           // out-of-order cars you have already waved off
 const money=v=>v==null?"—":"$"+Math.round(v).toLocaleString();
 const kmf=v=>v==null?"—":Math.round(v).toLocaleString()+" km";
+const adSite=u=>{try{return new URL(u).hostname.replace(/^www\./,"").split(".")[0];}
+  catch(e){return "ad";}};
 const carName=c=>[c.year,c.make,c.model,c.variant].filter(Boolean).join(" ")
   ||c.title||"(no title)";
 
@@ -779,7 +784,7 @@ function renderSession(){
   // compared with the live, priced car before it.
   let prev=null,prevN=0,n=0;const drops=[];
   const rows=SESSION.map(c=>{
-    if(c.refused)return `<tr class="bad"><td class="num">—</td><td colspan="5">
+    if(c.refused)return `<tr class="bad"><td class="num">—</td><td colspan="6">
       <b>${esc(c.file)}</b> refused<div class="why">${c.html?c.error:esc(c.error)}</div></td>
       <td><span class="tag warn">refused</span></td></tr>`;
     n++;
@@ -793,6 +798,8 @@ function renderSession(){
       <td class="num">${n}</td><td>${esc(carName(c))}</td>
       <td class="num pr">${money(c.price)}</td><td class="num">${kmf(c.odometer_km)}</td>
       <td>${esc(c.capture_date||"")}</td><td title="${esc(c.file)}">${esc(c.file)}</td>
+      <td>${c.url?`<a class="ext" href="${esc(c.url)}" target="_blank"
+        rel="noreferrer noopener" title="the advert">${esc(adSite(c.url))} &#8599;</a>`:""}</td>
       <td>${gone?'<span class="tag">run undone</span>'
         :drop?`<span class="tag warn">cheaper than #${drops[drops.length-1].pn}</span>`
         :c.known?'<span class="tag">seen before</span>'

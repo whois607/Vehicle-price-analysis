@@ -60,7 +60,7 @@ from openpyxl.workbook.defined_name import DefinedName
 from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.worksheet.formula import ArrayFormula
 
-from . import analyze, forecast
+from . import analyze, forecast, links
 from .segments import add_segment_cols
 from .store import Store, DEFAULT_DB
 
@@ -388,7 +388,7 @@ def _sheet_data(ws, df: pd.DataFrame):
         _put(ws, i, 14, d["year_band"])
         _put(ws, i, 15, f'=IF(N(I{i})>0,LN(I{i}),"")')
         _put(ws, i, 16, d["listing_id"])
-        _put(ws, i, 17, d["url"])
+        _put(ws, i, 17, links.ad_url(d["url"], d["source"]))
         _put(ws, i, 18, d["day"])
         _put(ws, i, 19, d["sel_key"])
     ws.auto_filter.ref = f"A2:S{len(df) + 2}"

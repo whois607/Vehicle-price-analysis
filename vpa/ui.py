@@ -320,6 +320,8 @@ CHROME_CSS = """
  .okbox{background:var(--good-soft);border:1px solid var(--good-line);color:#245224;
    border-radius:var(--r-sm);padding:9px 12px;font-size:12.5px}
  a.ext{color:var(--accent);text-decoration:none}a.ext:hover{text-decoration:underline}
+ a.ext.muted{color:var(--dim)}
+ .adlinks{white-space:nowrap}
  code{background:var(--line-2);border-radius:4px;padding:1px 5px;font-size:12px}
  kbd{background:var(--line-2);border:1px solid var(--field);border-radius:4px;padding:0 5px;
    font-size:11px;font-family:inherit}
@@ -402,6 +404,51 @@ function vpaLatest(channel,url){
     .catch(function(e){if(e&&e.name==="AbortError")return null;throw e;})
     .finally(function(){vpaBusy(false);if(_vpaChan[channel]===ctl)delete _vpaChan[channel];});
 }
+/* The two links from a car to its advert: the site itself, and the Internet
+   Archive's copies of the same address. The server sends the full address
+   (vpa/links.py); a car with none gets no links. `gone` marks a car no
+   longer listed - carsales usually takes a sold car's page down, so the
+   archive link is the one to try first there. */
+function vpaAdLinks(url,gone,car){
+  var e=function(s){return String(s).replace(/[&<>"']/g,function(c){
+    return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];});};
+  if(!url){
+    // No advert address was ever recorded for this car - it came from pasted
+    // text, a screenshot or a typed entry, which carry no ad id. Rather than
+    // leave a blank that looks like a fault, offer a web search for it,
+    // labelled as a search: it may find the ad, a different car, or nothing.
+    if(!car)return "";
+    var name=car.title||[car.year,car.make,car.model,car.variant].filter(Boolean).join(" ");
+    if(!name)return "";
+    var q='site:carsales.com.au "'+name+'"'
+      +(car.odometer_km?' "'+Math.round(car.odometer_km).toLocaleString("en-AU")+' km"':"");
+    return '<span class="adlinks"><a class="ext muted" href="https://www.google.com/search?q='
+      +encodeURIComponent(q)+'" target="_blank" rel="noreferrer noopener" title="no advert '
+      +'was recorded for this car (it came from pasted text, a screenshot or a typed entry). '
+      +'This is a web search for it - it may find the ad, a different car, or nothing.">search &#8599;</a></span>';
+  }
+  var site="ad";
+  try{site=new URL(url).hostname.replace(/^www\./,"").split(".")[0];}catch(err){}
+  var live='<a class="ext" href="'+e(url)+'" target="_blank" rel="noreferrer noopener" title="'
+    +(gone?"the advert on "+e(site)+" - a sold car's page is usually taken down"
+          :"the advert on "+e(site))+'">'+e(site)+' &#8599;</a>';
+  var arch='<a class="ext" href="https://web.archive.org/web/*/'+e(url)
+    +'" target="_blank" rel="noreferrer noopener" title="copies of this advert saved by the Internet Archive, if it saved any">archive &#8599;</a>';
+  return '<span class="adlinks">'+(gone?arch+" "+live:live+" "+arch)+"</span>";
+}
+/* Bring a card into view with its START showing. scrollIntoView's
+   "nearest" lines a card taller than the window up by its BOTTOM edge when
+   it lies above the view, so selecting a car in the table below landed part
+   way down its card. Here the card's top goes just under any sticky bar at
+   the top of the page; a card already wholly in view is left where it is. */
+function vpaReveal(el){
+  if(!el)return;
+  var r=el.getBoundingClientRect(),top=8;
+  document.querySelectorAll("[data-sticky]").forEach(function(s){
+    var b=s.getBoundingClientRect();if(b.top<=1&&b.height)top=Math.max(top,b.bottom+8);});
+  if(r.top>=top&&r.bottom<=window.innerHeight)return;
+  window.scrollTo({top:Math.max(0,window.scrollY+r.top-top),behavior:"smooth"});
+}
 /* Axis ticks on round numbers. The charts used to label 0/25/50/75/100% of
    the data range, which gave axes reading $30,794 / $53,627 / $76,460. */
 function vpaTicks(lo,hi,n){
@@ -427,7 +474,7 @@ function vpaAxMoney(v){
       var open=help.style.display!=="none";
       help.style.display=open?"none":"block";
       hb.classList.toggle("on",!open);
-      if(!open)help.scrollIntoView({behavior:"smooth",block:"nearest"});
+      if(!open)vpaReveal(help);
     };
   }
   /* Excel viewer: one button, one place, every page (it used to exist on

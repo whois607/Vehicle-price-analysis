@@ -1006,6 +1006,37 @@ Keep these — each one was a bug that took a while to find.
 * Worth a periodic check: parse the newest saved page and look at the
   per-field fill (`tests/check_carsales.py` pins both formats).
 
+**Advert links (27/09/2026)**
+* carsales' own links are bare paths (`/cars/details/.../SSE-AD-1/`) and the
+  database stores them exactly as they came. Put in a page as they stood,
+  they resolved against the app (127.0.0.1), so every "open" link in Explore
+  went nowhere. `vpa/links.py` puts the site's address in front wherever a
+  link leaves the app (Explore payloads, watchlist, turnover, the Bulk
+  session list, the workbook's `_Data` url column, report CSVs). The stored
+  value is never changed (`tests/check_links.py` pins that).
+* `vpaAdLinks(url, gone)` in the shared page script draws two links: the
+  advert, and the Internet Archive's list of copies of the same address. A
+  car no longer listed gets the archive link first - carsales usually takes
+  a sold car's page down. The archive may hold no copy; its own page says so.
+* 3,118 carsales cars have a link. The rest (about 510 with no site ad id -
+  BASE-/IMG- keys, Facebook, early imports) cannot be tied to one advert
+  and get no links rather than a guessed one.
+* A bare path from a site not listed in `links.SITES` gets no link. Adding
+  a site is one line there.
+* The cars with no link are every capture before August: 15/05 and 14/06
+  came through the v2 tracker (its `listings.url` is empty for all 243, and
+  its ids are internal hashes, not ad ids) and 28/07 was pasted text. Every
+  capture since August has links. No saved page from those dates exists, so
+  nothing can be recovered. Those cars get a grey "search" link instead - a
+  web search for the title and odometer, labelled as a search - rather than
+  a blank that looks like a fault.
+* Selecting a car scrolled its card only part way up. `scrollIntoView` with
+  `block:"nearest"` aligns a card TALLER than the window, lying above it, by
+  its BOTTOM edge. Every card scroll now goes through `vpaReveal(el)`, which
+  puts the top just below any `[data-sticky]` bar (the restart banner) and
+  leaves a card already wholly in view alone. The one `scrollIntoView` left
+  is that sticky banner itself.
+
 **Speed (27/09/2026)**
 * Measured on the same machine, old code against new: moving to another
   Falcon trim 4.1 s -> 0.5 s, the whole Falcon line 6.5 s -> 1.0 s, all of

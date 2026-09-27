@@ -69,6 +69,7 @@ from datetime import date
 import numpy as np
 import pandas as pd
 
+from . import links
 from .merge import SITE_ID_PREFIXES
 
 #: shared cars, as a fraction of the smaller capture, before two consecutive
@@ -436,7 +437,7 @@ def turnover(sub: pd.DataFrame, full: pd.DataFrame | None = None,
                 "seller_type": (None if pd.isna(r["seller_type"])
                                 else str(r["seller_type"])),
                 "title": None if pd.isna(r["raw_title"]) else str(r["raw_title"]),
-                "url": None if pd.isna(r["url"]) else str(r["url"]),
+                "url": links.ad_url(r["url"], r.get("source")),
             })
     # the key breaks exact ties (same day, same price). Without it the order
     # of tied cars came from iterating a set of strings, which Python

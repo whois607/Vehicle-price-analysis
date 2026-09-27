@@ -944,7 +944,7 @@ function reportFailures(failed){
   $("result").innerHTML=failed.map(f=>
     `<div class="${f.challenge?"warn":"warn"}" style="margin-bottom:8px">${f.error}</div>`
   ).join("");
-  $("resultCard").scrollIntoView({behavior:"smooth",block:"nearest"});
+  vpaReveal($("resultCard"));
 }
 
 function fmtPrice(v){return v==null?"":Number(v).toLocaleString();}
@@ -1424,8 +1424,7 @@ async function runVerify(){
 }
 $("vfBtn").onclick=()=>{
   // the button is up in the nav, so bring its results into view
-  document.getElementById("verify").closest(".card")
-    .scrollIntoView({behavior:"smooth",block:"nearest"});
+  vpaReveal(document.getElementById("verify").closest(".card"));
   runVerify();};
 
 drawHeatmap();

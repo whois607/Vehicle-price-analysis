@@ -30,6 +30,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from . import links
 from .store import Store, DEFAULT_DB
 
 MAX_VEHICLES = 400          # table rows sent to the page; total is reported
@@ -473,7 +474,8 @@ def detail_payload(db_path: str | Path = DEFAULT_DB, make: str | None = None,
                 "seller_type": (None if pd.isna(r["seller_type"])
                                 else str(r["seller_type"])),
                 "day": str(r["day"]), "live": k in live,
-                "url": None if pd.isna(r["url"]) else str(r["url"]),
+                "url": links.ad_url(r["url"], r.get("source")),
+                "title": None if pd.isna(r["raw_title"]) else str(r["raw_title"]),
                 "dup": (r["price_aud"], r["odometer_km"]) in dup_pairs,
             })
         standouts.sort(key=lambda v: (v["z"] is None, v["z"]))
@@ -528,7 +530,7 @@ def detail_payload(db_path: str | Path = DEFAULT_DB, make: str | None = None,
             "state": None if pd.isna(last["state"]) else str(last["state"]),
             "seller_type": None if pd.isna(last["seller_type"]) else str(last["seller_type"]),
             "source": str(last["source"]),
-            "url": None if pd.isna(last["url"]) else str(last["url"]),
+            "url": links.ad_url(last["url"], last.get("source")),
             "title": None if pd.isna(last["raw_title"]) else str(last["raw_title"]),
             "listing_id": None if pd.isna(last["listing_id"]) else str(last["listing_id"]),
             "detail": str(last["detail_level"]),
@@ -637,7 +639,7 @@ def _subject_from_row(row) -> dict:
                             else str(row["seller_type"])),
             "variant": None if pd.isna(row["variant"]) else str(row["variant"]),
             "title": None if pd.isna(row["raw_title"]) else str(row["raw_title"]),
-            "url": None if pd.isna(row["url"]) else str(row["url"]),
+            "url": links.ad_url(row["url"], row.get("source")),
             "source": str(row["source"]),
             "day": str(row["day"])}
 
@@ -967,7 +969,7 @@ def car_payload(db_path: str | Path = DEFAULT_DB, make: str | None = None,
             "seller_type": (None if pd.isna(r["seller_type"])
                             else str(r["seller_type"])),
             "day": str(r["day"]),
-            "url": None if pd.isna(r["url"]) else str(r["url"]),
+            "url": links.ad_url(r["url"], r.get("source")),
             "title": None if pd.isna(r["raw_title"]) else str(r["raw_title"]),
             "dup": sig in dupes,
         })
@@ -1768,6 +1770,7 @@ function showStale(msg){
   STALE=true;
   const bar=document.createElement("div");
   bar.className="warnbox";
+  bar.dataset.sticky="1";                // vpaReveal keeps cards clear of it
   bar.style.cssText="position:sticky;top:0;z-index:50;margin:0 0 10px";
   bar.innerHTML=`<b>The app needs restarting.</b> ${esc(msg||"")}`
     +` <button class="ghost mini" id="staleQuit" style="margin-left:8px">Shut down now</button>`;
@@ -1836,7 +1839,7 @@ async function loadWatchlist(){
       ${c.vs_median!=null?`<span class="flat">${c.vs_median>0?"+":""}${c.vs_median}% vs trim median</span>`:""}
       <span class="wltag ${c.live?"live":"stale"}">${c.live?"in latest sweep"
         :`not in the ${esc(String(c.trim_last_day||""))} sweep`}</span>
-      ${c.url?`<a class="ext" href="${esc(c.url)}" target="_blank" rel="noreferrer noopener">open</a>`:""}
+      ${vpaAdLinks(c.url,!c.live,c)}
       <button class="ghost mini" data-unstar="${esc(c.key)}">unfollow</button>
       </div>`;}).join("")
     +`</div><div class="hint">${esc(w.basis)}. A star changes nothing that is
@@ -1910,7 +1913,7 @@ function renderFix(){
   $("fixCancel").onclick=()=>{el.style.display="none";FIX=null;};
   $("fixDelCar").onclick=()=>previewFix([{op:"delete_vehicle",
     target:FIX.key,reason:$("fixWhy").value}]);
-  el.scrollIntoView({behavior:"smooth",block:"nearest"});
+  vpaReveal(el);
 }
 function collectFix(){
   const why=$("fixWhy").value,ops=[],vf={};
@@ -1994,9 +1997,13 @@ function renderCar(){
   if(d.ok===false){el.innerHTML=`<div class="warnbox">${esc(d.error)}</div>`;
     $("carspan").textContent="";return;}
   const s=d.subject;
+  // refused before any car was looked up (e.g. "pick a trim first")
+  if(!s){el.innerHTML=`<div class="warnbox">${esc(d.reason||"")}</div>`;
+    $("carspan").textContent=`— ${d.label||""}`;return;}
   $("carspan").innerHTML=`&mdash; ${esc(d.label)} `
     +(s.stored?'<span class="subjtag">from your data</span>'
-              :'<span class="subjtag typed">not in your data &mdash; nothing saved</span>');
+              :'<span class="subjtag typed">not in your data &mdash; nothing saved</span>')
+    +" "+vpaAdLinks(s.url,false,s.stored?s:null);
   if(!d.usable&&!d.comparables.length){
     el.innerHTML=`<div class="warnbox">${esc(d.reason||d.raw&&d.raw.reason||"")}</div>`;return;}
 
@@ -2086,7 +2093,7 @@ function renderCar(){
       <td>${c.year||""}</td><td class="num">${money(c.price)}</td>
       <td class="num">${km(c.odometer_km)}</td><td>${esc(c.state||"")}</td>
       <td>${esc(c.seller_type||"")}</td><td>${c.day}</td>
-      <td>${c.url?`<a class="ext" href="${esc(c.url)}" target="_blank" rel="noreferrer noopener">open</a>`:""}
+      <td>${vpaAdLinks(c.url,false,c)}
         ${c.dup?'<span class="tag warn" title="another identity holds the same price and odometer - probably the same advert captured twice">duplicate?</span>':""}</td>
     </tr>`).join("")||'<tr><td colspan="7" class="flat">none</td></tr>'}</tbody></table>
     <div class="hint">The ${d.band.n} nearest on kilometres${
@@ -2155,7 +2162,7 @@ async function openCar(opts){
   // reloading a bookmarked verdict restores the page you were looking at
   u.delete("variant");PICK.forEach(v=>u.append("variant",v));
   history.replaceState(null,"","/explore?"+u);
-  $("carcard").scrollIntoView({behavior:"smooth",block:"nearest"});
+  vpaReveal($("carcard"));
 }
 function clearCar(){CAR=null;TARGET=null;FIX=null;
   $("fixpanel").style.display="none";renderCar();renderVehicles();
@@ -2247,7 +2254,7 @@ async function identify(file){
       $("sGo").click();
     }
   }
-  $("findmsg").scrollIntoView({behavior:"smooth",block:"nearest"});
+  vpaReveal($("findmsg"));
 }
 $("findBtn").onclick=()=>{$("findFile").value="";$("findFile").click();};
 $("findFile").onchange=e=>identify(e.target.files[0]);
@@ -2372,7 +2379,9 @@ function renderTab(){
     pickOnly(tr.dataset.v);});
   // the Turnover tab holds two clickable tables: cars that left (judge one
   // against the trim it left) and the trim comparison (select that trim)
-  if(TAB==="turn")document.querySelectorAll("#tabbody tr.pick").forEach(tr=>tr.onclick=()=>{
+  // a click on an advert link opens the advert only, not the car's card too
+  if(TAB==="turn")document.querySelectorAll("#tabbody tr.pick").forEach(tr=>tr.onclick=e=>{
+    if(e.target.closest("a"))return;
     if(tr.dataset.v!=null){pickOnly(tr.dataset.v);return;}
     const k=tr.dataset.k;
     if(CAR&&CAR.subject&&CAR.subject.key===k)clearCar();else openCar({car:k});});
@@ -2383,7 +2392,8 @@ function renderTab(){
     const ze=$("zend"),zl=$("zlive");
     if(ze)ze.onchange=()=>{ZEND=ze.value;renderTab();};
     if(zl)zl.onchange=()=>{LIVEONLY=zl.value==="1";renderTab();};
-    document.querySelectorAll("#tabbody tr.pick").forEach(tr=>tr.onclick=()=>{
+    document.querySelectorAll("#tabbody tr.pick").forEach(tr=>tr.onclick=e=>{
+      if(e.target.closest("a"))return;
       const k=tr.dataset.k;
       if(CAR&&CAR.subject&&CAR.subject.key===k)clearCar();else openCar({car:k});});
   }
@@ -2564,7 +2574,7 @@ function standTab(d){
      <td>${esc(r.seller_type||"")}</td>
      <td>${r.live?'<span class="tag good">in latest capture</span>'
           :`<span class="flat">${r.day}</span>`}</td>
-     <td>${r.url?`<a class="ext" href="${esc(r.url)}" target="_blank" rel="noreferrer noopener">open</a>`:""}
+     <td>${vpaAdLinks(r.url,!r.live,r)}
        ${r.dup?'<span class="tag warn">duplicate?</span>':""}</td>
     </tr>`).join("")||'<tr><td colspan="9" class="flat">nothing matches</td></tr>';
   const dupWarn=dist.dup_extra?`<div class="warnbox"><b>${dist.dup_extra}</b> of
@@ -2809,7 +2819,7 @@ function turnTab(d){
     <td>${v.first_day}</td><td>${v.last_day}</td>
     <td class="num">${v.censored?"&ge;"+v.days_listed
       :v.days_listed+"&ndash;"+v.days_max}</td>
-    <td>${v.url?`<a class="ext" href="${esc(v.url)}" target="_blank" rel="noopener">open</a>`:""}</td>
+    <td>${vpaAdLinks(v.url,true,v)}</td>
    </tr>`).join("");
 
   return `<p class="verdict">${esc(t.verdict||"")}</p>
@@ -3168,6 +3178,8 @@ function renderVehicles(){
     if(x==null&&y==null)return 0; if(x==null)return 1; if(y==null)return -1;
     return (x>y?1:x<y?-1:0)*sortDir;});
   const cur=CAR&&CAR.subject&&CAR.subject.key;
+  // the trim's latest capture day: a car last seen before it has gone
+  const newest=d.vehicles.reduce((m,v)=>v.last_day>m?v.last_day:m,"");
   $("vtbl").querySelector("tbody").innerHTML=rows.map(v=>`<tr class="pick${
       v.key===cur?" on":""}${v.starred?" starred":""}" data-k="${esc(v.key)}"
       data-v="${esc(v.variant||"")}">
@@ -3183,7 +3195,7 @@ function renderVehicles(){
     <td>${esc(v.state||"")}</td><td>${esc(v.seller_type||"")}</td>
     <td>${esc(v.source)}</td><td class="num">${v.sightings}</td>
     <td>${v.last_day}</td>
-    <td>${v.url?`<a class="ext" href="${esc(v.url)}" target="_blank" rel="noreferrer noopener">open</a>`:""}</td>
+    <td>${vpaAdLinks(v.url,v.last_day<newest,v)}</td>
   </tr>`).join("")||'<tr><td colspan="12" class="flat">nothing matches that filter</td></tr>';
   $("vspan").textContent=`— showing ${rows.length}`
     +(d.vehicle_total>d.vehicles.length?` of ${d.vehicle_total} (newest ${d.vehicles.length} loaded)`:"");

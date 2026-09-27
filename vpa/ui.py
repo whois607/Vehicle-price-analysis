@@ -37,6 +37,8 @@ ICONS = {
     "check": "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM8.2 12.2l2.6 2.6 5-5.4",
     # power symbol - stops the app
     "power": "M12 3v9M7.5 6.4a7.5 7.5 0 1 0 9 0",
+    # two overlapping cards - one car stored twice
+    "dupes": "M8 8h12v12H8zM16 8V4H4v12h4",
     # circular arrow - rebuild in place, without opening anything
     "rebuild": "M20 12a8 8 0 1 1-2.6-5.9M20 4v4h-4",
 }
@@ -88,6 +90,7 @@ def nav(active: str) -> str:
  <div class="brand"><span class="dot"></span>vehicle prices</div>
  <nav class="navtabs">{tabs}</nav>
  <div class="navacts">
+  <a class="navbtn dup" id="dupBtn" href="/duplicates" hidden title="the same car stored as two identities - review">{icon("dupes")}<span id="dupTxt">Duplicates</span></a>
   <button class="navbtn" id="xlsxBtn" title="rebuild viewer.xlsx from the database and open it in Excel">{icon("excel")}<span>Excel viewer</span></button>
   <button class="navbtn" id="helpBtn" title="what this page does">{icon("help")}<span>How to use</span></button>
   <button class="navbtn danger" id="quitBtn" title="stops the app - your data is already saved">{icon("power")}<span>Shut down</span></button>
@@ -167,6 +170,11 @@ CHROME_CSS = """
  .navbtn.danger{color:#8d3b3b;border-color:var(--bad-line)}
  .navbtn.danger:hover{background:var(--bad-soft);color:#7a2f2f}
  .navbtn.busy{opacity:.6;cursor:progress}
+ a.navbtn{text-decoration:none}
+ .navbtn[hidden]{display:none}
+ /* possible duplicates: amber, because it asks for a decision */
+ .navbtn.dup{background:var(--warn-soft);border-color:var(--warn-line);color:var(--warn)}
+ .navbtn.dup:hover{background:#fdeed6;border-color:#e6c48f}
  /* The workbook is a file, so it goes stale. That is said ON the button that
     fixes it, as a dot that takes no space - the banner it replaces pushed
     every page down, and on Bulk would have moved every button. */
@@ -364,6 +372,16 @@ function vpaApplyStatus(s){
     d.textContent=Number(s.vehicles).toLocaleString()+" vehicles · "
       +Number(s.observations).toLocaleString()+" observations";
     d.title="database: "+s.db;
+  }
+  // possible duplicates: shown only when there is something to review, so
+  // an import that re-captures a stored car announces it on every page
+  var db=document.getElementById("dupBtn");
+  if(db&&s.dupes){
+    var n=(s.dupes.proven||0)+(s.dupes.review||0);
+    db.hidden=!n;
+    document.getElementById("dupTxt").textContent=n+" possible duplicate"+(n===1?"":"s");
+    db.title=(s.dupes.proven?s.dupes.proven+" proven (safe to merge), ":"")
+      +(s.dupes.review||0)+" for your judgement - the same car stored as two identities. Click to review.";
   }
   var xb=document.getElementById("xlsxBtn");
   if(xb&&s.workbook){

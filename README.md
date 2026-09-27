@@ -76,7 +76,8 @@ python -m vpa report --all                 # every segment
 python -m vpa export                       # dataset + summaries to CSV
 python -m vpa viewer                       # build the Excel workbook
 python -m vpa verify                       # cross-check the data against itself
-python -m vpa merge-duplicates             # dry run; --apply to act
+python -m vpa merge-duplicates             # dry run; --apply to act (proven only;
+                                           # the app's Duplicates page does the rest)
 python -m vpa edit --history               # manual corrections, and undo
 ```
 
@@ -154,8 +155,8 @@ The database is the point of the tool, so writing to it is deliberately hard:
 python -m tests.run_all
 ```
 
-Eighteen suites, ~520 checks: the core pipeline, title parsing, carsales
-pages, advert links, the import UI
+Nineteen suites, ~550 checks: the core pipeline, title parsing, carsales
+pages, advert links, duplicates, the import UI
 over live HTTP, the analysis pages, manual editing, the watchlist, turnover
 (and every case where it must refuse), bulk upload and its undo, identity
 repair and merge, and the Excel workbook driven through real Excel via COM (that last one needs Excel

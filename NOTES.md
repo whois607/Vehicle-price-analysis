@@ -1006,6 +1006,39 @@ Keep these — each one was a bug that took a while to find.
 * Worth a periodic check: parse the newest saved page and look at the
   per-field fill (`tests/check_carsales.py` pins both formats).
 
+**Duplicates (28/09/2026)**
+* WHAT IT IS: one car stored as two identities. Identity is the site ad id
+  when a capture carried one, a fingerprint otherwise, and every capture
+  before August (v2 tracker May/June, screenshots, pasted text) carried
+  none - so a car captured then and again later from a saved page is two
+  identities that can never collide. It keeps coming back as those older
+  cars are re-captured: 50 proven pairs had built up since the last merge.
+* 28/09/2026: the 50 proven pairs merged on the real database with
+  `merge-duplicates --apply` (backup `vpa_backup_20260927_235512.db`),
+  3,628 -> 3,578 vehicles, all 6,359 observations and the full price
+  multiset unchanged, 57 observations re-pointed, verified row by row
+  against a pre-merge snapshot and against a rehearsal on a copy.
+* `vpa/dupes.py` + `/duplicates`: the page for the rest. PROVEN groups
+  (every merge.py rule) merge in one click; FOR YOUR JUDGEMENT groups fail
+  only for lack of proof (round odometer, or no site ad id at all - 100 of
+  them on 28/09) and merge only when you say; groups the data contradicts
+  (two prices on one day, odometer backwards, year/state conflict, no
+  variant, two different ad ids = a relisted advert) are counted and never
+  offered. Rules live in `merge._failures()`, shared by the CLI and the page.
+* Every page merge is logged in `merge_log` (vehicle row, which observation
+  ids moved, star, the survivor's prior first/last_seen) and undone EXACTLY
+  (`tests/check_dupes.py` compares every table before/after). A merge
+  request names groups by key set and is refused whole if any group is no
+  longer offered in that shape. "Different cars" goes in `not_duplicates`
+  (sorted key set - a new identity joining re-asks) and changes no data;
+  Explore's "duplicate?" tag obeys it and links to the pair.
+* The header's amber "N possible duplicates" button comes from
+  `/api/status` (`dupes.summary()`, cached on a data version), so an import
+  that re-captures a stored car lights it on every open page.
+* The May v2 captures (BASE- ids) say "dealer" for 84 of 90 cars - a v2
+  default, not a reading. A seller mismatch against one is shown as weak
+  evidence and not held against the pair. The stored values are unchanged.
+
 **Advert links (27/09/2026)**
 * carsales' own links are bare paths (`/cars/details/.../SSE-AD-1/`) and the
   database stores them exactly as they came. Put in a page as they stood,

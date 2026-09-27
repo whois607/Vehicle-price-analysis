@@ -142,6 +142,74 @@ def _components(rows: list[dict]) -> tuple[list[list[str]], dict]:
     return [sorted(v) for v in comps.values() if len(v) > 1], evidence
 
 
+def _failures(comp: list[str], by_key: dict, evidence: dict) -> list[tuple[str, str]]:
+    """Every rule the group breaks, as (code, reason), in the order the rules
+    are listed at the top of this file. Empty = provably one car.
+
+    `plan()` reports only the first; the Duplicates page (dupes.py) needs
+    them all, because a group is offered for YOUR judgement only when the
+    sole thing missing is proof - never when the data contradicts it."""
+    out: list[tuple[str, str]] = []
+    obs = [r for k in comp for r in by_key[k]]
+    sig = evidence.get(comp[0]) or evidence.get(comp[-1])
+
+    # -- 1. the trim must be recorded, or "same car" rests on make+model
+    if not by_key[comp[0]][0]["variant"]:
+        out.append(("no variant", "no variant recorded, so make and model "
+                    "alone would have to carry the match"))
+
+    # -- 2. the linking odometer must be a reading, not an approximation
+    if sig and sig[5] % ROUND_KM == 0:
+        out.append(("rounded odometer",
+                    f"odometer {sig[5]:,.0f} km is a whole thousand - people "
+                    f"type that when they mean 'about', so two different cars "
+                    f"could share it along with a price"))
+
+    # -- 3. year and state must not actually conflict
+    conflict = ""
+    for f in ("year", "state"):
+        vals = {by_key[k][0][f] for k in comp if by_key[k][0][f] is not None}
+        if len(vals) > 1:
+            conflict = f"{f} conflicts: {sorted(str(v) for v in vals)}"
+    if conflict:
+        out.append((conflict.split(" conflicts")[0] + " conflicts", conflict))
+
+    # -- 4. merging must not put two prices on one capture day
+    by_day = defaultdict(set)
+    for r in obs:
+        if r["price_aud"] is not None:
+            by_day[r["capture_date"]].add(r["price_aud"])
+    clash = sorted(d for d, p in by_day.items() if len(p) > 1)
+    if clash:
+        out.append(("two prices on one day",
+                    f"merging would put two prices on {clash[0]}"))
+
+    # -- 5. exactly one site ad id, which becomes the surviving key
+    winners = [k for k in comp if _is_site_id(by_key[k][0]["listing_id"])]
+    if len(winners) != 1:
+        out.append(("no single site ad id",
+                    f"{len(winners)} identities carry a real site ad id "
+                    f"(exactly 1 is required, so the surviving key is the "
+                    f"site's own)"))
+
+    # -- 6. the odometer cannot run backwards through time
+    seq = sorted((r["capture_date"], r["odometer_km"]) for r in obs
+                 if r["odometer_km"] is not None)
+    back = [(seq[i - 1], seq[i]) for i in range(1, len(seq))
+            if seq[i][1] < seq[i - 1][1]]
+    if back:
+        (d0, o0), (d1, o1) = back[0]
+        out.append(("odometer goes backwards",
+                    f"odometer would go backwards: {o0:,.0f} km on {d0} then "
+                    f"{o1:,.0f} km on {d1}"))
+    return out
+
+
+def _label(rows: list[dict]) -> str:
+    v = rows[0]
+    return " ".join(str(x) for x in (v["make"], v["model"], v["variant"]))
+
+
 def plan(store: Store) -> dict:
     """Pure dry run. Returns the merges that pass EVERY condition, and the
     groups held back with the reason. Touches nothing."""
@@ -153,81 +221,24 @@ def plan(store: Store) -> dict:
     comps, evidence = _components(rows)
     merges, held = [], []
     for comp in comps:
-        obs = [r for k in comp for r in by_key[k]]
-        sig = evidence.get(comp[0]) or evidence.get(comp[-1])
-
-        def hold(code, reason):
+        fails = _failures(comp, by_key, evidence)
+        if fails:
             # `code` groups the report; `reason` carries the specifics. An
             # earlier version grouped on the message and printed 55 nearly
             # identical "round odometer NNN,NNN km" lines.
+            code, reason = fails[0]
             held.append({"keys": comp, "code": code, "reason": reason,
-                         "label": " ".join(str(x) for x in (
-                             by_key[comp[0]][0]["make"],
-                             by_key[comp[0]][0]["model"],
-                             by_key[comp[0]][0]["variant"]))})
-
-        # -- 1. the trim must be recorded, or "same car" rests on make+model
-        if not by_key[comp[0]][0]["variant"]:
-            hold("no variant", "no variant recorded, so make and model alone "
-                 "would have to carry the match")
+                         "label": _label(by_key[comp[0]])})
             continue
-
-        # -- 2. the linking odometer must be a reading, not an approximation
-        if sig and sig[5] % ROUND_KM == 0:
-            hold("rounded odometer",
-                 f"odometer {sig[5]:,.0f} km is a whole thousand - people type "
-                 f"that when they mean 'about', so two different cars could "
-                 f"share it along with a price")
-            continue
-
-        # -- 3. year and state must not actually conflict
-        conflict = ""
-        for f in ("year", "state"):
-            vals = {by_key[k][0][f] for k in comp if by_key[k][0][f] is not None}
-            if len(vals) > 1:
-                conflict = f"{f} conflicts: {sorted(str(v) for v in vals)}"
-        if conflict:
-            hold(conflict.split(" conflicts")[0] + " conflicts", conflict)
-            continue
-
-        # -- 4. merging must not put two prices on one capture day
-        by_day = defaultdict(set)
-        for r in obs:
-            if r["price_aud"] is not None:
-                by_day[r["capture_date"]].add(r["price_aud"])
-        clash = sorted(d for d, p in by_day.items() if len(p) > 1)
-        if clash:
-            hold("two prices on one day",
-                 f"merging would put two prices on {clash[0]}")
-            continue
-
-        # -- 5. exactly one site ad id, which becomes the surviving key
-        winners = [k for k in comp if _is_site_id(by_key[k][0]["listing_id"])]
-        if len(winners) != 1:
-            hold("no single site ad id",
-                 f"{len(winners)} identities carry a real site ad id (exactly "
-                 f"1 is required, so the surviving key is the site's own)")
-            continue
-
-        # -- 6. the odometer cannot run backwards through time
-        seq = sorted((r["capture_date"], r["odometer_km"]) for r in obs
-                     if r["odometer_km"] is not None)
-        back = [(seq[i - 1], seq[i]) for i in range(1, len(seq))
-                if seq[i][1] < seq[i - 1][1]]
-        if back:
-            (d0, o0), (d1, o1) = back[0]
-            hold("odometer goes backwards",
-                 f"odometer would go backwards: {o0:,.0f} km on {d0} then "
-                 f"{o1:,.0f} km on {d1}")
-            continue
-
-        v = by_key[winners[0]][0]
-        sig = evidence.get(comp[0]) or evidence.get(winners[0])
+        obs = [r for k in comp for r in by_key[k]]
+        winner = [k for k in comp if _is_site_id(by_key[k][0]["listing_id"])][0]
+        v = by_key[winner][0]
+        sig = evidence.get(comp[0]) or evidence.get(winner)
         merges.append({
-            "winner": winners[0],
-            "absorbed": [k for k in comp if k != winners[0]],
+            "winner": winner,
+            "absorbed": [k for k in comp if k != winner],
             "listing_id": v["listing_id"],
-            "label": " ".join(str(x) for x in (v["make"], v["model"], v["variant"])),
+            "label": _label(by_key[winner]),
             # the shared reading that linked them - the actual evidence
             "price": sig[4] if sig else v["price_aud"],
             "odometer_km": sig[5] if sig else v["odometer_km"],
@@ -245,9 +256,120 @@ def plan(store: Store) -> dict:
     }
 
 
+def _apply_merges(store: Store, merges: list[dict], log: dict | None = None) -> dict:
+    """Fold each merge's `absorbed` keys into its `winner`, in ONE
+    transaction, verifying every invariant before commit. Shared by the
+    command-line merge and the Duplicates page so both obey the same
+    checks. With `log` ({batch, ts, basis, backup}) each absorbed identity
+    is written to merge_log so the merge can be undone exactly."""
+    import json
+    from . import analyze
+
+    n_absorbed = sum(len(m["absorbed"]) for m in merges)
+    before_obs = store.conn.execute("SELECT COUNT(*) FROM observations").fetchone()[0]
+    before_veh = store.conn.execute("SELECT COUNT(*) FROM vehicles").fetchone()[0]
+    before_fp = _fingerprint(store)
+    before_bad = analyze.collided_keys(store.frame())
+    cols = [r[1] for r in store.conn.execute("PRAGMA table_info(vehicles)")]
+
+    store.conn.isolation_level = None
+    store.conn.execute("BEGIN IMMEDIATE")
+    try:
+        for m in merges:
+            for k in m["absorbed"]:
+                row = store.conn.execute("SELECT * FROM vehicles WHERE key = ?",
+                                         (k,)).fetchone()
+                if row is None:
+                    raise RuntimeError(f"identity {k} no longer exists")
+                ids = [r[0] for r in store.conn.execute(
+                    "SELECT id FROM observations WHERE key = ? ORDER BY id", (k,))]
+                star = store.conn.execute(
+                    "SELECT starred_at, note FROM starred WHERE key = ?", (k,)).fetchone()
+                winner_starred = store.conn.execute(
+                    "SELECT 1 FROM starred WHERE key = ?", (m["winner"],)).fetchone()
+                wwin = store.conn.execute(
+                    "SELECT first_seen, last_seen FROM vehicles WHERE key = ?",
+                    (m["winner"],)).fetchone()
+                if wwin is None:
+                    raise RuntimeError(f"identity {m['winner']} no longer exists")
+                # ORDER MATTERS: re-point the observations FIRST. The FK
+                # is ON DELETE CASCADE, so deleting the vehicle while it
+                # still owned rows would delete the price history with it.
+                store.conn.execute(
+                    "UPDATE observations SET key = ? WHERE key = ?",
+                    (m["winner"], k))
+                left = store.conn.execute(
+                    "SELECT COUNT(*) FROM observations WHERE key = ?",
+                    (k,)).fetchone()[0]
+                if left:
+                    raise RuntimeError(
+                        f"{left} observation(s) still point at {k}")
+                # A star follows its car. Merging two identities into one
+                # must not silently drop the fact that you were watching
+                # it; INSERT OR IGNORE because the survivor may already
+                # be starred, and the note on the survivor wins.
+                store.conn.execute(
+                    "INSERT OR IGNORE INTO starred (key, starred_at, note) "
+                    "SELECT ?, starred_at, note FROM starred WHERE key = ?",
+                    (m["winner"], k))
+                store.conn.execute("DELETE FROM starred WHERE key = ?", (k,))
+                store.conn.execute("DELETE FROM vehicles WHERE key = ?", (k,))
+                if log is not None:
+                    store.conn.execute(
+                        "INSERT INTO merge_log (batch, ts, winner, absorbed, "
+                        "vehicle, obs_ids, star, star_new, winner_first, "
+                        "winner_last, basis, backup_path) "
+                        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                        (log["batch"], log["ts"], m["winner"], k,
+                         json.dumps(dict(zip(cols, tuple(row)))), json.dumps(ids),
+                         json.dumps(dict(star)) if star else None,
+                         1 if (star and not winner_starred) else 0,
+                         wwin[0], wwin[1],
+                         m.get("basis") or log.get("basis"), log.get("backup")))
+            # the survivor inherits the widest window
+            store.conn.execute("""
+                UPDATE vehicles SET
+                  first_seen = (SELECT MIN(capture_date) FROM observations
+                                WHERE key = vehicles.key),
+                  last_seen  = (SELECT MAX(capture_date) FROM observations
+                                WHERE key = vehicles.key)
+                WHERE key = ?""", (m["winner"],))
+
+        after_obs = store.conn.execute("SELECT COUNT(*) FROM observations").fetchone()[0]
+        after_veh = store.conn.execute("SELECT COUNT(*) FROM vehicles").fetchone()[0]
+        if after_obs != before_obs:
+            raise RuntimeError(
+                f"observation count changed: {before_obs} -> {after_obs}")
+        if _fingerprint(store) != before_fp:
+            raise RuntimeError("the price data itself changed")
+        if after_veh != before_veh - n_absorbed:
+            raise RuntimeError(
+                f"vehicle count wrong: {before_veh} -> {after_veh}, "
+                f"expected {before_veh - n_absorbed}")
+        orphans = store.conn.execute(
+            "SELECT COUNT(*) FROM observations o LEFT JOIN vehicles v "
+            "ON v.key = o.key WHERE v.key IS NULL").fetchone()[0]
+        if orphans:
+            raise RuntimeError(f"{orphans} orphaned observation(s)")
+        after_bad = analyze.collided_keys(store.frame())
+        if after_bad - before_bad:
+            raise RuntimeError(
+                f"{len(after_bad - before_bad)} identity(ies) now hold two "
+                f"prices on one day - merging created the corruption "
+                f"repair.py exists to undo")
+        store.conn.execute("COMMIT")
+    except Exception:
+        store.conn.execute("ROLLBACK")
+        raise
+    finally:
+        store.conn.isolation_level = ""
+    return {"observations": after_obs, "vehicles": after_veh}
+
+
 def apply(db_path: str | Path = DEFAULT_DB) -> dict:
     """Take a backup, merge in one transaction, verify, commit or roll back."""
-    from . import analyze
+    from datetime import datetime
+    import uuid
 
     with Store(db_path) as store:
         backup = store.backup()
@@ -255,84 +377,11 @@ def apply(db_path: str | Path = DEFAULT_DB) -> dict:
         if not p["merges"]:
             return {**p, "applied": False, "backup": str(backup),
                     "note": "nothing met every condition - nothing was touched"}
-
-        before_obs = store.conn.execute(
-            "SELECT COUNT(*) FROM observations").fetchone()[0]
-        before_veh = store.conn.execute(
-            "SELECT COUNT(*) FROM vehicles").fetchone()[0]
-        before_fp = _fingerprint(store)
-        before_bad = analyze.collided_keys(store.frame())
-
-        store.conn.isolation_level = None
-        store.conn.execute("BEGIN IMMEDIATE")
-        try:
-            for m in p["merges"]:
-                for k in m["absorbed"]:
-                    # ORDER MATTERS: re-point the observations FIRST. The FK
-                    # is ON DELETE CASCADE, so deleting the vehicle while it
-                    # still owned rows would delete the price history with it.
-                    store.conn.execute(
-                        "UPDATE observations SET key = ? WHERE key = ?",
-                        (m["winner"], k))
-                    left = store.conn.execute(
-                        "SELECT COUNT(*) FROM observations WHERE key = ?",
-                        (k,)).fetchone()[0]
-                    if left:
-                        raise RuntimeError(
-                            f"{left} observation(s) still point at {k}")
-                    # A star follows its car. Merging two identities into one
-                    # must not silently drop the fact that you were watching
-                    # it; INSERT OR IGNORE because the survivor may already
-                    # be starred, and the note on the survivor wins.
-                    store.conn.execute(
-                        "INSERT OR IGNORE INTO starred (key, starred_at, note) "
-                        "SELECT ?, starred_at, note FROM starred WHERE key = ?",
-                        (m["winner"], k))
-                    store.conn.execute("DELETE FROM starred WHERE key = ?", (k,))
-                    store.conn.execute("DELETE FROM vehicles WHERE key = ?", (k,))
-                # the survivor inherits the widest window and any field the
-                # absorbed rows recorded and it did not
-                store.conn.execute("""
-                    UPDATE vehicles SET
-                      first_seen = (SELECT MIN(capture_date) FROM observations
-                                    WHERE key = vehicles.key),
-                      last_seen  = (SELECT MAX(capture_date) FROM observations
-                                    WHERE key = vehicles.key)
-                    WHERE key = ?""", (m["winner"],))
-
-            after_obs = store.conn.execute(
-                "SELECT COUNT(*) FROM observations").fetchone()[0]
-            after_veh = store.conn.execute(
-                "SELECT COUNT(*) FROM vehicles").fetchone()[0]
-            if after_obs != before_obs:
-                raise RuntimeError(
-                    f"observation count changed: {before_obs} -> {after_obs}")
-            if _fingerprint(store) != before_fp:
-                raise RuntimeError("the price data itself changed")
-            if after_veh != before_veh - p["absorbed"]:
-                raise RuntimeError(
-                    f"vehicle count wrong: {before_veh} -> {after_veh}, "
-                    f"expected {before_veh - p['absorbed']}")
-            orphans = store.conn.execute(
-                "SELECT COUNT(*) FROM observations o LEFT JOIN vehicles v "
-                "ON v.key = o.key WHERE v.key IS NULL").fetchone()[0]
-            if orphans:
-                raise RuntimeError(f"{orphans} orphaned observation(s)")
-            after_bad = analyze.collided_keys(store.frame())
-            if after_bad - before_bad:
-                raise RuntimeError(
-                    f"{len(after_bad - before_bad)} identity(ies) now hold two "
-                    f"prices on one day - merging created the corruption "
-                    f"repair.py exists to undo")
-            store.conn.execute("COMMIT")
-        except Exception:
-            store.conn.execute("ROLLBACK")
-            raise
-        finally:
-            store.conn.isolation_level = ""
-
-        return {**p, "applied": True, "backup": str(backup),
-                "observations": after_obs, "vehicles": after_veh}
+        done = _apply_merges(store, p["merges"], log={
+            "batch": uuid.uuid4().hex[:12],
+            "ts": datetime.now().isoformat(sep=" ", timespec="seconds"),
+            "basis": "proven", "backup": str(backup)})
+        return {**p, "applied": True, "backup": str(backup), **done}
 
 
 def print_plan(p: dict, applied: bool = False) -> None:

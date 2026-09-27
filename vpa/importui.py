@@ -387,10 +387,19 @@ def status_payload(db_path: str | Path) -> dict:
     else:
         stale = bool(s["observations"])
 
+    # Possible duplicates, re-checked whenever the data changes - so an
+    # import that re-captures a car already stored under another identity
+    # lights the header's Duplicates button on every open page. Never allowed
+    # to break the status poll itself.
+    try:
+        from . import dupes
+        dup = dupes.summary(db_path)
+    except Exception:
+        dup = None
     return {"ok": True, "app": "vpa-import", "build": _BUILD, "db": s["db_path"],
             "vehicles": s["vehicles"], "observations": s["observations"],
             "data_version": version, "last_ingest": last_ts,
-            "workbook": {"built": built, "stale": stale}}
+            "workbook": {"built": built, "stale": stale}, "dupes": dup}
 
 
 def _running_instance(port: int) -> bool:
@@ -472,6 +481,12 @@ class _Handler(BaseHTTPRequestHandler):
         elif bare == "/explore":
             from . import explore
             self._send(200, explore.PAGE.encode("utf-8"), "text/html; charset=utf-8")
+        elif bare == "/duplicates":
+            from . import dupes
+            self._send(200, dupes.PAGE.encode("utf-8"), "text/html; charset=utf-8")
+        elif self.path == "/api/dupes":
+            from . import dupes
+            self._json(dupes.payload(self.db_path))
         elif bare == "/compare":
             from . import compare
             self._send(200, compare.PAGE.encode("utf-8"), "text/html; charset=utf-8")
@@ -613,6 +628,16 @@ class _Handler(BaseHTTPRequestHandler):
             elif self.path == "/api/edit/undo":
                 from . import edit
                 self._json(edit.undo(self.db_path, payload.get("batch") or ""))
+            elif self.path == "/api/dupes/merge":
+                from . import dupes
+                self._json(dupes.merge(self.db_path, payload.get("ids") or []))
+            elif self.path == "/api/dupes/dismiss":
+                from . import dupes
+                self._json(dupes.dismiss(self.db_path, payload.get("id") or "",
+                                         on=bool(payload.get("on", True))))
+            elif self.path == "/api/dupes/undo":
+                from . import dupes
+                self._json(dupes.undo(self.db_path, payload.get("batch") or ""))
             elif self.path == "/api/bulk/run":
                 from . import bulk
                 self._json(bulk.run_payload(payload, self.db_path))

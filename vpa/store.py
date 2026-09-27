@@ -95,6 +95,39 @@ CREATE TABLE IF NOT EXISTS bulk_runs (
     rows_parsed INTEGER, vehicles_new INTEGER,
     obs_new INTEGER, obs_duplicate INTEGER,
     undone_at TEXT);
+
+-- One identity folded into another from the Duplicates page, kept so the
+-- merge can be undone exactly. A merge only re-points observations and
+-- removes the emptied vehicle row, so undoing it needs: the vehicle row as
+-- it was, which observations moved, and whether its star moved with it.
+--   vehicle   JSON {column: value} of the absorbed vehicle row
+--   obs_ids   JSON list of observations.id re-pointed to `winner`
+--   star      JSON {starred_at, note} of the absorbed key's star, or NULL
+--   star_new  1 if the winner was starred only BECAUSE of this merge
+--   winner_first/last  the survivor's first/last_seen before this merge
+-- No foreign key: the log must outlive the row it describes.
+CREATE TABLE IF NOT EXISTS merge_log (
+    id INTEGER PRIMARY KEY,
+    batch TEXT NOT NULL,
+    ts TEXT NOT NULL,
+    winner TEXT NOT NULL,
+    absorbed TEXT NOT NULL,
+    vehicle TEXT NOT NULL,
+    obs_ids TEXT NOT NULL,
+    star TEXT, star_new INTEGER,
+    winner_first TEXT, winner_last TEXT,   -- the survivor's window BEFORE
+    basis TEXT,
+    backup_path TEXT,
+    undone_at TEXT);
+CREATE INDEX IF NOT EXISTS idx_merge_log_batch ON merge_log(batch);
+
+-- Groups you looked at on the Duplicates page and said are DIFFERENT cars.
+-- `keys` is the group's vehicle keys, sorted and comma-joined: if a new
+-- identity later joins the group, it is a new question and is asked again.
+CREATE TABLE IF NOT EXISTS not_duplicates (
+    keys TEXT PRIMARY KEY,
+    ts TEXT NOT NULL,
+    note TEXT);
 """
 
 DEFAULT_DB = Path(__file__).resolve().parent.parent / "data" / "vpa.db"

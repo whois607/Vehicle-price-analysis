@@ -30,7 +30,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from . import links
+from . import dupes, links
 from .store import Store, DEFAULT_DB
 
 MAX_VEHICLES = 400          # table rows sent to the page; total is reported
@@ -254,6 +254,7 @@ def detail_payload(db_path: str | Path = DEFAULT_DB, make: str | None = None,
 
     from .starred import keys as _star_keys
     STARS = _star_keys(db_path)
+    NOT_DUP = dupes.dismissed_sets(db_path)
     sub = _select_multi(df, make, model, picked)
     unfiltered_n = int(len(sub))
     # kept whole: turnover needs the pre-filter selection to tell a car that
@@ -458,9 +459,9 @@ def detail_payload(db_path: str | Path = DEFAULT_DB, make: str | None = None,
 
     standouts = []
     if curve.get("usable"):
-        dup_sig = pool.dropna(subset=["odometer_km"]).groupby(
-            ["price_aud", "odometer_km"], dropna=False)["key"].nunique()
-        dup_pairs = {sig for sig, c in dup_sig.items() if c > 1}
+        # groups you marked "different cars" on the Duplicates page are not
+        # tagged - same rule and same code as the page itself
+        dup_pairs, _ = dupes.dup_sigs(pool, NOT_DUP)
         for _, r in pool.iterrows():
             k = str(r["key"])
             standouts.append({
@@ -487,9 +488,7 @@ def detail_payload(db_path: str | Path = DEFAULT_DB, make: str | None = None,
     # a wall of amber that explains nothing.
     dup_extra = 0
     if len(pool):
-        _sig = pool.dropna(subset=["odometer_km"]).groupby(
-            ["price_aud", "odometer_km"], dropna=False)["key"].nunique()
-        dup_extra = int(sum(c - 1 for c in _sig if c > 1))
+        _, dup_extra = dupes.dup_sigs(pool, NOT_DUP)
     distribution = {
         "basis": "one price per car (its latest sighting)",
         "live_day": live_day, "live_n": int(len(live)),
@@ -953,10 +952,7 @@ def car_payload(db_path: str | Path = DEFAULT_DB, make: str | None = None,
     # each identity's own latest sighting, so the two copies of one car
     # usually carry DIFFERENT last-seen days (that is exactly how the id-less
     # copy arises - see NOTES bug 11). Requiring the same day missed them.
-    dup_sig = peers.dropna(subset=["odometer_km"]).groupby(
-        ["price_aud", "odometer_km"], dropna=False)["key"].nunique()
-    dupes = {sig for sig, c in dup_sig.items() if c > 1}
-    dup_total = int(sum(c - 1 for c in dup_sig if c > 1))
+    dup_set, dup_total = dupes.dup_sigs(peers, dupes.dismissed_sets(db_path))
     comparables = []
     for _, r in cand.iterrows():
         sig = (r["price_aud"], r["odometer_km"])
@@ -971,7 +967,7 @@ def car_payload(db_path: str | Path = DEFAULT_DB, make: str | None = None,
             "day": str(r["day"]),
             "url": links.ad_url(r["url"], r.get("source")),
             "title": None if pd.isna(r["raw_title"]) else str(r["raw_title"]),
-            "dup": sig in dupes,
+            "dup": sig in dup_set,
         })
     band = {"basis": basis, "n": len(comparables), "dup_in_pool": dup_total,
             "median": _num(pd.Series([c["price"] for c in comparables],
@@ -1757,6 +1753,13 @@ function overTime(h){
    has never heard of. That used to surface as alert("unknown endpoint"),
    which reads like a bug in the feature rather than "restart me". */
 let STALE=false;
+/* "duplicate?" - another identity holds the same price and odometer. Links
+   to that pair on the Duplicates page, where it can be merged or marked as
+   different cars. */
+function dupTag(key){
+  return `<a class="tag warn" href="/duplicates?key=${encodeURIComponent(key)}" style="text-decoration:none"
+    title="another identity holds the same price and odometer - probably the same advert captured twice. Click to review it on the Duplicates page.">duplicate?</a>`;
+}
 async function apiCall(url,opts){
   let r;
   try{r=await fetch(url,opts);}catch(e){return {ok:false,error:String(e)};}
@@ -2094,7 +2097,7 @@ function renderCar(){
       <td class="num">${km(c.odometer_km)}</td><td>${esc(c.state||"")}</td>
       <td>${esc(c.seller_type||"")}</td><td>${c.day}</td>
       <td>${vpaAdLinks(c.url,false,c)}
-        ${c.dup?'<span class="tag warn" title="another identity holds the same price and odometer - probably the same advert captured twice">duplicate?</span>':""}</td>
+        ${c.dup?dupTag(c.key):""}</td>
     </tr>`).join("")||'<tr><td colspan="7" class="flat">none</td></tr>'}</tbody></table>
     <div class="hint">The ${d.band.n} nearest on kilometres${
       d.band.basis==="year"?" (matched on year - this car has no odometer)":""},
@@ -2575,7 +2578,7 @@ function standTab(d){
      <td>${r.live?'<span class="tag good">in latest capture</span>'
           :`<span class="flat">${r.day}</span>`}</td>
      <td>${vpaAdLinks(r.url,!r.live,r)}
-       ${r.dup?'<span class="tag warn">duplicate?</span>':""}</td>
+       ${r.dup?dupTag(r.key):""}</td>
     </tr>`).join("")||'<tr><td colspan="9" class="flat">nothing matches</td></tr>';
   const dupWarn=dist.dup_extra?`<div class="warnbox"><b>${dist.dup_extra}</b> of
     these ${dist.pool_n} cars are the same car under two identities (identical

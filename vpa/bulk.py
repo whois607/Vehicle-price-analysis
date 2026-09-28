@@ -458,10 +458,13 @@ __CHROME_CSS__
     Widths and heights here are load-bearing, not decoration: they are what
     stops the controls moving. Changing one to `auto` or `max-height` will
     reintroduce exactly the behaviour this page was asked to avoid. */
- #drop{height:104px;border:2px dashed #b3bccd;border-radius:9px;
-   display:flex;align-items:center;justify-content:center;text-align:center;
-   padding:0 18px;color:var(--ink-2);cursor:pointer;background:#fafbfe;font-size:13px}
- #drop:hover{background:#f2f6ff;border-color:#8fa8cf}
+ #drop{height:104px;border:1.5px dashed var(--field);border-radius:12px;
+   display:flex;align-items:center;justify-content:center;gap:12px;text-align:left;
+   padding:0 18px;color:var(--dim);cursor:pointer;background:var(--head);font-size:13px;
+   transition:background .15s,border-color .15s,color .15s}
+ #drop b{color:var(--ink);font-weight:600}
+ #drop .dropico{color:var(--accent)}
+ #drop:hover{background:#f3f7fe;border-color:var(--accent-line);color:var(--ink-2)}
  #drop.hover{background:var(--accent-soft);border-color:var(--accent)}
  #droplabel{max-width:100%;overflow:hidden;text-overflow:ellipsis;
    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
@@ -474,8 +477,8 @@ __CHROME_CSS__
  #undoBtn{min-width:132px}
  /* status: always present, always the same height, empty when idle */
  #status{height:38px;display:flex;align-items:center;gap:10px;margin-top:10px;
-   padding:0 12px;border:1px solid var(--line);border-radius:var(--r-sm);
-   background:#fafbfd;font-size:12.5px;color:var(--ink-2);overflow:hidden}
+   padding:0 12px;border:1px solid var(--line-2);border-radius:var(--r-sm);
+   background:var(--head);font-size:12.5px;color:var(--ink-2);overflow:hidden}
  #status.work{background:var(--accent-soft);border-color:var(--accent-line)}
  #status.good{background:var(--good-soft);border-color:var(--good-line)}
  #status.bad{background:var(--bad-soft);border-color:var(--bad-line);color:#7a2f2f}
@@ -501,6 +504,8 @@ __CHROME_CSS__
     it lives in scrolls rather than growing the page */
  .why{margin-top:3px;font-size:11.5px;color:var(--warn);max-width:460px}
  .empty{text-align:left;padding:14px;font-size:12.5px}
+ #resultsEmpty{height:100%;display:flex;align-items:center;justify-content:center;
+   color:var(--faint);font-size:13px}
  /* A backup path is 90-odd characters and wraps to a second line the moment
     a run finishes - which grew this card and pushed the panel below it down
     the page. One line, clipped, with the full path on hover. */
@@ -540,7 +545,7 @@ __CHROME_CSS__
 __NAV__
 <div class="pagehead"><div>
  <h1 class="pagetitle">Add data</h1>
- <div class="sub"><span>Writes straight to the database &mdash; no preview. Backed up first; every run can be undone.</span><span class="dbstat" id="dbstat"></span></div>
+ <div class="sub">No preview &mdash; files go straight in. Backed up first, and every run can be undone.</div>
 </div>__ACTIONS__</div>
 __MODES__
 
@@ -575,10 +580,8 @@ __MODES__
 </div>
 
 <div class="card">
- <div class="ptitle">files <span>&mdash; several at once; each keeps its own
-   capture date</span></div>
- <div id="drop"><span id="droplabel">drop CSV / JSON / saved-HTML files here,
-   or click to choose</span></div>
+ <div class="ptitle">files <span>&mdash; each keeps its own capture date</span></div>
+ <div id="drop"><svg class="ico dropico" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V4m0 0 4 4m-4-4-4 4M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg><span id="droplabel"><b>Drop saved pages, CSV or JSON</b> or click to choose</span></div>
  <input type="file" id="file" multiple style="display:none"
    accept=".csv,.json,.html,.htm,.txt">
  <div class="controls">
@@ -611,14 +614,12 @@ __MODES__
 </div>
 
 <div class="card" id="sessCard">
- <div class="ptitle">this session <span id="runspan">&mdash; every car uploaded
-   since this page was opened</span></div>
+ <div class="ptitle">this session <span id="runspan">&mdash; every car uploaded since this page opened</span></div>
  <div id="orderflag" role="status" hidden><span class="msg" id="ordermsg"></span>
   <button class="x" id="orderX" title="dismiss - it comes back if another car arrives out of order">&times;</button></div>
  <div class="tiles" id="tiles"></div>
  <div id="resultsBox" style="margin-top:11px">
-  <div class="empty" id="resultsEmpty">Nothing uploaded yet. Every car you
-   upload while this page is open is listed here, in the order it arrived.</div>
+  <div class="empty" id="resultsEmpty">Nothing uploaded yet &mdash; cars appear here as they arrive.</div>
   <table id="rtbl" style="display:none"><thead><tr>
    <th class="num c-n">#</th><th>car</th><th class="num c-p">price</th>
    <th class="num c-k">odometer</th><th class="c-d">captured</th>
@@ -629,8 +630,7 @@ __MODES__
 </div>
 
 <div class="card">
- <div class="ptitle">recent runs <span>&mdash; each one can be undone in
-   full</span></div>
+ <div class="ptitle">recent runs <span>&mdash; each can be undone in full</span></div>
  <div id="runsBox">
   <div class="empty" id="runsEmpty">No direct uploads yet.</div>
   <table id="runtbl" style="display:none"><thead><tr>
@@ -639,7 +639,7 @@ __MODES__
    <th>state</th><th style="width:150px"></th>
   </tr></thead><tbody></tbody></table>
  </div>
- <div class="hint">Undo removes exactly the sightings that run added, deletes
+ <div class="hint note">Undo removes exactly the sightings that run added, deletes
   only the cars it introduced, and restores every car that already existed.
   It takes its own backup first and rolls back completely if anything about
   the result does not add up.</div>
@@ -702,7 +702,7 @@ $("drop").addEventListener("drop",e=>{if(!busy)takeFiles(e.dataTransfer.files);}
 
 $("clearBtn").onclick=()=>{
   pending=[];$("file").value="";
-  $("droplabel").textContent="drop CSV / JSON / saved-HTML files here, or click to choose";
+  $("droplabel").innerHTML="<b>Drop saved pages, CSV or JSON</b> or click to choose";
   $("goBtn").disabled=true;$("clearBtn").disabled=true;
   say("ready","");
 };
@@ -726,7 +726,7 @@ $("goBtn").onclick=async()=>{
     $("goBtn").disabled=pending.length===0;return;}
   render(res);
   pending=[];$("goBtn").disabled=true;
-  $("droplabel").textContent="drop CSV / JSON / saved-HTML files here, or click to choose";
+  $("droplabel").innerHTML="<b>Drop saved pages, CSV or JSON</b> or click to choose";
   loadRuns();
 };
 

@@ -171,7 +171,7 @@ def check_chrome() -> None:
               and "--accent:" in p for p in pages.values()),
           "shared tokens lead every page's CSS, so page rules come after and win")
     check("every page has the same header: Excel viewer, help, shut down, db line",
-          all(p.count('id="xlsxBtn"') == 1 and 'id="dbstat"' in p
+          all(p.count('id="xlsxBtn"') == 1 and 'id="navstat"' in p
               and 'class="pagehead"' in p for p in pages.values()),
           "workbook button and database line on all pages, once each")
     check("no page re-declares a base rule the shared stylesheet owns",

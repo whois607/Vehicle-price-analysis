@@ -1006,6 +1006,22 @@ Keep these — each one was a bug that took a while to find.
 * Worth a periodic check: parse the newest saved page and look at the
   per-field fill (`tests/check_carsales.py` pins both formats).
 
+**UI refresh (28/09/2026)**
+* One pass over the shared stylesheet (`ui.py` CHROME_CSS) rather than per
+  page: floating sticky header (brand mark + the database counts, which used
+  to repeat in every page's subtitle - `.dbstat` is now hidden, `#navstat`
+  fills), icon-only Help / Shut down, quieter uppercase table headers,
+  segmented toggles, softer cards with a short entrance, focus rings.
+  `--navh` is the header's bottom edge; anything else sticky sits below it,
+  and `vpaReveal` now allows for any bar that is currently stuck.
+* Wordiness: explanatory paragraphs are marked `.hint.note` and collapse in
+  place to an "(i) How to read this" toggle (`vpaNotes`, wired automatically
+  for content rendered later via a MutationObserver). Nothing was deleted -
+  only tucked. Instructions and live counts stay visible.
+* Duplicates: the per-group "Not proven: ..." sentence (100 copies) is a tag
+  with the full reason on hover (payload now carries `why_codes`).
+* Bulk keeps its fixed heights ("nothing moves" is deliberate there).
+
 **Excel workbook build (28/09/2026)**
 * The real viewer.xlsx was a month stale (built 23/08) - and the stale flag
   could not have been trusted anyway: it compared the file's date with the

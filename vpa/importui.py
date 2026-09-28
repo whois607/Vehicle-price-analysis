@@ -821,10 +821,13 @@ _PAGE = r"""<!DOCTYPE html>
 __CHROME_CSS__
  /* ---- bringing data in ---- */
  .inrow{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap}
- #drop{border:2px dashed #b3bccd;border-radius:9px;padding:0 18px;text-align:center;
-       color:var(--ink-2);cursor:pointer;flex:1;min-width:260px;background:#fafbfe;
-       height:74px;display:flex;align-items:center;justify-content:center;font-size:13px}
- #drop:hover{background:#f2f6ff;border-color:#8fa8cf}
+ #drop{border:1.5px dashed var(--field);border-radius:12px;padding:0 18px;gap:12px;
+       color:var(--dim);cursor:pointer;flex:1;min-width:260px;background:var(--head);
+       height:74px;display:flex;align-items:center;justify-content:center;font-size:13px;
+       transition:background .15s,border-color .15s,color .15s}
+ #drop b{color:var(--ink);font-weight:600}
+ #drop .dropico{color:var(--accent)}
+ #drop:hover{background:#f3f7fe;border-color:var(--accent-line);color:var(--ink-2)}
  #drop.hover{background:var(--accent-soft);border-color:var(--accent)}
  #paste{width:100%;height:92px;margin-top:10px;resize:vertical}
  input[type=date]{width:148px}
@@ -871,7 +874,7 @@ __CHROME_CSS__
 __NAV__
 <div class="pagehead"><div>
  <h1 class="pagetitle">Add data</h1>
- <div class="sub"><span>Preview first &mdash; nothing is written until you commit.</span><span class="dbstat" id="dbstat"></span></div>
+ <div class="sub">Check every row before anything is saved.</div>
 </div>__ACTIONS__</div>
 __MODES__
 <div class="card" id="help">
@@ -937,9 +940,9 @@ __MODES__
 </div>
 
 <div class="card">
- <div class="ptitle">add listings <span>&mdash; saved pages, CSV or JSON; several files at once is fine</span></div>
+ <div class="ptitle">add listings <span>&mdash; one file or several</span></div>
  <div class="inrow">
-  <div id="drop"><span id="droplabel">drop CSV / JSON / saved-HTML files here, or click to choose</span></div>
+  <div id="drop"><svg class="ico dropico" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V4m0 0 4 4m-4-4-4 4M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg><span id="droplabel"><b>Drop saved pages, CSV or JSON</b> or click to choose</span></div>
   <input type="file" id="file" accept=".csv,.json,.html,.htm,.txt" multiple hidden>
   <div><label>source</label>
    <select id="source"><option value="">auto / from data</option>
@@ -1146,7 +1149,7 @@ $("commitBtn").onclick=async()=>{
   // panels live on the Overview page and recompute when it is opened
   vpaStatus();
   pending=null;SOURCES=[];
-  $("droplabel").textContent="drop CSV / JSON / saved-HTML files here, or click to choose";
+  $("droplabel").innerHTML="<b>Drop saved pages, CSV or JSON</b> or click to choose";
   $("capdate").value="";$("capdate").disabled=false;
   $("paste").value="";$("parseBtn").disabled=true;
 };
@@ -1184,7 +1187,7 @@ async function showStarredAfterImport(){
 
 $("cancelBtn").onclick=()=>{$("previewCard").style.display="none";rows=[];SOURCES=[];
   pending=null;$("capdate").disabled=false;
-  $("droplabel").textContent="drop CSV / JSON / saved-HTML files here, or click to choose";};
+  $("droplabel").innerHTML="<b>Drop saved pages, CSV or JSON</b> or click to choose";};
 
 __CHROME_JS__
 </script></div></body></html>
@@ -1200,10 +1203,13 @@ _OVERVIEW = r"""<!DOCTYPE html>
 __CHROME_CSS__
  /* ---- bringing data in ---- */
  .inrow{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap}
- #drop{border:2px dashed #b3bccd;border-radius:9px;padding:0 18px;text-align:center;
-       color:var(--ink-2);cursor:pointer;flex:1;min-width:260px;background:#fafbfe;
-       height:74px;display:flex;align-items:center;justify-content:center;font-size:13px}
- #drop:hover{background:#f2f6ff;border-color:#8fa8cf}
+ #drop{border:1.5px dashed var(--field);border-radius:12px;padding:0 18px;gap:12px;
+       color:var(--dim);cursor:pointer;flex:1;min-width:260px;background:var(--head);
+       height:74px;display:flex;align-items:center;justify-content:center;font-size:13px;
+       transition:background .15s,border-color .15s,color .15s}
+ #drop b{color:var(--ink);font-weight:600}
+ #drop .dropico{color:var(--accent)}
+ #drop:hover{background:#f3f7fe;border-color:var(--accent-line);color:var(--ink-2)}
  #drop.hover{background:var(--accent-soft);border-color:var(--accent)}
  #paste{width:100%;height:92px;margin-top:10px;resize:vertical}
  input[type=date]{width:148px}
@@ -1246,11 +1252,13 @@ __CHROME_CSS__
  .vf .mk{font-weight:700;width:13px;flex:none;text-align:center;line-height:1.4}
  .vf .bd{flex:1}
  .vf .bd b{font-weight:600}
+ .vfcard{padding:14px 20px}
+ #verify:not(:empty){margin-top:12px}
 </style></head><body><div class="wrap">
 __NAV__
 <div class="pagehead"><div>
  <h1 class="pagetitle">Overview</h1>
- <div class="sub"><span>Everything collected so far, and whether it adds up.</span><span class="dbstat" id="dbstat"></span></div>
+ <div class="sub">Everything collected so far, and whether it adds up.</div>
 </div>__ACTIONS__</div>
 
 <div class="card" id="help">
@@ -1289,12 +1297,10 @@ __NAV__
 <!-- Data check leads the page, ABOVE the dataset panels.
      It is the thing you want immediately after committing rows, and it used
      to be the last card on a long page. -->
-<div class="card">
- <div class="ptitle">data check
-    <span id="vfspan">&mdash; cross-checks the database against itself and against the workbook</span></div>
- <div id="verify"><div class="flat" style="font-size:12.5px">Not run yet &mdash;
-  <b>Data check</b> (top right) re-computes the totals two independent ways and
-  compares the workbook against the live database.</div></div>
+<div class="card vfcard">
+ <div class="ptitle" style="margin:0">data check
+    <span id="vfspan">&mdash; not run yet &middot; compares the database with itself and with the workbook</span></div>
+ <div id="verify"></div>
 </div>
 
 <div class="card">
@@ -1436,9 +1442,10 @@ function loadOverview(){
   fetch("/api/overview?level="+ovLevel).then(r=>r.json()).then(o=>{
     if(!o.ok)return;
     const t=o.totals;
+    const src=Object.entries(t.sources||{}).sort((a,b)=>b[1]-a[1])
+      .map(([k,v])=>`${k} ${Number(v).toLocaleString()}`).join(" · ");
     $("ovspan").textContent=o.empty?"— nothing imported yet"
-      :`— ${t.first} to ${t.last}`;
-    const src=Object.entries(t.sources||{}).map(([k,v])=>`${k} ${v}`).join(", ");
+      :`— ${t.first} to ${t.last}`+(src?` · ${src}`:"");
     $("tiles").innerHTML=[
       [t.vehicles.toLocaleString(),"vehicles tracked"],
       [t.observations.toLocaleString(),"price observations"],
@@ -1446,7 +1453,6 @@ function loadOverview(){
       [o.model_count||0,ovLevel==="trim"?"trims with prices":"model lines"],
       [(o.health.tracked||0).toLocaleString(),"re-seen on a later day"],
       [t.ingests,"import batches"],
-      [src||"—","sources"],
     ].map(([v,l])=>`<div class="tile"><b>${esc(v)}</b><span>${esc(l)}</span></div>`).join("");
 
     // ---- top models
@@ -1468,9 +1474,8 @@ function loadOverview(){
     $("topspan").textContent=o.model_count>o.models.length
       ? `— ${o.models.length} of ${o.model_count} by number of prices` : "";
     $("tophint").innerHTML=o.thin_count
-      ? `${o.thin_count} trim(s) have been captured only once or twice — e.g. `
-        +o.thin.slice(0,3).map(t2=>esc(t2.name)).join(", ")
-        +`. Those cannot show a trend yet; that is thin coverage, not missing data.`
+      ? `<span title="e.g. ${esc(o.thin.slice(0,3).map(t2=>t2.name).join(", "))}">`
+        +`${o.thin_count} trims have only one or two captures, so no trend yet.</span>`
       : "";
 
     // ---- movers

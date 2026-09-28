@@ -120,7 +120,8 @@ def _groups(store: Store) -> dict:
             continue
         g = {"id": _gid(comp), "keys": sorted(comp),
              "winner": _survivor(comp, by_key), "label": _label(by_key[comp[0]]),
-             "why": [r for _, r in fails]}
+             "why": [r for _, r in fails],
+             "why_codes": [c for c, _ in fails]}
         g["absorbed"] = [k for k in g["keys"] if k != g["winner"]]
         if g["id"] in gone:
             dismissed.append(g)
@@ -412,7 +413,9 @@ _PAGE = r"""<!DOCTYPE html>
 <title>vpa duplicates</title>
 <style>
 __CHROME_CSS__
- .grp{border:1px solid var(--line);border-radius:var(--r-sm);padding:10px 12px;margin-top:10px}
+ .grp{border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-top:12px;
+   transition:border-color .15s,box-shadow .15s}
+ .grp:hover{border-color:var(--field);box-shadow:var(--shadow)}
  .grp.hl{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
  .ghead{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
  .ghead .nm{font-weight:600;font-size:13px}
@@ -422,6 +425,7 @@ __CHROME_CSS__
  .facts .tag{margin-left:0}
  .tag.unk{background:#fff;border:1px solid var(--line);color:var(--dim)}
  .grp table{margin-top:6px;table-layout:fixed}
+ .grp th{font-size:10px;color:var(--faint);padding:5px 10px}
  .grp td{vertical-align:top}
  .grp .c-r{width:64px}.grp .c-a{width:140px}.grp .c-y{width:48px}.grp .c-s{width:52px}
  .grp .c-l{width:70px}.grp .c-c{width:200px}
@@ -435,12 +439,13 @@ __CHROME_CSS__
 __NAV__
 <div class="pagehead"><div>
  <h1 class="pagetitle">Duplicates</h1>
- <div class="sub"><span>One car stored as two identities &mdash; captured once without a site ad id, and again with one. Nothing merges unless you say so; every merge is backed up and undoable.</span><span class="dbstat" id="dbstat"></span></div>
+ <div class="sub">The same car stored twice. Nothing merges unless you say so, and every merge can be undone.</div>
 </div>__ACTIONS__</div>
 
 <div class="card">
+ <div class="ptitle">summary <span id="refusedtxt"></span></div>
  <div class="tiles" id="tiles"></div>
- <div class="hint">A <b>duplicate</b> is two identities in one trim holding the same
+ <div class="hint note">A <b>duplicate</b> is two identities in one trim holding the same
   asking price at the same odometer. Every capture before August 2026 (the v2
   tracker, screenshots, pasted text) carried no ad id, so a car captured then and
   again later from a saved page was stored twice and could never be matched up.
@@ -448,7 +453,7 @@ __NAV__
   conflicting year or state, no two prices on one day, no odometer running
   backwards). <b>For your judgement</b> groups break none of those rules &mdash;
   they only lack proof, usually because the odometer is a round figure.
-  <span id="refusedtxt"></span></div>
+  <b>Not offered</b> groups are ones the data says are not one car.</div>
  <div id="msg"></div>
 </div>
 
@@ -463,7 +468,7 @@ __NAV__
   <div id="tickbar"><span class="flat" id="tickn"></span>
    <button class="mini" id="tickAll">Tick all shown</button>
    <button class="primary mini" id="mergeTicked" disabled>Merge ticked</button></div></div>
- <div class="hint" style="margin-top:0">Strongest first: more recorded details that
+ <div class="hint note" style="margin-top:0">Strongest first: more recorded details that
   agree, a real ad id on one side, and both seen in the same sweep rank higher.
   Open the advert (<b>carsales</b> or <b>archive</b>) of the one with an ad id to check.</div>
  <div id="review"></div>
@@ -501,11 +506,14 @@ function carRows(g){
       <td>${c.captured.map(x=>`<div class="cap" title="${esc(x.file)}">${esc(x.adapter)} &middot; ${esc(x.at)}</div>`).join("")}</td></tr>`;
   }).join("");
 }
+const WHY_SHORT={"rounded odometer":"round odometer","no single site ad id":"no site ad id"};
 function facts(g){
   const f=(g.facts||[]).map(x=>x.is==="same"?`<span class="tag good">same ${x.field}: ${esc(x.value)}</span>`
     :x.is==="differs"?`<span class="tag warn">${x.field} differs: ${esc(x.value)}</span>`
-    :x.is==="weak"?`<span class="tag unk" title="the May 2026 v2 captures record almost every car as a dealer sale (84 of 90), so this mismatch is weak evidence">${x.field} differs: ${esc(x.value)} (May v2 says dealer for nearly all)</span>`
+    :x.is==="weak"?`<span class="tag unk" title="${esc(x.value)} - the May 2026 v2 captures record almost every car as a dealer sale (84 of 90), so this mismatch is weak evidence">${x.field} differs (weak)</span>`
     :`<span class="tag unk" title="not recorded on at least one of them">${x.field} ${x.value?esc(x.value)+" on one only":"not recorded"}</span>`);
+  (g.why_codes||[]).forEach((c,i)=>f.push(`<span class="tag unk" title="not proven: ${esc((g.why||[])[i]||c)}">`
+    +`not proven: ${esc(WHY_SHORT[c]||c)}</span>`));
   if(g.together&&g.together.length)f.push(`<span class="tag good" title="both identities were captured on this day at the same price - one advert captured twice">seen together ${esc(g.together[0])}</span>`);
   return `<div class="facts">${f.join("")}</div>`;
 }
@@ -523,7 +531,7 @@ function group(g,kind){
     <table><thead><tr><th class="c-r"></th><th class="c-a">advert</th><th class="c-y">year</th>
      <th class="c-s">state</th><th class="c-l">seller</th><th>sightings</th><th class="c-c">captured by</th></tr></thead>
      <tbody>${carRows(g)}</tbody></table>
-    ${g.why&&g.why.length?`<div class="why">Not proven: ${g.why.map(esc).join("; ")}.</div>`:""}
+    ${g.why&&g.why.length&&!g.why_codes?`<div class="why">Not proven: ${g.why.map(esc).join("; ")}.</div>`:""}
   </div>`;
 }
 function render(){
@@ -532,12 +540,12 @@ function render(){
   $("tiles").innerHTML=[[d.proven.length,"proven"],[d.review.length,"for your judgement"],
     [nRef,"not offered"],[d.dismissed.length,"different cars"]]
     .map(([v,l])=>`<div class="tile"><b>${v}</b><span>${l}</span></div>`).join("");
-  $("refusedtxt").innerHTML=nRef?`<b>Not offered</b> (${nRef}): the data says they are
-    not one car &mdash; ${Object.entries(d.refused).map(([k,n])=>`${n} &times; ${esc(k)}`).join(", ")}.`:"";
+  $("refusedtxt").innerHTML=nRef?`&mdash; ${nRef} not offered: `
+    +Object.entries(d.refused).map(([k,n])=>`${n} &times; ${esc(k)}`).join(", "):"";
   $("provenCard").style.display=d.proven.length?"":"none";
-  $("provenspan").textContent=`— ${d.proven.length} group(s)`;
+  $("provenspan").textContent=`— ${d.proven.length} group${d.proven.length===1?"":"s"}`;
   $("proven").innerHTML=d.proven.map(g=>group(g,"proven")).join("");
-  $("reviewspan").textContent=`— ${d.review.length} group(s)`;
+  $("reviewspan").textContent=`— ${d.review.length} group${d.review.length===1?"":"s"}, strongest first`;
   $("review").innerHTML=d.review.map(g=>group(g,"review")).join("")
     ||'<div class="empty">Nothing needs your judgement.</div>';
   $("dismCard").style.display=d.dismissed.length?"":"none";

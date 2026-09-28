@@ -1248,13 +1248,21 @@ __CHROME_CSS__
  .wltag.gone{color:var(--bad);background:var(--bad-soft);border-color:var(--bad-line)}
  .okbox code{background:#fff}
  /* find-a-car bar: the primary way in, so it leads the page */
- .findbar{background:linear-gradient(180deg,#f7faff,#eef4fc);
-   border:1px solid var(--accent-line);border-radius:var(--r);padding:14px 18px;margin-bottom:14px}
- .findbar h2{font-size:14.5px;margin:0 0 3px;font-weight:600;color:var(--accent-2)}
- .findbar p{margin:0 0 12px;font-size:12.5px;color:var(--ink-2)}
- .findrow{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
- button.bigbtn{height:38px;padding:0 16px;border:1px solid var(--accent);border-radius:8px;
-   background:var(--accent);color:#fff;font-size:13.5px;font-weight:600}
+ .findbar{display:grid;grid-template-columns:1fr auto;column-gap:24px;align-items:center;
+   grid-template-areas:"h row" "p row" "msg msg";
+   background:radial-gradient(120% 140% at 0% 0%,#f3f7ff 0%,#e9f0fc 60%,#e3ecfb 100%);
+   border:1px solid var(--accent-line);border-radius:var(--r);padding:16px 20px;margin-bottom:16px;
+   box-shadow:var(--shadow);animation:vpa-rise .3s ease-out backwards}
+ .findbar h2{grid-area:h;font-family:var(--ui-d);font-size:16px;margin:0 0 2px;font-weight:650;
+   color:var(--accent-2);letter-spacing:-.01em}
+ .findbar p{grid-area:p;margin:0;font-size:12.5px;color:var(--ink-2)}
+ .findrow{grid-area:row;display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:flex-end}
+ #findmsg{grid-area:msg}
+ @media (max-width:900px){.findbar{grid-template-columns:1fr;grid-template-areas:"h" "p" "row" "msg"}
+   .findrow{justify-content:flex-start;margin-top:12px}}
+ button.bigbtn{height:38px;padding:0 16px;border:1px solid var(--accent);border-radius:var(--r-sm);
+   background:var(--accent);color:#fff;font-size:13.5px;font-weight:600;
+   box-shadow:0 1px 2px rgba(34,78,165,.3),inset 0 1px 0 rgba(255,255,255,.12)}
  button.bigbtn:hover:not(:disabled){background:var(--accent-2);border-color:var(--accent-2);color:#fff}
  button.bigbtn.alt{background:#fff;color:var(--accent-2);border-color:#9db8dd;font-weight:500}
  button.bigbtn.alt:hover:not(:disabled){background:#f2f7ff;color:var(--accent-2)}
@@ -1270,7 +1278,7 @@ __CHROME_CSS__
 __NAV__
 <div class="pagehead"><div>
  <h1 class="pagetitle">Explore vehicles</h1>
- <div class="sub"><span id="subline">One trim, or one car against its trim. Read-only &mdash; nothing here changes your data.</span><span class="dbstat" id="dbstat"></span></div>
+ <div class="sub"><span id="subline">One trim, or one car against its trim. Read-only.</span></div>
 </div>__ACTIONS__</div>
 <div id="stale"></div>
 
@@ -1345,9 +1353,7 @@ __NAV__
 
 <div class="findbar" id="findbar">
  <h2>Got a specific car in mind?</h2>
- <p>Save the ad's own page (<b>Ctrl+S</b> on the listing, not the search
-  results) and drop it here &mdash; it will find that exact car in your data
-  and rank it against the rest of its trim.</p>
+ <p>Drop the advert's saved page (<b>Ctrl+S</b> on the listing itself) to find it and rank it against its trim.</p>
  <div class="findrow">
   <button class="bigbtn" id="findBtn">
    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -1359,7 +1365,6 @@ __NAV__
      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
     <path d="M12 5v14M5 12h14"/></svg>
    Type one I've seen</button>
-  <span class="flat" style="font-size:12px">or drop the .htm file anywhere on this bar</span>
  </div>
  <input type="file" id="findFile" accept=".htm,.html" style="display:none">
  <div id="findmsg"></div>
@@ -1382,7 +1387,7 @@ __NAV__
     placeholder="optional"></div>
   <div><button class="ghost" id="sGo">Score it</button></div>
  </div>
- <div class="hint">Price and odometer are read the same way the importer reads
+ <div class="hint note">Price and odometer are read the same way the importer reads
   them, so <code>$18,990</code> and <code>98k</code> both work &mdash; the card
   echoes back what was understood. Your note and target price never leave this
   browser.</div>
@@ -1774,7 +1779,7 @@ function showStale(msg){
   const bar=document.createElement("div");
   bar.className="warnbox";
   bar.dataset.sticky="1";                // vpaReveal keeps cards clear of it
-  bar.style.cssText="position:sticky;top:0;z-index:50;margin:0 0 10px";
+  bar.style.cssText="position:sticky;top:var(--navh);z-index:50;margin:0 0 10px";
   bar.innerHTML=`<b>The app needs restarting.</b> ${esc(msg||"")}`
     +` <button class="ghost mini" id="staleQuit" style="margin-left:8px">Shut down now</button>`;
   // NOT querySelector(".wrap,body"): a selector list returns the first match
@@ -1845,7 +1850,7 @@ async function loadWatchlist(){
       ${vpaAdLinks(c.url,!c.live,c)}
       <button class="ghost mini" data-unstar="${esc(c.key)}">unfollow</button>
       </div>`;}).join("")
-    +`</div><div class="hint">${esc(w.basis)}. A star changes nothing that is
+    +`</div><div class="hint note">${esc(w.basis)}. A star changes nothing that is
       computed &mdash; no median, rank or forecast moves because you followed
       a car.</div>`;
   document.querySelectorAll("[data-unstar]").forEach(b=>
@@ -2366,7 +2371,7 @@ function movesTab(d){
       ${pct(v.change)}<span class="flat">${money(v.first_price)} → ${money(v.price)}</span>
       <span class="flat">${v.first_day} → ${v.last_day}</span></div>`).join("")
     :'<div class="flat">no vehicle here has been re-seen at a different price yet</div>'}</div>
-    <div class="hint">One car, its first price against its latest. Identities that
+    <div class="hint note">One car, its first price against its latest. Identities that
       hold two prices on one day are merged cars and are left out.</div>`;
 }
 let TAB="month";
@@ -2439,7 +2444,7 @@ function monthTab(d){
       aria-label="median price by month">${grid}
       <path d="${band}" fill="#c04040" opacity=".13"/>
       <path d="${line}" fill="none" stroke="#c04040" stroke-width="2"/>${aline}${dots}${ticks}</svg>
-    <div class="hint">Each vehicle counts once per month here, so a car re-seen
+    <div class="hint note">Each vehicle counts once per month here, so a car re-seen
      three times in July does not weigh three times. The capture-day chart
      above counts every sighting - that is why the two can differ.</div></div>
    <div><div class="mini-h">the numbers behind it</div>
@@ -2532,7 +2537,7 @@ function spreadTab(d){
      <table><thead><tr><th>tail</th><th class="num">cars there</th>
       <th class="num">curve says</th><th class="num">excess</th></tr></thead>
       <tbody>${tailRows}</tbody></table>
-     <div class="hint">Skew of the raw prices is
+     <div class="hint note">Skew of the raw prices is
       <b>${c.raw_skew.toFixed(2)}</b>; on log prices it falls to
       <b>${c.log_skew.toFixed(2)}</b> (0 would be a perfect bell), which is why
       the curve is fitted in log space. A positive excess on the right means
@@ -2605,12 +2610,13 @@ function standTab(d){
      <th class="num">price</th><th class="num">odometer</th><th>year</th>
      <th>state</th><th>seller</th><th>last seen</th><th></th>
    </tr></thead><tbody>${body}</tbody></table>
-   <div class="hint">Click a row to judge that car in full. <b>&sigma; on
+   <div class="hint">Click a row to judge that car in full.</div>
+   <div class="hint note" data-label="What the two &sigma; columns mean"><b>&sigma; on
     price</b> is distance from the middle of the bell curve; <b>&sigma;
     adjusted</b> restates every car at the same odometer first, so a car that
     is only cheap because it has done 300,000 km drops back towards zero.
     Anything past &minus;2&sigma; on the adjusted column is a genuine outlier.</div>
-   <div class="hint"><b>"In latest capture" is not "still for sale."</b> It
+   <div class="hint note"><b>"In latest capture" is not "still for sale."</b> It
     means the car appeared in this selection's most recent capture
     (${esc(dist.live_day||"-")}). A car missing from it may have sold, or may
     simply not have been in the search you captured that day. Only
@@ -2691,7 +2697,7 @@ function mileTab(d){
      <div><span class="nm">$ per 10,000 km at that median</span><b>${
        d.head.median_odo?money(d.head.median/(d.head.median_odo/10000)):"&mdash;"}</b></div>
     </div>
-    <div class="hint">The fit runs on one row per vehicle per month, so a car
+    <div class="hint note">The fit runs on one row per vehicle per month, so a car
      re-seen weekly cannot dominate it - that is why its ${m.n||0} listings and
      median odometer differ from the ${pts.length} points plotted, which are
      every sighting. A robust (Huber) fit, refused below 20 listings with an
@@ -2719,7 +2725,7 @@ function whoTab(d){
     <div><div class="mini-h">median price by model year</div>
       ${yearChart(s.year)}</div>
    </div>
-   <div class="hint">A dealer median above the private median is normal - it
+   <div class="hint note">A dealer median above the private median is normal - it
     prices in warranty and on-road costs, not a better car. "(unknown)" is a
     listing that did not state it, and is left out of the year chart because
     it has no year to sit at.</div>`;
@@ -2811,7 +2817,7 @@ function turnTab(d){
     <div><span class="k">median odometer, left vs stayed</span>
       <b>${km(ps.exit_odo)}</b><span class="flat">vs ${km(ps.still_odo)}</span></div>
    </div>
-   <div class="hint">A negative gap means the cars that disappeared were the
+   <div class="hint note">A negative gap means the cars that disappeared were the
     cheap ones for their day &mdash; the market clearing from the bottom.
     Near zero means price is not what decides which cars go.</div>`;
 
@@ -2849,7 +2855,7 @@ function turnTab(d){
      <th class="num">odometer</th><th>first seen</th><th>last seen</th>
      <th class="num">days listed</th><th>listing</th></tr></thead>
      <tbody>${dep}</tbody></table></div>
-    <div class="hint">"days listed" is a range, not a measurement: the car was
+    <div class="hint note">"days listed" is a range, not a measurement: the car was
      up by the capture that first saw it and gone by the capture that first
      missed it. &ge; means it was already there at the first capture, so only
      the floor is known.</div>`
@@ -2894,7 +2900,7 @@ function trimCompare(tc){
       <td class="num">${p.rate30.toFixed(0)}%</td>
       <td class="num">${p.half_life==null?"—":p.half_life.toFixed(0)}</td>
       <td colspan="5"></td></tr>`:""}</tbody></table>
-   <div class="hint">Each trim is measured over its own captures, which are
+   <div class="hint note">Each trim is measured over its own captures, which are
     not the same days for every trim &mdash; they are made comparable by
     counting exits per car per day rather than per capture. The pooled row is
     the line's own rate; it is built from the trims because a whole model line
@@ -2950,7 +2956,7 @@ function trimTab(d){
      <td class="num">${r.odo==null?"":km(r.odo)}</td>
      <td class="num">${r.now}</td><td class="num">${money(r.now_median)}</td>
      <td>${r.last}</td></tr>`).join("")}</tbody></table>
-   <div class="hint">"for sale" and "median then" are at each trim's OWN latest
+   <div class="hint note">"for sale" and "median then" are at each trim's OWN latest
     capture, which is not always the same day for every trim - the date is in
     the last column.</div>`;
 }
@@ -3102,8 +3108,7 @@ async function load(){
          ? `showing <b>${d.kept}</b> of ${d.unfiltered} sighting(s) in this model. `
          : `all <b>${d.kept}</b> sighting(s) in this model match. `)
       : "")
-    +"Click a trim chip to select it; <b>Ctrl-click</b> (or Shift-click) to "
-    +"pool several trims into one set.";
+    +"Click a trim to select it; <b>Ctrl-click</b> to pool several.";
   // the selection and its filters are bookmarkable
   const su=new URLSearchParams(location.search);
   su.delete("variant");

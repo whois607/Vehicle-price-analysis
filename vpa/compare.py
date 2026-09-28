@@ -385,7 +385,8 @@ __CHROME_CSS__
  #cmp th:first-child,#cmp td:first-child{position:sticky;left:0;background:#fff;
     width:220px;min-width:220px;box-shadow:1px 0 0 var(--line-2)}
  #cmp th:first-child{background:var(--head)}
- #cmp th.num{width:168px;min-width:150px;white-space:normal;vertical-align:bottom;
+ #cmp th.num{text-transform:none;letter-spacing:0;font-size:12.5px;color:var(--ink);
+   width:168px;min-width:150px;white-space:normal;vertical-align:bottom;
     line-height:1.3}
  #cmp th .swatch{margin-right:5px;vertical-align:-1px}
  #cmp tr.grp td{background:var(--head);font-weight:600;color:var(--ink-2);font-size:11px;
@@ -400,7 +401,7 @@ __CHROME_CSS__
 __NAV__
 <div class="pagehead"><div>
  <h1 class="pagetitle">Compare vehicles</h1>
- <div class="sub"><span id="subline">Several makes, model lines or trims side by side, on identical statistics. Read-only.</span><span class="dbstat" id="dbstat"></span></div>
+ <div class="sub"><span id="subline">Makes, models or trims side by side, on identical statistics. Read-only.</span></div>
 </div>__ACTIONS__</div>
 
 <div class="card keep" id="help" style="display:none">
@@ -460,7 +461,7 @@ __NAV__
 <div class="card">
  <div class="ptitle">side by side <span id="cmpspan"></span></div>
  <div class="cmpwrap"><table id="cmp"></table></div>
- <div class="hint">Counts and prices are over every priced sighting - the same
+ <div class="hint note">Counts and prices are over every priced sighting - the same
   rows the workbook counts. Empty columns are ignored.</div>
 </div>
 
@@ -478,7 +479,7 @@ __NAV__
 <div class="card">
  <div class="ptitle">bell curves <span id="bellspan">&mdash; one fitted to each selection's prices</span></div>
  <div id="bell"></div><div class="lgd" id="belllgd"></div>
- <div class="hint">Fitted on log price, so the curve cannot run below $0 and
+ <div class="hint note">Fitted on log price, so the curve cannot run below $0 and
   the long tail of rare cars does not drag it. A tall narrow curve is a trim
   that prices consistently; a wide flat one is a trim where condition and
   kilometres matter more than the badge. Where two curves overlap, the same
@@ -515,7 +516,7 @@ __NAV__
   <div class="panel"><div class="ptitle">price against odometer
     <span id="scatspan"></span></div><div id="scatter"></div></div>
  </div>
- <div class="hint">Supply counts distinct vehicles seen that day. A gap means
+ <div class="hint note">Supply counts distinct vehicles seen that day. A gap means
   that selection was not captured that day - not that it vanished. A hollow
   point marks a capture that shares no cars with the one before it: that is
   a different search, not a market that emptied, and the two are not
@@ -527,7 +528,7 @@ __NAV__
    <span>&mdash; arrivals above the line, cars that left below it</span></div>
  <div id="churn"></div><div class="lgd" id="churnlgd"></div>
  <div class="lst" id="churnsum" style="margin-top:10px"></div>
- <div class="hint">Only cars carrying the site's own ad id can be recognised
+ <div class="hint note">Only cars carrying the site's own ad id can be recognised
   from one capture to the next, so this counts fewer cars than the supply
   chart above - the difference is stated per selection. A faded bar is a pair
   of captures too different in size to count: a much bigger capture inflates
@@ -561,7 +562,7 @@ __NAV__
   <th class="s num" data-k="odo">median odo</th>
   <th class="s" data-k="last">last capture</th><th></th>
  </tr></thead><tbody></tbody></table></div>
- <div class="hint">Near-duplicates here mean the same car was entered with
+ <div class="hint note">Near-duplicates here mean the same car was entered with
   different text - fix that at entry, not here.</div>
 </div>
 
@@ -953,7 +954,7 @@ function sellerChart(d){
     aria-label="dealer against private share per selection">${body}</svg>
    <div class="lgd"><span><span class="swatch" style="background:#3060a0"></span>dealer</span>
     <span><span class="swatch" style="background:#88aa88"></span>private</span></div>
-   <div class="hint">Selections with no seller recorded are left out. A dealer-heavy
+   <div class="hint note">Selections with no seller recorded are left out. A dealer-heavy
     selection usually carries a higher median for the same car.</div>`;
 }
 

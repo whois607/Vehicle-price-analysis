@@ -227,7 +227,7 @@ __CHROME_CSS__
 __NAV__
 <div class="pagehead"><div>
  <h1 class="pagetitle">Add data</h1>
- <div class="sub"><span>Jot asking prices for one model, without a full capture. Nothing is written until you commit.</span><span class="dbstat" id="dbstat"></span></div>
+ <div class="sub">Type in asking prices for one model. Nothing is saved until you commit.</div>
 </div>__ACTIONS__</div>
 __MODES__
 
@@ -259,7 +259,7 @@ __MODES__
   </div>
  </div>
  <div class="card col-stats">
-  <div class="ptitle">stats <span>&mdash; everything stored for this model, plus your batch</span></div>
+  <div class="ptitle">stats <span>&mdash; stored, plus this batch</span></div>
   <div id="poolline" class="pool">Pick a model to see its stats.</div>
   <table class="stats"><thead>
    <tr><th></th><th class="num">stored + batch</th>

@@ -687,6 +687,10 @@ class _Handler(BaseHTTPRequestHandler):
                 from . import explore
                 self._json(explore.identify_payload(
                     self.db_path, payload.get("text") or ""))
+            elif self.path == "/api/explore/link":
+                from . import explore
+                self._json(explore.link_payload(
+                    self.db_path, payload.get("link") or ""))
             elif self.path == "/api/quick/stats":
                 from . import quickadd
                 self._json(quickadd.stats_payload(payload, self.db_path))

@@ -26,6 +26,7 @@ in importui for how open pages notice.
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pandas as pd
@@ -1150,12 +1151,7 @@ def identify_payload(db_path: str | Path = DEFAULT_DB, html: str = "") -> dict:
            "in_data": key is not None}
     if key is not None:
         own = df[df["key"] == key]
-        out["stored"] = {
-            "sightings": int(len(own)),
-            "days": int(own["day"].nunique()),
-            "first_day": str(own["day"].min()), "last_day": str(own["day"].max()),
-            "price": _num(own.sort_values("capture_date").iloc[-1]["price_aud"]),
-        }
+        out["stored"] = _stored_summary(own)
         # what the FILE states and the stored record does not - a details page
         # carries state, seller and colour that a search sweep never did
         gained = [f for f in ("state", "seller_type")
@@ -1167,6 +1163,102 @@ def identify_payload(db_path: str | Path = DEFAULT_DB, html: str = "") -> dict:
         out["trim_known"] = bool(len(sel))
         out["line_known"] = bool(len(_select(df, rec.make, rec.model, None)))
     return out
+
+
+def _stored_summary(own: pd.DataFrame) -> dict:
+    return {
+        "sightings": int(len(own)),
+        "days": int(own["day"].nunique()),
+        "first_day": str(own["day"].min()), "last_day": str(own["day"].max()),
+        "price": _num(own.sort_values("capture_date").iloc[-1]["price_aud"]),
+    }
+
+
+# ------------------------------------------------------- identify from a link
+#: what a site ad id looks like (SSE-AD-20578075, OAG-AD-..., SHRM-AD-...)
+_SITE_ID = re.compile(r"\b([A-Z]{2,5}-AD-\d+)\b", re.I)
+
+
+def _norm_path(u: str) -> str:
+    """'https://www.carsales.com.au/cars/details/x/SSE-AD-1/?q=2' and the
+    stored bare path '/cars/details/x/SSE-AD-1/' -> the same string."""
+    from urllib.parse import urlsplit
+    u = (u or "").strip()
+    if "://" not in u and not u.startswith("/"):
+        u = "https://" + u
+    return urlsplit(u).path.rstrip("/").lower()
+
+
+def link_payload(db_path: str | Path = DEFAULT_DB, link: str = "") -> dict:
+    """Work out which stored car an advert LINK points at - without opening it.
+
+    Nothing is fetched: the link is only read as text and matched against what
+    your own captures recorded, strongest first:
+
+      1. an ad id in the link that is a stored listing id - the site's own
+         identity, so conclusive;
+      2. the link's path equal to a stored advert path.
+
+    A link carries no price, odometer or year, so there is no weaker rule to
+    fall back on: an advert that is not in your captures is reported as such,
+    and the saved page (which does carry them) is the way to score it.
+    Read-only, like identify_payload.
+    """
+    link = (link or "").strip()
+    if not link:
+        return {"ok": False, "error": "paste an advert link first"}
+    if len(link) > 2000 or any(c.isspace() for c in link):
+        return {"ok": False, "error": "that does not look like a single link"}
+    low = link.lower()
+    if "facebook.com" in low or "fb.com" in low:
+        return {"ok": False, "error":
+                ("Facebook listings were captured without their links, so a "
+                 "Facebook link cannot be matched. Pick the car's trim below "
+                 "instead, or use Type one I've seen.")}
+
+    df = _frame(db_path)
+    ids = {str(x).upper(): x for x in df["listing_id"].dropna().unique()} \
+        if not df.empty else {}
+    want_path = _norm_path(link)
+    segments = [s for s in re.split(r"[/?#&=]", link) if s]
+    key = basis = listing = None
+    # 1. any part of the link that IS a stored listing id
+    for seg in reversed(segments):
+        hit_id = ids.get(seg.upper())
+        if hit_id is not None:
+            key = str(df[df["listing_id"] == hit_id].iloc[0]["key"])
+            basis, listing = "the ad id in the link", hit_id
+            break
+    # 2. the advert path itself
+    if key is None and want_path and not df.empty:
+        paths = df["url"].dropna()
+        hit = paths[paths.map(_norm_path) == want_path]
+        if not hit.empty:
+            key = str(df.loc[hit.index[0], "key"])
+            basis = "the advert's address"
+    m = _SITE_ID.search(link)
+    if key is None:
+        if not m and not want_path.startswith(("/cars/", "/bikes/")) \
+                and "carsales" not in low and "bikesales" not in low:
+            return {"ok": False, "error":
+                    ("no ad id in that link - paste the address of the advert "
+                     "itself (it contains something like SSE-AD-20578075)")}
+        return {"ok": True, "in_data": False, "key": None,
+                "found": {"listing_id": m.group(1).upper() if m else None,
+                          "url": links.ad_url(link, "carsales")}}
+
+    own = df[df["key"] == key].sort_values("capture_date")
+    last = own.iloc[-1]
+    found = {k: (None if pd.isna(last[k]) else last[k]) for k in
+             ("listing_id", "make", "model", "variant", "state", "seller_type")}
+    found.update({"year": None if pd.isna(last["year"]) else int(last["year"]),
+                  "price": _num(last["price_aud"]),
+                  "odometer_km": _num(last["odometer_km"]),
+                  "url": links.ad_url(last["url"], last["source"])
+                  if isinstance(last["url"], str) else None,
+                  "title": None if pd.isna(last["raw_title"]) else last["raw_title"]})
+    return {"ok": True, "in_data": True, "key": key, "basis": basis,
+            "found": found, "stored": _stored_summary(own), "adds": []}
 
 
 # -------------------------------------------------------------------- page
@@ -1248,18 +1340,21 @@ __CHROME_CSS__
  .wltag.gone{color:var(--bad);background:var(--bad-soft);border-color:var(--bad-line)}
  .okbox code{background:#fff}
  /* find-a-car bar: the primary way in, so it leads the page */
- .findbar{display:grid;grid-template-columns:1fr auto;column-gap:24px;align-items:center;
-   grid-template-areas:"h row" "p row" "msg msg";
+ .findbar{display:grid;grid-template-columns:1fr;
+   grid-template-areas:"h" "p" "row" "msg";
    background:radial-gradient(120% 140% at 0% 0%,#f3f7ff 0%,#e9f0fc 60%,#e3ecfb 100%);
    border:1px solid var(--accent-line);border-radius:var(--r);padding:16px 20px;margin-bottom:16px;
    box-shadow:var(--shadow);animation:vpa-rise .3s ease-out backwards}
  .findbar h2{grid-area:h;font-family:var(--ui-d);font-size:16px;margin:0 0 2px;font-weight:650;
    color:var(--accent-2);letter-spacing:-.01em}
  .findbar p{grid-area:p;margin:0;font-size:12.5px;color:var(--ink-2)}
- .findrow{grid-area:row;display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:flex-end}
+ .findrow{grid-area:row;display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:12px}
+ .linkform{flex:1 1 420px;display:flex;align-items:center;gap:0;position:relative;min-width:0}
+ .linkform .lk{position:absolute;left:12px;color:var(--faint);pointer-events:none}
+ .linkform input{flex:1;min-width:0;height:38px;padding-left:36px;border-radius:var(--r-sm) 0 0 var(--r-sm);
+   border-right:0;background:#fff}
+ .linkform .bigbtn{border-radius:0 var(--r-sm) var(--r-sm) 0}
  #findmsg{grid-area:msg}
- @media (max-width:900px){.findbar{grid-template-columns:1fr;grid-template-areas:"h" "p" "row" "msg"}
-   .findrow{justify-content:flex-start;margin-top:12px}}
  button.bigbtn{height:38px;padding:0 16px;border:1px solid var(--accent);border-radius:var(--r-sm);
    background:var(--accent);color:#fff;font-size:13.5px;font-weight:600;
    box-shadow:0 1px 2px rgba(34,78,165,.3),inset 0 1px 0 rgba(255,255,255,.12)}
@@ -1326,6 +1421,12 @@ __NAV__
       vehicle once per month, which is what <code>vpa report</code> does.</li>
   <li>The <b>Compare</b> tab carries this selection and its nearest trims
       across to the side-by-side view - the workbook's Comparison sheet.</li>
+  <li><b>Finding a car by its link.</b> Paste an advert's address (or just its
+      ad id, e.g. SSE-AD-20578075) into the box at the top. It is matched
+      against the links and ad ids your captures recorded - the advert is
+      never opened. A car you never captured cannot be scored from a link
+      alone (a link has no price or kilometres): save its page and use
+      <b>From a saved page</b>. Facebook captures carry no links.</li>
   <li><b>Judging one car.</b> Click any row in the vehicles table, or any
       point on the price-vs-odometer scatter, to rank that car against the
       rest of its trim. <b>Score a car I've seen</b> does the same for a car
@@ -1353,13 +1454,23 @@ __NAV__
 
 <div class="findbar" id="findbar">
  <h2>Got a specific car in mind?</h2>
- <p>Drop the advert's saved page (<b>Ctrl+S</b> on the listing itself) to find it and rank it against its trim.</p>
+ <p>Paste its advert link to find it in your data and rank it against its trim &mdash;
+  the link is only matched against what you captured; nothing is opened or fetched.</p>
  <div class="findrow">
-  <button class="bigbtn" id="findBtn">
-   <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+  <form class="linkform" id="linkForm" autocomplete="off">
+   <svg class="lk" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-    <path d="M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM20 20l-4.2-4.2"/></svg>
-   Find a car from its saved page</button>
+    <path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg>
+   <input type="text" id="findLink" spellcheck="false"
+     placeholder="https://www.carsales.com.au/cars/details/.../SSE-AD-20578075/  or just the ad id">
+   <button class="bigbtn" type="submit" id="linkBtn">
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+     <path d="M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM20 20l-4.2-4.2"/></svg>
+    Find</button>
+  </form>
+  <button class="bigbtn alt" id="findBtn" title="a saved page (Ctrl+S on the ad) also carries price, odometer and year, so a car you never captured can still be scored">
+   From a saved page</button>
   <button class="bigbtn alt" id="seenBtn">
    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"
      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -2209,7 +2320,42 @@ async function identify(file){
       body:JSON.stringify({name:file.name,text})}).then(x=>x.json());
   }catch(e){findMsg("Could not read that file: "+esc(e),"warnbox");return;}
   if(!r.ok){findMsg(esc(r.error),"warnbox");return;}
-
+  await showFound(r);
+}
+/* Find from a pasted link: matched against the database's own records only -
+   the browser never opens the advert. */
+async function findByLink(link){
+  link=(link||"").trim();
+  if(!link){$("findLink").focus();return;}
+  findMsg(`Looking for <b>${esc(link.length>70?link.slice(0,67)+"...":link)}</b> in your data...`);
+  let r;
+  try{
+    r=await fetch("/api/explore/link",{method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({link})}).then(x=>x.json());
+  }catch(e){findMsg("Could not look that up: "+esc(e),"warnbox");return;}
+  if(!r.ok){findMsg(esc(r.error),"warnbox");return;}
+  if(!r.in_data){
+    const f=r.found||{};
+    findMsg(`${f.listing_id?`Advert <b>${esc(f.listing_id)}</b>`:"That advert"} is not in your captures.
+      <div class="hint" style="margin-top:6px">A link carries no price or kilometres, so
+      there is nothing to score it on. Save the ad's page (<b>Ctrl+S</b>) and use
+      <b>From a saved page</b> to rank it against its trim, or <b>Type one I've seen</b>.
+      ${f.url?` ${vpaAdLinks(f.url,false)}`:""}</div>`,"warnbox");
+    vpaReveal($("findmsg"));
+    return;
+  }
+  await showFound(r);
+}
+/* Point the picker at one car's trim. Setting the dropdowns alone is not a
+   selection - load() reads PICK - so without this a found car was judged
+   against "all trims" and its card refused as too broad. */
+function selectTrim(f){
+  fillSelects(f.make,f.model,f.variant);
+  PICK=f.variant&&$("va").value===f.variant?[f.variant]:[];
+  if(typeof resetChips==="function")resetChips();
+}
+async function showFound(r){
   const f=r.found;
   const label=[f.make,f.model,f.variant].filter(Boolean).join(" ");
   const bits=[f.year,money(f.price),f.odometer_km?km(f.odometer_km):null,
@@ -2235,7 +2381,7 @@ async function identify(file){
         ${r.adds.map(a=>a==="seller_type"?"seller":a).join(" and ")}, which
         your captures did not record.`:""}</div>`);
     // point the page at that car's trim, then open its verdict card
-    fillSelects(f.make,f.model,f.variant);
+    selectTrim(f);
     await load();
     await openCar({car:r.key});
   }else{
@@ -2257,7 +2403,7 @@ async function identify(file){
         Nothing was imported - use the <b>Import</b> page to add it.</div>`);
     $("seencard").style.display="block";
     if(r.trim_known){
-      fillSelects(f.make,f.model,f.variant);
+      selectTrim(f);
       await load();
       $("sGo").click();
     }
@@ -2265,13 +2411,21 @@ async function identify(file){
   vpaReveal($("findmsg"));
 }
 $("findBtn").onclick=()=>{$("findFile").value="";$("findFile").click();};
+$("linkForm").onsubmit=e=>{e.preventDefault();findByLink($("findLink").value);};
+// pasting a link finds it straight away - no button press needed
+$("findLink").addEventListener("paste",e=>{
+  const t=(e.clipboardData||window.clipboardData).getData("text");
+  if(t&&/^\s*\S+\s*$/.test(t)){e.preventDefault();$("findLink").value=t.trim();findByLink(t);}});
 $("findFile").onchange=e=>identify(e.target.files[0]);
 ["dragenter","dragover"].forEach(ev=>$("findbar").addEventListener(ev,e=>{
   e.preventDefault();$("findbar").classList.add("drag");}));
 ["dragleave","drop"].forEach(ev=>$("findbar").addEventListener(ev,e=>{
   e.preventDefault();$("findbar").classList.remove("drag");}));
 $("findbar").addEventListener("drop",e=>{
-  if(e.dataTransfer.files&&e.dataTransfer.files[0])identify(e.dataTransfer.files[0]);});
+  if(e.dataTransfer.files&&e.dataTransfer.files[0]){identify(e.dataTransfer.files[0]);return;}
+  const u=(e.dataTransfer.getData("text/uri-list")||e.dataTransfer.getData("text/plain")||"")
+    .split(/\r?\n/).find(x=>x&&!x.startsWith("#"));
+  if(u){$("findLink").value=u.trim();findByLink(u);}});
 
 $("seenBtn").onclick=()=>{const c=$("seencard");
   c.style.display=c.style.display==="none"?"block":"none";

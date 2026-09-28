@@ -627,12 +627,49 @@ def run_checks() -> int:
           and identify_payload(DB, "")["ok"] is False,
           "both return ok:False with a message")
 
+    print("\n== finding one car from its advert LINK (nothing fetched) ==")
+    from vpa.explore import link_payload
+    full = f"https://www.carsales.com.au/cars/details/2013-ford-falcon-wide/{ad}/?Cr=0&gclid=abc"
+    lk = link_payload(DB, full)
+    check("a full advert link finds the stored car by the ad id inside it",
+          lk["ok"] and lk["in_data"] and lk["key"] == want_key
+          and "ad id" in lk["basis"] and lk["stored"]["sightings"] >= 1,
+          f"{ad} -> {lk.get('key', '')[:12]} via {lk.get('basis')}")
+    check("...and it reads the car's own details from your data, not the web",
+          lk["found"]["make"] == "Ford" and lk["found"]["model"] == "Falcon"
+          and lk["found"]["price"] is not None,
+          f"{lk['found']['make']} {lk['found']['model']} {lk['found']['variant']} "
+          f"${lk['found']['price']:,.0f}")
+    bare = link_payload(DB, ad.lower())
+    nohost = link_payload(DB, f"carsales.com.au/cars/details/x/{ad}")
+    check("a bare ad id, any case, or a link without https:// works the same",
+          bare["key"] == nohost["key"] == want_key, f"{ad.lower()} and a host-less link")
+    gone = link_payload(DB, "https://www.carsales.com.au/cars/details/x/SSE-AD-123456789/")
+    check("an advert you never captured is reported as such, not guessed at",
+          gone["ok"] and gone["in_data"] is False
+          and gone["found"]["listing_id"] == "SSE-AD-123456789",
+          "a link has no price or km, so there is no weaker rule to fall back on")
+    fb = link_payload(DB, "https://www.facebook.com/marketplace/item/12345/")
+    junk = [link_payload(DB, t) for t in ("", "two words", "https://example.com/x")]
+    check("Facebook, junk and empty links are refused with a reason",
+          fb["ok"] is False and "Facebook" in fb["error"]
+          and all(j["ok"] is False and j["error"] for j in junk),
+          fb["error"][:60])
+    import vpa.explore as _ex
+    src = Path(_ex.__file__).read_text(encoding="utf-8")
+    body = src[src.index("def link_payload"):src.index("# ----", src.index("def link_payload"))]
+    check("the link lookup has no way to reach the network",
+          not any(w in body for w in ("urlopen", "requests", "http.client", "socket")),
+          "link_payload only reads the text and the database")
+
     before_id = hashlib.sha256(DB.read_bytes()).hexdigest()
     for pg in (page, roundish, unknown, multi, ""):
         identify_payload(DB, pg)
+    for t in (full, ad, "https://www.carsales.com.au/cars/details/x/SSE-AD-1/", ""):
+        link_payload(DB, t)
     check("identifying a car imports nothing - the database is untouched",
           hashlib.sha256(DB.read_bytes()).hexdigest() == before_id,
-          "5 identify calls, file byte-identical")
+          "5 saved-page and 4 link lookups, file byte-identical")
 
     print("\n== refusals and read-only ==")
     broad = car_payload(DB, "Ford", "Falcon", None, price=20000)

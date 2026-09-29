@@ -1021,6 +1021,9 @@ Keep these — each one was a bug that took a while to find.
   refused and not counted. Stops itself at the page count. Pace = median gap
   between saves (file mtimes). "Undo session" = bulk.undo per run, newest
   first. Folder + page count remembered in `data/inbox.json`.
+* Default folder: `carsales inbox/` in the project (gitignored, like
+  data/raw). It is in OneDrive, so moving a just-saved file out is retried;
+  a file that still cannot move is left, warned about, and never re-imported.
 * `tests/check_inbox.py` (17 checks) runs a real session incl. undo back to
   an identical database.
 

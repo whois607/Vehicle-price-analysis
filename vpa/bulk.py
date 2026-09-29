@@ -512,6 +512,20 @@ __CHROME_CSS__
  .empty{text-align:left;padding:14px;font-size:12.5px}
  /* ---- watch a folder: fixed heights, like the rest of the page ---- */
  .wrow{margin-top:0}
+ .wrow2{margin-top:10px}
+ /* ---- split screen / narrow windows ---- */
+ .controls{flex-wrap:wrap}
+ #runtbl td{white-space:nowrap}
+ #runtbl td:nth-child(2){max-width:220px;overflow:hidden;text-overflow:ellipsis}
+ @media (max-width:980px){
+   .tiles{grid-template-columns:repeat(3,1fr)}
+   #rtbl .c-f,#rtbl td:nth-child(6){display:none}
+   #runtbl th:nth-child(3),#runtbl td:nth-child(3){display:none}}
+ @media (max-width:760px){
+   #rtbl .c-d,#rtbl td:nth-child(5){display:none}
+   #rtbl .c-k{width:92px}#rtbl .c-p{width:88px}
+   #runtbl th:nth-child(5),#runtbl td:nth-child(5){display:none}
+   #wstatus .bar{width:90px}}
  #wstatus{height:44px;display:flex;align-items:center;gap:12px;margin-top:12px;
    padding:0 14px;border:1px solid var(--line-2);border-radius:var(--r-sm);
    background:var(--head);font-size:13px;color:var(--ink-2);overflow:hidden}
@@ -612,9 +626,11 @@ __MODES__
   <div class="grow"><label for="wFolder">folder to save pages into</label>
    <input type="text" id="wFolder" spellcheck="false" style="width:100%"></div>
   <div><button id="wOpen" title="show this folder in Explorer">Open folder</button></div>
+ </div>
+ <div class="controls wrow2">
   <div style="width:96px"><label for="wPages">pages</label>
    <input type="number" id="wPages" min="1" max="500" value="20" style="width:100%"></div>
-  <div style="width:170px"><label for="wLabel">label (optional)</label>
+  <div class="grow"><label for="wLabel">label (optional)</label>
    <input type="text" id="wLabel" style="width:100%" placeholder="e.g. Falcon sweep"></div>
   <div><button class="primary" id="wStart">Start watching</button></div>
   <div><button id="wStop" disabled>Stop</button></div>
@@ -649,10 +665,7 @@ __MODES__
     <option value="json">JSON</option>
     <option value="text">plain text</option>
    </select></div>
-  <div class="grow"><label for="label">label for this run
-    (optional)</label>
-   <input type="text" id="label" style="width:100%"
-     placeholder="e.g. weekly Falcon sweep"></div>
+  <div class="grow"></div>
   <div><button class="primary" id="goBtn" disabled>Upload</button></div>
   <div><button id="clearBtn" disabled>Clear</button></div>
  </div>
@@ -766,7 +779,7 @@ $("goBtn").onclick=async()=>{
   try{
     res=await fetch("/api/bulk/run",{method:"POST",body:JSON.stringify({
       files:pending,source:$("source").value,format:$("format").value,
-      label:$("label").value})}).then(r=>r.json());
+      label:""})}).then(r=>r.json());
   }catch(e){res={ok:false,error:String(e)};}
   busy=false;$("clearBtn").disabled=false;
   if(!res.ok){say(res.error||"upload failed","bad",0);
@@ -920,7 +933,7 @@ async function undoRun(btn){
    The server does the watching (vpa/inbox.py) and imports each page through
    the same bulk run the Upload button uses; this polls for what arrived and
    feeds it into the session list exactly as an upload would. */
-let WSEQ=0, WPOLL=null, WSESSION=null, WRUNS=[];
+let WSEQ=0, WPOLL=null, WSESSION=null, WRUNS=[], WHOLD=0;
 const mmss=s=>s==null?"":s>=3600?`${Math.floor(s/3600)}h ${Math.round(s%3600/60)}m`
   :s>=60?`${Math.floor(s/60)}m ${String(Math.round(s%60)).padStart(2,"0")}s`:`${Math.round(s)}s`;
 function wsay(text,kind,pct,nums){
@@ -954,6 +967,7 @@ function wshow(st){
     wsay(`Stopped (${st.reason}) after ${st.done} of ${st.target} pages.`,"",pct,nums);
   }
   const ign=(st.ignored||[]).length;
+  if(Date.now()<WHOLD)return;            // a warning stays up long enough to read
   $("wnote").innerHTML=ign&&on
     ?`${ign} file(s) were already in the folder when you started and are left alone: <b>${esc(st.ignored.slice(0,3).join(", "))}</b>`
     :st.backup?`Backup taken at the start: <code>${esc(st.backup)}</code>`
@@ -965,6 +979,8 @@ function wtake(evs){
   evs.forEach(ev=>{
     if(ev.result){render(ev.result);any=true;}
     if(ev.run&&!WRUNS.includes(ev.run))WRUNS.push(ev.run);
+    if(ev.archive_error){$("wnote").innerHTML=`<b style="color:var(--warn)">${esc(ev.name)}</b>: ${esc(ev.archive_error)}`;
+      WHOLD=Date.now()+15000;}
     WSEQ=Math.max(WSEQ,ev.seq);
   });
   if(any)loadRuns();

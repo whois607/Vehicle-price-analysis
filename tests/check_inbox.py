@@ -189,8 +189,37 @@ def main() -> int:
           content_hash() == before and db_rows() == (1, 1),
           f"content hash {content_hash()} == {before}")
 
-    print("\n== a second session, stopped by hand ==")
+    print("\n== a file OneDrive will not let go of ==")
+    real_move = inbox.shutil.move
+    real_sleep = inbox.time.sleep
+
+    def locked(*a, **k):
+        raise PermissionError("locked by sync")
     (FOLDER / "carsales.csv").unlink()
+    r3 = inbox.start(DB, str(FOLDER), 2)
+    s3 = inbox._CUR["s"]
+    inbox.shutil.move = locked
+    try:
+        save("carsales.csv", page(5))
+        wait_for(lambda: s3.done == 1)
+        time.sleep(4.5)                               # retries, then several scans
+    finally:
+        inbox.shutil.move = real_move
+    ev = s3.events[-1] if s3.events else {}
+    check("a file that cannot be moved out does not stop the session",
+          r3["ok"] and s3.status == "watching" and ev.get("archive_error"),
+          ev.get("archive_error", "")[:70])
+    check("...and is not imported a second time while it sits there",
+          s3.done == 1 and len(s3.events) == 1, f"{len(s3.events)} event(s), done={s3.done}")
+    inbox.stop()
+    s3.join()
+    check("the default folder is inside the project and ignored by git",
+          Path(inbox.default_folder()).parent == ROOT.parent
+          and "carsales inbox/" in (ROOT.parent / ".gitignore").read_text(),
+          inbox.default_folder())
+
+    print("\n== a second session, stopped by hand ==")
+    (FOLDER / "carsales.csv").unlink(missing_ok=True)
     r2 = inbox.start(DB, str(FOLDER), 5)
     again = inbox.start(DB, str(FOLDER), 5)
     check("only one session at a time", r2["ok"] and again["ok"] is False,

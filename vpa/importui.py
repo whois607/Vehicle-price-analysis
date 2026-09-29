@@ -1290,6 +1290,8 @@ __CHROME_CSS__
  .vf .bd{flex:1}
  .vf .bd b{font-weight:600}
  .vfcard{padding:14px 20px}
+ /* split screen: the price range is the column that can go */
+ @media (max-width:760px){#topTbl th:nth-child(8),#topTbl td:nth-child(8){display:none}}
  #verify:not(:empty){margin-top:12px}
 </style></head><body><div class="wrap">
 __NAV__

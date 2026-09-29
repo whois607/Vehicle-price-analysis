@@ -430,7 +430,14 @@ __CHROME_CSS__
  .grp .c-r{width:64px}.grp .c-a{width:140px}.grp .c-y{width:48px}.grp .c-s{width:52px}
  .grp .c-l{width:70px}.grp .c-c{width:200px}
  .cap{font-size:11.5px;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
- .sights{font-size:12px;line-height:1.55}
+ .sights{font-size:12px;line-height:1.55;white-space:nowrap}
+ /* split screen: drop "seller" and "captured by" rather than crush the
+    sightings column the decision actually rests on */
+ @media (max-width:980px){
+   .grp th:nth-child(5),.grp td:nth-child(5),
+   .grp th:nth-child(7),.grp td:nth-child(7){display:none}
+   .grp .c-a{width:118px}}
+ @media (max-width:600px){.ghead .acts{margin-left:0;width:100%}}
  .why{font-size:11.5px;color:var(--dim);margin-top:4px}
  #tickbar{display:flex;align-items:center;gap:10px}
  #tickbar .flat{font-size:12px}

@@ -211,6 +211,8 @@ CHROME_CSS = """
     fixes it, as a dot that takes no space. */
  .navbtn.stale::after{content:"";position:absolute;top:-3px;right:-3px;width:9px;
    height:9px;border-radius:50%;background:#e39a2b;border:2px solid #fff}
+ @media (max-width:760px){.wrap{padding:10px 12px 40px}:is(.card,.findbar){padding:16px}
+   .topbar{margin-bottom:16px}.pagetitle{font-size:21px}}
  @media (max-width:1120px){.navtab span,.navbtn span,.brand .bt{display:none}
    .navtab,.navbtn{padding:0 10px}}
 

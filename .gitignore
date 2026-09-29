@@ -14,6 +14,10 @@ data/*
 # Reports, exports and the Excel workbook (rebuild: python -m vpa report --all)
 output/
 
+# The watch folder (Bulk > Watch a folder): saved carsales pages and their
+# imported/ archive. Same rule as data/raw - never shared.
+carsales inbox/
+
 # Generated test fixtures and their report tree
 tests/synthetic/
 

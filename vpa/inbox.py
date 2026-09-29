@@ -68,8 +68,13 @@ def _settings_path(db_path) -> Path:
     return Path(db_path).resolve().parent / "inbox.json"
 
 
+#: inside the project, beside data/ - and in .gitignore, because saved pages
+#: are copies of someone else's site and must never be committed
+INBOX_DIR = Path(__file__).resolve().parent.parent / "carsales inbox"
+
+
 def default_folder() -> str:
-    return str(Path.home() / "Downloads" / "carsales inbox")
+    return str(INBOX_DIR)
 
 
 def load_settings(db_path=DEFAULT_DB) -> dict:
@@ -254,7 +259,26 @@ class Session:
             else:
                 ev.update(kind="refused", error=f.get("error") or res.get("reason", ""),
                           html=bool(f.get("html")), result=res)
-        ev["archived"] = self._archive(p)
+        # OneDrive (the project folder lives in it) can hold a fresh file for
+        # a moment while it syncs: retry the move briefly, and if it still
+        # cannot go, leave it - the page is already in, and the content hash
+        # stops it being imported again.
+        for attempt in range(6):
+            try:
+                ev["archived"] = self._archive(p)
+                break
+            except OSError as exc:
+                if attempt == 5:
+                    ev["archive_error"] = (f"imported, but could not be moved out "
+                                           f"of the folder ({exc.__class__.__name__}) "
+                                           f"- delete it before saving the next page")
+                    self.hashes.add(digest)
+                    try:
+                        self.ignored[p.name] = _sig(p)
+                    except OSError:
+                        pass
+                else:
+                    time.sleep(0.5)
         with self._lock:
             self.events.append(ev)
 

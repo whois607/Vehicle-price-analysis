@@ -587,6 +587,15 @@ class _Handler(BaseHTTPRequestHandler):
         elif self.path == "/api/dupes":
             from . import dupes
             self._json(dupes.payload(self.db_path))
+        elif bare == "/api/inbox":
+            from urllib.parse import parse_qs, urlparse
+            from . import inbox
+            q = parse_qs(urlparse(self.path).query)
+            try:
+                since = int((q.get("since") or ["0"])[0])
+            except ValueError:
+                since = 0
+            self._json(inbox.state(self.db_path, since))
         elif self.path == "/api/viewer/progress":
             self._json({"ok": True, "job": xl_state()})
         elif bare == "/compare":
@@ -742,6 +751,30 @@ class _Handler(BaseHTTPRequestHandler):
             elif self.path == "/api/dupes/undo":
                 from . import dupes
                 self._json(dupes.undo(self.db_path, payload.get("batch") or ""))
+            elif self.path == "/api/inbox/start":
+                from . import inbox
+                self._json(inbox.start(self.db_path, payload.get("folder") or "",
+                                       payload.get("pages"),
+                                       payload.get("label") or ""))
+            elif self.path == "/api/inbox/stop":
+                from . import inbox
+                self._json(inbox.stop())
+            elif self.path == "/api/inbox/undo":
+                from . import inbox
+                self._json(inbox.undo_session(self.db_path))
+            elif self.path == "/api/inbox/open":
+                # show the folder in Explorer - only the folder a session or
+                # the saved settings name, never a path sent by the page
+                from . import inbox
+                st = inbox.state(self.db_path)
+                f = Path((st["session"] or {}).get("folder")
+                         or st["settings"]["folder"])
+                if f.is_dir():
+                    os.startfile(str(f))
+                    self._json({"ok": True})
+                else:
+                    self._json({"ok": False, "error": "that folder does not exist yet - "
+                                "start a session and it is created"})
             elif self.path == "/api/bulk/run":
                 from . import bulk
                 self._json(bulk.run_payload(payload, self.db_path))

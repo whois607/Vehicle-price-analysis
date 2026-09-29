@@ -150,7 +150,7 @@ def _snapshot(store: Store, keys) -> dict:
 
 def run(files: list[dict], db_path: str | Path = DEFAULT_DB,
         source: str | None = None, fmt: str | None = None,
-        label: str = "") -> dict:
+        label: str = "", backup: str | None = None) -> dict:
     """Parse and commit every file, with no preview and no confirmation.
 
     `files` is [{name, text, capture_date}] - the same shape the Import page
@@ -158,6 +158,11 @@ def run(files: list[dict], db_path: str | Path = DEFAULT_DB,
 
     Returns a report with one row per file (including the ones that failed
     and why), the totals, the backup path, and the run id needed to undo it.
+
+    `backup` names a backup ALREADY taken before this run (the watch folder
+    takes one when its session starts, then imports page by page); the run
+    records it instead of copying the whole database again. Omitted, a fresh
+    backup is taken here, as always.
     """
     if not files:
         return {"ok": False, "error": "no files - drop some first"}
@@ -200,7 +205,8 @@ def run(files: list[dict], db_path: str | Path = DEFAULT_DB,
 
     # ---- one backup for the whole run, before the first write
     with Store(db_path) as store:
-        backup = str(store.backup())
+        if not backup or not Path(backup).is_file():
+            backup = str(store.backup())
         keys = {r.dedupe_key() for p in parsed for r in p["records"]}
         before = _snapshot(store, keys)
 
@@ -504,6 +510,27 @@ __CHROME_CSS__
     it lives in scrolls rather than growing the page */
  .why{margin-top:3px;font-size:11.5px;color:var(--warn);max-width:460px}
  .empty{text-align:left;padding:14px;font-size:12.5px}
+ /* ---- watch a folder: fixed heights, like the rest of the page ---- */
+ .wrow{margin-top:0}
+ #wstatus{height:44px;display:flex;align-items:center;gap:12px;margin-top:12px;
+   padding:0 14px;border:1px solid var(--line-2);border-radius:var(--r-sm);
+   background:var(--head);font-size:13px;color:var(--ink-2);overflow:hidden}
+ #wstatus .wdot{width:9px;height:9px;border-radius:50%;background:var(--faint);flex:none}
+ #wstatus.on{background:var(--accent-soft);border-color:var(--accent-line)}
+ #wstatus.on .wdot{background:var(--accent);animation:wpulse 1.4s ease-in-out infinite}
+ #wstatus.good{background:var(--good-soft);border-color:var(--good-line)}
+ #wstatus.good .wdot{background:var(--good)}
+ #wstatus.bad{background:var(--bad-soft);border-color:var(--bad-line);color:#7a2f2f}
+ #wstatus.bad .wdot{background:var(--bad)}
+ @keyframes wpulse{0%,100%{box-shadow:0 0 0 0 rgba(43,95,196,.45)}50%{box-shadow:0 0 0 5px rgba(43,95,196,0)}}
+ #wtext{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+ .wnums{font-variant-numeric:tabular-nums;white-space:nowrap;color:var(--dim);font-size:12.5px}
+ .wnums b{color:var(--ink);font-size:15px;font-weight:650}
+ #wstatus .bar{width:170px}
+ .wfoot{display:flex;align-items:center;gap:12px;height:30px;margin-top:10px}
+ #wnote{flex:1;min-width:0;font-size:12px;color:var(--dim);white-space:nowrap;
+   overflow:hidden;text-overflow:ellipsis}
+ #wUndo{min-width:120px}
  #resultsEmpty{height:100%;display:flex;align-items:center;justify-content:center;
    color:var(--faint);font-size:13px}
  /* A backup path is 90-odd characters and wraps to a second line the moment
@@ -577,6 +604,26 @@ __MODES__
    buttons keep one label and one width, so the button under your cursor is
    the button you meant.</li>
  </ul>
+</div>
+
+<div class="card" id="watchCard">
+ <div class="ptitle">watch a folder <span id="wspan">&mdash; save pages into it with Ctrl+S; each one imports itself</span></div>
+ <div class="controls wrow">
+  <div class="grow"><label for="wFolder">folder to save pages into</label>
+   <input type="text" id="wFolder" spellcheck="false" style="width:100%"></div>
+  <div><button id="wOpen" title="show this folder in Explorer">Open folder</button></div>
+  <div style="width:96px"><label for="wPages">pages</label>
+   <input type="number" id="wPages" min="1" max="500" value="20" style="width:100%"></div>
+  <div style="width:170px"><label for="wLabel">label (optional)</label>
+   <input type="text" id="wLabel" style="width:100%" placeholder="e.g. Falcon sweep"></div>
+  <div><button class="primary" id="wStart">Start watching</button></div>
+  <div><button id="wStop" disabled>Stop</button></div>
+ </div>
+ <div id="wstatus"><span class="wdot"></span><span id="wtext">not watching</span>
+  <span class="wnums" id="wnums"></span><span class="bar"><i id="wbar"></i></span></div>
+ <div class="wfoot"><span id="wnote">Each saved page is imported, then moved into
+  <code>imported\</code> so the next save needs no new name. One backup is taken when you start.</span>
+  <button class="danger mini" id="wUndo" disabled title="undo every page this session imported">Undo session</button></div>
 </div>
 
 <div class="card">
@@ -868,6 +915,109 @@ async function undoRun(btn){
      +`restored. Backed up first.`,"good",100);
   loadRuns();
 }
+
+/* ---- watch a folder ----------------------------------------------------
+   The server does the watching (vpa/inbox.py) and imports each page through
+   the same bulk run the Upload button uses; this polls for what arrived and
+   feeds it into the session list exactly as an upload would. */
+let WSEQ=0, WPOLL=null, WSESSION=null, WRUNS=[];
+const mmss=s=>s==null?"":s>=3600?`${Math.floor(s/3600)}h ${Math.round(s%3600/60)}m`
+  :s>=60?`${Math.floor(s/60)}m ${String(Math.round(s%60)).padStart(2,"0")}s`:`${Math.round(s)}s`;
+function wsay(text,kind,pct,nums){
+  $("wtext").textContent=text;$("wtext").title=text;
+  $("wstatus").className=kind||"";
+  $("wbar").style.width=(pct==null?0:pct)+"%";
+  $("wnums").innerHTML=nums||"";
+}
+function wshow(st){
+  WSESSION=st;
+  const on=st&&st.status==="watching";
+  $("wStart").disabled=on;$("wStop").disabled=!on;
+  ["wFolder","wPages","wLabel"].forEach(id=>$(id).disabled=on);
+  $("wUndo").disabled=on||!(st&&st.runs&&st.runs.length);
+  if(!st){wsay("not watching","",0);return;}
+  const pct=Math.round(100*st.done/st.target);
+  const nums=`<b>${st.done}</b> of ${st.target} pages`
+    +(st.pace_s?` &middot; ${mmss(st.pace_s)} a page`:"")
+    +(st.eta_s!=null?(st.eta_s<5?" &middot; last page any moment"
+      :` &middot; about <b>${mmss(st.eta_s)}</b> left (done ~${esc(st.finish)})`):"");
+  const extra=[st.refused?`${st.refused} refused`:"",st.duplicates?`${st.duplicates} repeat(s) skipped`:""]
+    .filter(Boolean).join(", ");
+  if(on){
+    wsay(st.done?`Watching ${st.folder}`+(extra?` - ${extra}`:"")
+      :`Watching ${st.folder} - save the first page into it`,"on",pct,nums);
+  }else if(st.status==="complete"){
+    wsay(`Done: ${st.reason}`+(extra?` (${extra})`:"")+` in ${mmss(st.elapsed_s)}.`,"good",100,nums);
+  }else if(st.status==="error"){
+    wsay(st.reason,"bad",pct,nums);
+  }else{
+    wsay(`Stopped (${st.reason}) after ${st.done} of ${st.target} pages.`,"",pct,nums);
+  }
+  const ign=(st.ignored||[]).length;
+  $("wnote").innerHTML=ign&&on
+    ?`${ign} file(s) were already in the folder when you started and are left alone: <b>${esc(st.ignored.slice(0,3).join(", "))}</b>`
+    :st.backup?`Backup taken at the start: <code>${esc(st.backup)}</code>`
+    :$("wnote").innerHTML;
+  $("wnote").title=st.backup||"";
+}
+function wtake(evs){
+  let any=false;
+  evs.forEach(ev=>{
+    if(ev.result){render(ev.result);any=true;}
+    if(ev.run&&!WRUNS.includes(ev.run))WRUNS.push(ev.run);
+    WSEQ=Math.max(WSEQ,ev.seq);
+  });
+  if(any)loadRuns();
+}
+async function wpoll(){
+  let d;
+  try{d=await fetch("/api/inbox?since="+WSEQ).then(r=>r.json());}catch(e){return;}
+  const st=d&&d.session;
+  if(st){wtake(st.events||[]);wshow(st);}
+  if(!st||st.status!=="watching"){clearInterval(WPOLL);WPOLL=null;}
+}
+function wstartPolling(){if(!WPOLL)WPOLL=setInterval(wpoll,700);}
+$("wStart").onclick=async()=>{
+  $("wStart").disabled=true;
+  let r;
+  try{r=await fetch("/api/inbox/start",{method:"POST",body:JSON.stringify({
+    folder:$("wFolder").value,pages:$("wPages").value,label:$("wLabel").value})}).then(x=>x.json());
+  }catch(e){r={ok:false,error:String(e)};}
+  if(!r.ok){wsay(r.error||"could not start","bad",0);$("wStart").disabled=false;return;}
+  WSEQ=0;WRUNS=[];wshow(r.session);wstartPolling();
+};
+$("wStop").onclick=async()=>{
+  const r=await fetch("/api/inbox/stop",{method:"POST",body:"{}"}).then(x=>x.json());
+  await wpoll();if(r.session)wshow(r.session);
+};
+$("wOpen").onclick=async()=>{
+  const r=await fetch("/api/inbox/open",{method:"POST",body:"{}"}).then(x=>x.json());
+  if(!r.ok)wsay(r.error,"bad",0);
+};
+$("wUndo").onclick=async()=>{
+  const runs=(WSESSION&&WSESSION.runs)||[];
+  if(!runs.length)return;
+  if(!confirm(`Undo this watch session?\n\nThis undoes all ${runs.length} page(s) it imported `
+    +`(runs #${runs[0]} to #${runs[runs.length-1]}), newest first - each one exactly as `
+    +`Undo run would. A backup is taken first.`))return;
+  $("wUndo").disabled=true;wsay("undoing the session...","on",50);
+  let r;
+  try{r=await fetch("/api/inbox/undo",{method:"POST",body:"{}"}).then(x=>x.json());}
+  catch(e){r={ok:false,error:String(e)};}
+  (r.undone||[]).forEach(id=>markUndone(Number(id)));
+  loadRuns();
+  if(!r.ok){wsay("undo stopped: "+(r.error||"failed"),"bad",0);return;}
+  wsay(`Session undone: ${r.undone.length} page(s) taken back out. Backed up first.`,"good",100);
+  WSESSION.runs=[];$("wUndo").disabled=true;
+};
+(async()=>{                        // settings, and any session already running
+  let d;
+  try{d=await fetch("/api/inbox").then(r=>r.json());}catch(e){return;}
+  const s=d.settings||{};
+  $("wFolder").value=s.folder||"";$("wPages").value=s.pages||20;$("wLabel").value=s.label||"";
+  if(d.session){wtake(d.session.events||[]);wshow(d.session);
+    if(d.session.status==="watching")wstartPolling();}
+})();
 
 loadRuns();
 __CHROME_JS__

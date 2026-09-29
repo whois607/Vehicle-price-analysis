@@ -1006,6 +1006,24 @@ Keep these — each one was a bug that took a while to find.
 * Worth a periodic check: parse the newest saved page and look at the
   per-field fill (`tests/check_carsales.py` pins both formats).
 
+**Watch folder (29/09/2026)**
+* `vpa/inbox.py` + a "Watch a folder" card on Bulk. You still browse and
+  save every page yourself (Ctrl+S) - a recorded mouse macro that paged
+  through carsales was asked for and declined, as automated collection is
+  exactly what the no-scraping rule excludes. The watcher only reads files.
+* Each file that lands (and has stopped changing for 0.8 s) goes through
+  `bulk.run` - same parser, same checks, its own undoable run - and is then
+  moved to `<folder>/imported/<date>/`, so the next save under the SAME name
+  finds an empty folder: no replace prompt, no renaming.
+* One backup per session (`bulk.run(backup=...)` records it on each page's
+  run instead of copying the database per page). Files already in the folder
+  at the start are left alone; repeats (same hash) skipped; bot-check pages
+  refused and not counted. Stops itself at the page count. Pace = median gap
+  between saves (file mtimes). "Undo session" = bulk.undo per run, newest
+  first. Folder + page count remembered in `data/inbox.json`.
+* `tests/check_inbox.py` (17 checks) runs a real session incl. undo back to
+  an identical database.
+
 **UI refresh (28/09/2026)**
 * One pass over the shared stylesheet (`ui.py` CHROME_CSS) rather than per
   page: floating sticky header (brand mark + the database counts, which used

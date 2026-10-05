@@ -480,7 +480,9 @@ __CHROME_CSS__
    transition:background .15s,border-color .15s,color .15s}
  #drop b{color:var(--ink);font-weight:600}
  #drop .dropico{color:var(--accent)}
- #drop:hover{background:#f3f7fe;border-color:var(--accent-line);color:var(--ink-2)}
+ :root{--drop-hover:#f3f7fe;--bad-row:#fdf7f7;--track:#dfe4ec;--flag-x:#fff3de}
+ :root[data-theme=dark]{--drop-hover:#1d2638;--bad-row:#2a1a1a;--track:#2c333f;--flag-x:#3a2f17}
+ #drop:hover{background:var(--drop-hover);border-color:var(--accent-line);color:var(--ink-2)}
  #drop.hover{background:var(--accent-soft);border-color:var(--accent)}
  #droplabel{max-width:100%;overflow:hidden;text-overflow:ellipsis;
    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
@@ -497,10 +499,10 @@ __CHROME_CSS__
    background:var(--head);font-size:12.5px;color:var(--ink-2);overflow:hidden}
  #status.work{background:var(--accent-soft);border-color:var(--accent-line)}
  #status.good{background:var(--good-soft);border-color:var(--good-line)}
- #status.bad{background:var(--bad-soft);border-color:var(--bad-line);color:#7a2f2f}
+ #status.bad{background:var(--bad-soft);border-color:var(--bad-line);color:var(--bad-ink)}
  #statustext{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;
    white-space:nowrap}
- .bar{width:150px;height:6px;border-radius:3px;background:#dfe4ec;flex:none;
+ .bar{width:150px;height:6px;border-radius:3px;background:var(--track);flex:none;
    overflow:hidden}
  .bar i{display:block;height:100%;width:0;background:var(--accent);
    transition:width .15s linear}
@@ -510,12 +512,12 @@ __CHROME_CSS__
  /* the results box scrolls INSIDE itself - this is what keeps the page,
     and therefore every button on it, exactly as tall as it started */
  #resultsBox{height:290px;overflow:auto;border:1px solid var(--line);
-   border-radius:var(--r-sm);background:#fff}
+   border-radius:var(--r-sm);background:var(--card)}
  #resultsBox th,#runsBox th{position:sticky;top:0;z-index:1}
  #resultsBox td{vertical-align:top}
  #runsBox td{vertical-align:middle;padding-top:4px;padding-bottom:4px}
  td.num{white-space:nowrap}
- tr.bad td{background:#fdf7f7}
+ tr.bad td{background:var(--bad-row)}
  /* a refusal explains itself in full - it can afford to, because the box
     it lives in scrolls rather than growing the page */
  .why{margin-top:3px;font-size:11.5px;color:var(--warn);max-width:460px}
@@ -544,7 +546,7 @@ __CHROME_CSS__
  #wstatus.on .wdot{background:var(--accent);animation:wpulse 1.4s ease-in-out infinite}
  #wstatus.good{background:var(--good-soft);border-color:var(--good-line)}
  #wstatus.good .wdot{background:var(--good)}
- #wstatus.bad{background:var(--bad-soft);border-color:var(--bad-line);color:#7a2f2f}
+ #wstatus.bad{background:var(--bad-soft);border-color:var(--bad-line);color:var(--bad-ink)}
  #wstatus.bad .wdot{background:var(--bad)}
  @keyframes wpulse{0%,100%{box-shadow:0 0 0 0 rgba(43,95,196,.45)}50%{box-shadow:0 0 0 5px rgba(43,95,196,0)}}
  #wtext{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -563,7 +565,7 @@ __CHROME_CSS__
  #backuphint{height:18px;line-height:18px;margin-top:10px;white-space:nowrap;
    overflow:hidden;text-overflow:ellipsis}
  #runsBox{height:170px;overflow:auto;border:1px solid var(--line);
-   border-radius:var(--r-sm);background:#fff}
+   border-radius:var(--r-sm);background:var(--card)}
  #runsBox button{min-width:96px}
  /* the session list: fixed columns and one line per car, so appending a
     hundred cars only ever lengthens the scroll inside the box */
@@ -591,7 +593,7 @@ __CHROME_CSS__
    padding:5px 6px 5px 12px;font-size:12px;box-shadow:0 3px 10px rgba(120,80,10,.14)}
  #orderflag[hidden]{display:none}
  #orderflag .msg{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
- #orderflag button.x{flex:none;background:#fff3de;color:var(--warn)}
+ #orderflag button.x{flex:none;background:var(--flag-x);color:var(--warn)}
 </style></head><body><div class="wrap">
 __NAV__
 <div class="pagehead"><div>

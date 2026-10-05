@@ -158,6 +158,38 @@ def check_chrome() -> None:
           all('id="quitBtn"' in p for p in pages.values())
           and all("confirm(" in p for p in pages.values()),
           f"Shut down present on all {len(pages)}, behind a confirm")
+
+    print("\n== light and dark ==")
+    from vpa import dupes, phoneui
+    from vpa.ui import CHART_DARK
+    every = dict(pages, duplicates=dupes.PAGE, phone=phoneui.PAGE)
+    check("every page settles its theme in <head>, before any style is drawn",
+          all(0 < p.find("window.vpaTheme=") < p.find("<style>") for p in every.values())
+          and all("__CHART_DARK__" not in p for p in every.values()),
+          f"theme script ahead of the stylesheet on all {len(every)} pages")
+    check("every page has the dark colours and the light/dark switch",
+          all(":root[data-theme=dark]{" in p and 'id="themeBtn"' in p
+              and p.count("data-theme-set=") == 3 for p in every.values()),
+          "dark tokens, switch and its three choices on each page")
+    # A chart colour written into page script (fill="#..", or a legend
+    # swatch's style) is lifted for a dark card only if CHART_DARK names it -
+    # a new colour that is not mapped would sit dim on the dark card.
+    lit = set()
+    for pg in every.values():
+        lit |= {m.lower() for m in re.findall(r'(?:fill|stroke)="(#[0-9a-fA-F]{3,6})"', pg)}
+        lit |= {m.lower() for m in re.findall(
+            r'style="[^"]*?(?:background|fill|color):(#[0-9a-fA-F]{3,6})', pg)}
+    unmapped = sorted(lit - set(CHART_DARK) - {"#fff"})
+    check("every literal chart colour has a dark-card equivalent",
+          not unmapped, f"{len(lit)} literal colours, unmapped: {unmapped or 'none'}")
+    app = Path(__file__).resolve().parents[1] / "vpa" / "phone_app"
+    idx = (app / "index.html").read_text(encoding="utf-8")
+    css = (app / "app.css").read_text(encoding="utf-8")
+    check("the phone app settles its theme before its stylesheet, with a setting to choose",
+          0 < idx.find("window.vpaTheme") < idx.find("app.css")
+          and ":root[data-theme=dark]{" in css and "prefers-color-scheme" not in css
+          and 'data-theme-set="${k}"' in (app / "app.js").read_text(encoding="utf-8"),
+          "index.html script, dark tokens in app.css, Auto/Light/Dark on Sync & settings")
     check("Shut down is styled apart from navigation, not identical to it",
           all('class="navbtn danger" id="quitBtn"' in p for p in pages.values()),
           "danger styling on the quit button only")

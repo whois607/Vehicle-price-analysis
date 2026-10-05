@@ -42,11 +42,13 @@ __CHROME_CSS__
  #route .rt b{display:block;font-size:13.5px;color:var(--ink);font-weight:600}
  #route .rt code{font-size:12.5px;user-select:all}
  #route.ok{background:var(--good-soft);border-color:var(--good-line)}
- #route.ok .ri{background:var(--good);color:#fff}
- #route.warn{background:#fdf6e7;border-color:#f0dcae}
+ #route.ok .ri{background:var(--fill-good);color:var(--on-fill)}
+ #route.warn{background:var(--route-warn);border-color:var(--route-warn-line)}
+ :root{--route-warn:#fdf6e7;--route-warn-line:#f0dcae}
+ :root[data-theme=dark]{--route-warn:var(--warn-soft);--route-warn-line:var(--warn-line)}
  #route.warn .ri{background:#b07d10;color:#fff}
  #route.bad{background:var(--bad-soft);border-color:var(--bad-line)}
- #route.bad .ri{background:var(--bad);color:#fff}
+ #route.bad .ri{background:var(--fill-bad);color:var(--on-fill)}
  #route .copy{flex:none}
 </style></head><body><div class="wrap">
 __NAV__

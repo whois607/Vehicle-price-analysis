@@ -8,12 +8,15 @@
   --safe-b:env(safe-area-inset-bottom,0px);--safe-t:env(safe-area-inset-top,0px);
   color-scheme:light;
 }
-@media (prefers-color-scheme:dark){:root{
+/* Dark. index.html settles the theme before the first paint - the phone's
+   own setting, or the choice made on the Sync & settings screen - as
+   data-theme on <html>, so this is the one place the dark values live. */
+:root[data-theme=dark]{
   --bg:#0f1218;--card:#181c24;--ink:#e8ebf1;--ink2:#c3c9d4;--dim:#9aa3b2;--faint:#6b7383;
   --line:#2a303b;--line2:#222833;--accent:#7ea6f4;--accent2:#a3c0f8;--accent-soft:#1d2a44;
   --good:#5cc28c;--good-soft:#16291f;--bad:#f08a80;--bad-soft:#331a18;--warn:#e7b45a;--warn-soft:#2f2614;
   --band:rgba(126,166,244,.16);--band2:rgba(126,166,244,.26);--shadow:none;color-scheme:dark;
-  --on-accent:#0f1218;--c0:#7ea6f4;--c1:#f2849a;--c2:#5cc28c;--c3:#e7b45a}}
+  --on-accent:#0f1218;--c0:#7ea6f4;--c1:#f2849a;--c2:#5cc28c;--c3:#e7b45a}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 [hidden]{display:none!important}
 html,body{margin:0;background:var(--bg);color:var(--ink)}

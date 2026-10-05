@@ -45,7 +45,14 @@ ICONS = {
     "trend": "M3 17l6-6 4 4 8-8M15 7h6v6",
     # circular arrow - rebuild in place, without opening anything
     "rebuild": "M20 12a8 8 0 1 1-2.6-5.9M20 4v4h-4",
+    # theme: a screen (follow Windows), a sun (light), a moon (dark)
+    "t-auto": "M3 5h18v11H3zM8 20h8M12 16v4",
+    "t-light": "M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4",
+    "t-dark": "M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z",
 }
+
+#: (setting, label) - the theme menu. "auto" follows Windows' own setting.
+THEMES = [("auto", "Match Windows"), ("light", "Light"), ("dark", "Dark")]
 
 #: (slug, href, label, icon) - the pages you can be ON. Four, not six:
 #: Import, Bulk and Quick add were three tabs for one job, and are now the
@@ -89,6 +96,11 @@ def nav(active: str) -> str:
         f'{" aria-current=\"page\"" if slug == active else ""}>'
         f'{icon(ic)}<span>{label}</span></a>'
         for slug, href, label, ic in PAGES)
+    # the theme switch: an icon per choice (CSS shows the current one), and its menu
+    th_icons = "".join(icon("t-" + k).replace('class="ico"', f'class="ico ti-{k}"', 1)
+                       for k, _ in THEMES)
+    th_items = "".join(f'<button type="button" role="menuitemradio" data-theme-set="{k}">'
+                       f'{icon("t-" + k)}<span>{label}</span></button>' for k, label in THEMES)
     return f"""<div id="vpaload" aria-hidden="true"><i></i></div>
 <header class="topbar" data-sticky="1">
  <a class="brand" href="/" style="text-decoration:none"><span class="logo">{icon("trend", 17)}</span><span class="bt"><b>Vehicle prices</b><small id="navstat"></small></span></a>
@@ -98,6 +110,8 @@ def nav(active: str) -> str:
   <a class="navbtn{" on" if active == "phone" else ""}" id="phoneBtn" href="/phone" title="sync your data to your phone">{icon("phone")}<span>Phone</span></a>
   <button class="navbtn" id="xlsxBtn" title="rebuild viewer.xlsx from the database and open it in Excel">{icon("excel")}<span>Excel</span></button>
   <span class="navsep"></span>
+  <span class="themewrap"><button class="navbtn" id="themeBtn" aria-haspopup="menu" aria-expanded="false" title="Light or dark" aria-label="Light or dark">{th_icons}</button>
+   <div class="thememenu" id="themeMenu" role="menu" hidden>{th_items}</div></span>
   <button class="navbtn" id="helpBtn" title="How to use this page" aria-label="How to use this page">{icon("help")}<span>How to use</span></button>
   <button class="navbtn danger" id="quitBtn" title="Shut down the app - your data is already saved" aria-label="Shut down">{icon("power")}<span>Shut down</span></button>
  </div>
@@ -132,6 +146,7 @@ def action(btn_id: str, label: str, ic: str, title: str = "") -> str:
 #: any rule a page writes (`td input`, `.fixgrid input`) wins without a fight.
 CHROME_CSS = """
  :root{
+   color-scheme:light;
    --ui:"Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif;
    --ui-d:"Segoe UI Variable Display","Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif;
    --bg:#f4f5f8; --card:#fff;
@@ -147,20 +162,60 @@ CHROME_CSS = """
    --shadow-lg:0 10px 30px -12px rgba(16,24,40,.25);
    --ring:0 0 0 3px rgba(43,95,196,.18);
    --navh:74px;               /* sticky header's bottom edge, for other sticky bars */
+   /* surfaces and states that used to be written as literal colours */
+   --field-bg:#fff; --hover-line:#b9c1ce; --row-hover:#f7f9fe; --sel:#cfdcf6;
+   --topbar:rgba(255,255,255,.86); --topbar-line:rgba(214,219,228,.9);
+   --tile-a:#fff; --tile-b:#fafbfc; --help-a:#f8fbff;
+   --seg-hover:rgba(255,255,255,.6); --seg-on:#fff; --dot-line:rgba(0,0,0,.25);
+   /* solid fills carrying white text. In light they ARE the accent / good
+      colours; in dark the text colours turn pale, and white on pale is unreadable */
+   --fill:#2b5fc4; --fill-2:#224ea5; --on-fill:#fff; --on-fill-dim:#dbe6f6; --fill-off:#b3bbc7;
+   --fill-good:#23793a; --fill-good-2:#1d6630; --fill-warn:#8a5a12; --fill-bad:#b23a3a;
+   --bad-ico:#a04848; --bad-ink:#7a2f2f; --bad-ink-2:#8d3b3b; --bad-line-2:#e3b3b3;
+   --good-ink:#1f5a2c;
+   --warn-ico:#b07a1e; --warn-ink:#6f470c; --warn-hover:#fdeccd; --warn-hover-line:#e6c48f;
  }
+ /* Dark. The theme is resolved before the page paints (THEME_HEAD) to
+    data-theme="light" or "dark" on <html>, whether chosen or following
+    Windows, so this is the one place the dark values live. Same palette as
+    the phone app's dark mode. */
+ :root[data-theme=dark]{
+   color-scheme:dark;
+   --bg:#0f1218; --card:#181c24;
+   --ink:#e8ebf1; --ink-2:#c3c9d4; --dim:#9aa3b2; --faint:#6b7383;
+   --line:#2a303b; --line-2:#222833; --field:#3a4250; --head:#1d222b;
+   --accent:#7ea6f4; --accent-2:#a3c0f8; --accent-soft:#1d2a44; --accent-line:#34507f;
+   --good:#5cc28c; --good-soft:#16291f; --good-line:#2b5a3f;
+   --bad:#f08a80; --bad-soft:#331a18; --bad-line:#6b3430;
+   --warn:#e7b45a; --warn-soft:#2f2614; --warn-line:#5e4a22;
+   --mine:#f0b429;
+   --shadow:0 1px 2px rgba(0,0,0,.35);
+   --shadow-lg:0 12px 32px -12px rgba(0,0,0,.75);
+   --ring:0 0 0 3px rgba(126,166,244,.32);
+   --field-bg:#1d222b; --hover-line:#4c5566; --row-hover:#1e2431; --sel:#2d4a80;
+   --topbar:rgba(24,28,36,.84); --topbar-line:rgba(58,66,80,.9);
+   --tile-a:#1b2029; --tile-b:#181c24; --help-a:#1a2233;
+   --seg-hover:rgba(255,255,255,.06); --seg-on:#2c3340; --dot-line:rgba(255,255,255,.35);
+   --fill:#3d6fd6; --fill-2:#4c7de2; --on-fill:#fff; --on-fill-dim:#dbe6f6; --fill-off:#3a4250;
+   --fill-good:#2a8a48; --fill-good-2:#319a53; --fill-warn:#9a6a1c; --fill-bad:#c0453f;
+   --bad-ico:#f08a80; --bad-ink:#f4a39b; --bad-ink-2:#f08a80; --bad-line-2:#8a4440;
+   --good-ink:#7fd1a4;
+   --warn-ico:#e7b45a; --warn-ink:#f0c27a; --warn-hover:#3a2f17; --warn-hover-line:#7a6030;
+ }
+ __CHART_DARK__
  *,*::before,*::after{box-sizing:border-box}
  html{scroll-padding-top:var(--navh)}
  body,button,select,input,textarea{font-family:var(--ui)}
  body{font-size:14px;line-height:1.45;margin:0;background:var(--bg);color:var(--ink);
    -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
- ::selection{background:#cfdcf6}
+ ::selection{background:var(--sel)}
  .wrap{max-width:1240px;margin:0 auto;padding:12px 20px 56px}
  table,.tile b,.num,.v{font-variant-numeric:tabular-nums}
 
  /* ---- header: floats, and stays put while the page scrolls ---- */
  .topbar{position:sticky;top:10px;z-index:60;display:flex;align-items:center;gap:14px;
-   background:rgba(255,255,255,.86);-webkit-backdrop-filter:saturate(1.6) blur(14px);
-   backdrop-filter:saturate(1.6) blur(14px);border:1px solid rgba(214,219,228,.9);
+   background:var(--topbar);-webkit-backdrop-filter:saturate(1.6) blur(14px);
+   backdrop-filter:saturate(1.6) blur(14px);border:1px solid var(--topbar-line);
    border-radius:var(--r);padding:7px 8px 7px 10px;margin-bottom:22px;
    box-shadow:0 1px 2px rgba(16,24,40,.04),0 6px 20px -10px rgba(16,24,40,.18)}
  .brand{display:flex;align-items:center;gap:9px;white-space:nowrap;padding-right:6px}
@@ -184,7 +239,7 @@ CHROME_CSS = """
  .navacts,.pageacts{display:flex;gap:6px;align-items:center;flex:none}
  .navbtn{position:relative;display:inline-flex;align-items:center;gap:6px;height:34px;
    min-width:0;padding:0 12px;border-radius:var(--r-sm);font-size:12.5px;cursor:pointer;
-   background:#fff;border:1px solid var(--line);color:var(--ink-2);white-space:nowrap;
+   background:var(--field-bg);border:1px solid var(--line);color:var(--ink-2);white-space:nowrap;
    transition:background .15s,border-color .15s,color .15s,box-shadow .15s}
  .navbtn .ico{color:var(--dim)}
  .navbtn:hover{background:var(--head);border-color:var(--field);color:var(--ink)}
@@ -192,28 +247,44 @@ CHROME_CSS = """
  .navbtn:disabled{opacity:.55;cursor:default}
  .navbtn.on{background:var(--accent-soft);border-color:var(--accent-line);color:var(--accent-2)}
  .navbtn.on .ico{color:var(--accent)}
- /* help and shut down: icons, named by their tooltips */
+ /* theme, help and shut down: icons, named by their tooltips */
  #helpBtn span,#quitBtn span{display:none}
- #helpBtn,#quitBtn{width:34px;padding:0;justify-content:center}
- .navbtn.danger .ico{color:#a04848}
- .navbtn.danger:hover{background:var(--bad-soft);border-color:var(--bad-line);color:#7a2f2f}
+ #helpBtn,#quitBtn,#themeBtn{width:34px;padding:0;justify-content:center}
+ .navbtn.danger .ico{color:var(--bad-ico)}
+ .navbtn.danger:hover{background:var(--bad-soft);border-color:var(--bad-line);color:var(--bad-ink)}
+ /* the theme switch shows the CHOICE (screen = following Windows), and
+    opens a three-item menu */
+ .themewrap{position:relative;display:inline-flex}
+ #themeBtn .ico{display:none}
+ :root:not([data-theme-pref=light]):not([data-theme-pref=dark]) #themeBtn .ti-auto,
+ [data-theme-pref=light] #themeBtn .ti-light,[data-theme-pref=dark] #themeBtn .ti-dark{display:inline}
+ .thememenu{position:absolute;top:calc(100% + 6px);right:0;z-index:80;min-width:178px;padding:4px;
+   background:var(--card);border:1px solid var(--line);border-radius:var(--r-sm);box-shadow:var(--shadow-lg)}
+ .thememenu[hidden]{display:none}
+ .thememenu button{display:flex;width:100%;justify-content:flex-start;gap:9px;height:32px;min-width:0;
+   padding:0 10px;border:0;border-radius:7px;background:none;font-size:13px;color:var(--ink-2)}
+ .thememenu button:hover:not(:disabled){background:var(--line-2);border:0;color:var(--ink)}
+ .thememenu button .ico{color:var(--dim)}
+ .thememenu button.on{color:var(--accent-2);font-weight:600}
+ .thememenu button.on .ico{color:var(--accent)}
+ .thememenu button.on::after{content:"✓";margin-left:auto}
  .navsep{width:1px;height:22px;background:var(--line);margin:0 2px}
  .navbtn.busy{opacity:.6;cursor:progress}
  /* workbook build in progress: the button fills as it goes */
  .navbtn.building,.navbtn.building:disabled{opacity:1;cursor:progress;
    border-color:var(--accent-line);color:var(--accent-2);
-   background:linear-gradient(90deg,var(--accent-soft) var(--p,0%),#fff var(--p,0%))}
+   background:linear-gradient(90deg,var(--accent-soft) var(--p,0%),var(--field-bg) var(--p,0%))}
  .navbtn.built{border-color:var(--good-line);color:var(--good)}
  a.navbtn{text-decoration:none}
  .navbtn[hidden]{display:none}
  /* possible duplicates: amber, because it asks for a decision */
  .navbtn.dup{background:var(--warn-soft);border-color:var(--warn-line);color:var(--warn)}
- .navbtn.dup .ico{color:#b07a1e}
- .navbtn.dup:hover{background:#fdeccd;border-color:#e6c48f;color:#6f470c}
+ .navbtn.dup .ico{color:var(--warn-ico)}
+ .navbtn.dup:hover{background:var(--warn-hover);border-color:var(--warn-hover-line);color:var(--warn-ink)}
  /* The workbook is a file, so it goes stale. That is said ON the button that
     fixes it, as a dot that takes no space. */
  .navbtn.stale::after{content:"";position:absolute;top:-3px;right:-3px;width:9px;
-   height:9px;border-radius:50%;background:#e39a2b;border:2px solid #fff}
+   height:9px;border-radius:50%;background:#e39a2b;border:2px solid var(--card)}
  @media (max-width:760px){.wrap{padding:10px 12px 40px}:is(.card,.findbar){padding:16px}
    .topbar{margin-bottom:16px}.pagetitle{font-size:21px}}
  @media (max-width:1120px){.navtab span,.navbtn span,.brand .bt{display:none}
@@ -273,10 +344,10 @@ CHROME_CSS = """
  label{font-size:12px;color:var(--dim);display:block;margin-bottom:5px}
  :where(input:not([type=checkbox]):not([type=radio]):not([type=file]),select,textarea){
    height:36px;padding:0 10px;border:1px solid var(--field);border-radius:var(--r-sm);
-   font-size:13px;background:#fff;color:var(--ink);
+   font-size:13px;background:var(--field-bg);color:var(--ink);
    transition:border-color .15s,box-shadow .15s}
  :where(textarea){height:auto;padding:9px 11px;line-height:1.5}
- :where(input,select,textarea):hover:not(:disabled):not(:focus){border-color:#b9c1ce}
+ :where(input,select,textarea):hover:not(:disabled):not(:focus){border-color:var(--hover-line)}
  :where(input,select,textarea):focus{outline:0;box-shadow:var(--ring);border-color:var(--accent)}
  :where(input,select,textarea):disabled{background:var(--head);color:var(--dim)}
  ::placeholder{color:var(--faint)}
@@ -285,26 +356,26 @@ CHROME_CSS = """
  /* ---- buttons: one family. Neutral is outlined; colour means something ---- */
  :where(button){display:inline-flex;align-items:center;justify-content:center;gap:6px;
    height:36px;min-width:92px;padding:0 15px;border:1px solid var(--field);
-   border-radius:var(--r-sm);background:#fff;color:var(--ink-2);font-size:13px;
+   border-radius:var(--r-sm);background:var(--field-bg);color:var(--ink-2);font-size:13px;
    cursor:pointer;white-space:nowrap;
    transition:background .15s,border-color .15s,color .15s,box-shadow .15s,transform .05s}
- :where(button):hover:not(:disabled){background:var(--head);border-color:#b9c1ce;color:var(--ink)}
+ :where(button):hover:not(:disabled){background:var(--head);border-color:var(--hover-line);color:var(--ink)}
  :where(button):active:not(:disabled){transform:translateY(1px)}
  :where(button):focus-visible{outline:0;box-shadow:var(--ring);border-color:var(--accent)}
  :where(button):disabled{opacity:.5;cursor:default}
- button.primary{background:var(--accent);border-color:var(--accent);color:#fff;
+ button.primary{background:var(--fill);border-color:var(--fill);color:var(--on-fill);
    box-shadow:0 1px 2px rgba(34,78,165,.3),inset 0 1px 0 rgba(255,255,255,.12)}
- button.primary:hover:not(:disabled){background:var(--accent-2);border-color:var(--accent-2);color:#fff}
- button.commit{background:var(--good);border-color:var(--good);color:#fff;
+ button.primary:hover:not(:disabled){background:var(--fill-2);border-color:var(--fill-2);color:var(--on-fill)}
+ button.commit{background:var(--fill-good);border-color:var(--fill-good);color:var(--on-fill);
    box-shadow:0 1px 2px rgba(35,121,58,.3),inset 0 1px 0 rgba(255,255,255,.12)}
- button.commit:hover:not(:disabled){background:#1d6630;border-color:#1d6630;color:#fff}
- button.primary:disabled,button.commit:disabled{background:#b3bbc7;border-color:#b3bbc7;
+ button.commit:hover:not(:disabled){background:var(--fill-good-2);border-color:var(--fill-good-2);color:var(--on-fill)}
+ button.primary:disabled,button.commit:disabled{background:var(--fill-off);border-color:var(--fill-off);
    box-shadow:none;opacity:1}
- button.danger{color:#8d3b3b;border-color:var(--bad-line);background:#fff}
- button.danger:hover:not(:disabled){background:var(--bad-soft);color:#7a2f2f;border-color:#e3b3b3}
+ button.danger{color:var(--bad-ink-2);border-color:var(--bad-line);background:var(--field-bg)}
+ button.danger:hover:not(:disabled){background:var(--bad-soft);color:var(--bad-ink);border-color:var(--bad-line-2)}
  button.mini,a.mini{height:30px;min-width:0;padding:0 11px;font-size:12.5px}
  a.mini{display:inline-flex;align-items:center;text-decoration:none;color:var(--ink-2);
-   border:1px solid var(--field);border-radius:var(--r-sm);background:#fff;transition:background .15s}
+   border:1px solid var(--field);border-radius:var(--r-sm);background:var(--field-bg);transition:background .15s}
  a.mini:hover{background:var(--head)}
  button.x{min-width:0;width:22px;height:22px;padding:0;border:0;border-radius:50%;
    background:var(--line-2);color:var(--dim);font-size:14px;line-height:1}
@@ -314,8 +385,8 @@ CHROME_CSS = """
    border-radius:var(--r-sm);border:1px solid var(--line)}
  .seg button{height:28px;min-width:0;padding:0 12px;font-size:12px;border:0;border-radius:7px;
    background:transparent;color:var(--ink-2)}
- .seg button:hover:not(:disabled){background:rgba(255,255,255,.6);border:0}
- .seg button.on,.seg button.on:hover{background:#fff;color:var(--accent-2);font-weight:600;
+ .seg button:hover:not(:disabled){background:var(--seg-hover);border:0}
+ .seg button.on,.seg button.on:hover{background:var(--seg-on);color:var(--accent-2);font-weight:600;
    box-shadow:0 1px 2px rgba(16,24,40,.12)}
  /* in-card tabs */
  .tabs{display:flex;gap:2px;flex-wrap:wrap;border-bottom:1px solid var(--line);margin:-4px 0 16px}
@@ -327,12 +398,12 @@ CHROME_CSS = """
    border-bottom:2px solid var(--accent);background:transparent}
  /* pickable chips */
  .chip{display:inline-flex;align-items:baseline;gap:6px;border:1px solid var(--line);
-   background:#fff;border-radius:999px;padding:4px 12px;margin:0 6px 7px 0;font-size:12.5px;
+   background:var(--field-bg);border-radius:999px;padding:4px 12px;margin:0 6px 7px 0;font-size:12.5px;
    cursor:pointer;color:var(--ink);transition:background .15s,border-color .15s}
  .chip .flat{font-size:11.5px}
  .chip:hover{background:var(--accent-soft);border-color:var(--accent-line)}
- .chip.on{background:var(--accent);border-color:var(--accent);color:#fff}
- .chip.on .flat{color:#dbe6f6}
+ .chip.on{background:var(--fill);border-color:var(--fill);color:var(--on-fill)}
+ .chip.on .flat{color:var(--on-fill-dim)}
  .chip.more{border-style:dashed;color:var(--accent);background:transparent}
 
  /* ---- tables: quiet headers, air between rows ---- */
@@ -343,7 +414,7 @@ CHROME_CSS = """
  th.s{cursor:pointer}th.s:hover{color:var(--ink)}
  td{border-top:1px solid var(--line-2);padding:7px 10px;vertical-align:middle}
  tbody tr{transition:background .1s}
- tbody tr:hover td{background:#f7f9fe}
+ tbody tr:hover td{background:var(--row-hover)}
  .num,th.num{text-align:right}
  .scroll{max-height:56vh;overflow:auto;border:1px solid var(--line);border-radius:var(--r-sm);
    scrollbar-width:thin}
@@ -351,7 +422,7 @@ CHROME_CSS = """
 
  /* ---- figures ---- */
  .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(122px,1fr));gap:10px}
- .tile{background:linear-gradient(180deg,#fff,#fafbfc);border:1px solid var(--line);
+ .tile{background:linear-gradient(180deg,var(--tile-a),var(--tile-b));border:1px solid var(--line);
    border-radius:12px;padding:12px 14px;min-width:0}
  .tile b{display:block;font-family:var(--ui-d);font-size:22px;font-weight:650;line-height:1.2;
    letter-spacing:-.02em}
@@ -387,7 +458,7 @@ CHROME_CSS = """
  .warnbox,#stale{background:var(--warn-soft);border:1px solid var(--warn-line);color:var(--warn);
    border-radius:var(--r-sm);padding:10px 13px;font-size:12.5px;margin-top:10px}
  #stale{display:none;margin:0 0 14px}
- .okbox{background:var(--good-soft);border:1px solid var(--good-line);color:#1f5a2c;
+ .okbox{background:var(--good-soft);border:1px solid var(--good-line);color:var(--good-ink);
    border-radius:var(--r-sm);padding:10px 13px;font-size:12.5px}
  a.ext{color:var(--accent);text-decoration:none}a.ext:hover{text-decoration:underline}
  a.ext.muted{color:var(--dim)}
@@ -402,7 +473,7 @@ CHROME_CSS = """
  img.vpa-th[data-ph]{cursor:zoom-in}
  img.vpa-th.gone{font-size:0;color:transparent}
  #vpaphpop{position:fixed;z-index:90;pointer-events:none;width:360px;height:240px;border-radius:10px;
-   background:var(--line-2);box-shadow:var(--shadow-lg);border:3px solid #fff;display:none;object-fit:cover}
+   background:var(--line-2);box-shadow:var(--shadow-lg);border:3px solid var(--card);display:none;object-fit:cover}
  .vpa-gal{display:flex;flex-direction:column;gap:6px;width:300px;flex:none}
  .vpa-gal .main{display:block;width:300px;height:200px;border-radius:10px;object-fit:cover;
    background:var(--line-2)}
@@ -416,7 +487,7 @@ CHROME_CSS = """
  @media (max-width:760px){.vpa-hero{flex-direction:column}.vpa-gal,.vpa-gal .main{width:100%}
    .vpa-gal .main{height:auto;aspect-ratio:3/2}}
  code{background:var(--line-2);border-radius:5px;padding:1px 5px;font-size:12px}
- kbd{background:#fff;border:1px solid var(--field);border-bottom-width:2px;border-radius:5px;
+ kbd{background:var(--field-bg);border:1px solid var(--field);border-bottom-width:2px;border-radius:5px;
    padding:0 5px;font-size:11px;font-family:inherit}
 
  /* ---- working: a thin bar across the top, and the results it will replace
@@ -436,12 +507,12 @@ CHROME_CSS = """
    .card,.findbar{animation:none}*{transition:none!important}}
 
  /* ---- help panel, identical on every page ---- */
- #help{border-color:var(--accent-line);background:linear-gradient(180deg,#f8fbff,#fff 120px)}
+ #help{border-color:var(--accent-line);background:linear-gradient(180deg,var(--help-a),var(--card) 120px)}
  #help>p,#help li,#help details p{font-size:13px;color:var(--ink-2)}
  #help ul{padding-left:20px;margin:8px 0}
  #help li{margin:4px 0}
  #help details{margin:8px 0;border:1px solid var(--line);border-radius:var(--r-sm);
-   padding:8px 13px;background:#fff}
+   padding:8px 13px;background:var(--card)}
  #help summary{cursor:pointer;font-weight:600;font-size:13px;color:var(--ink)}
 """
 
@@ -730,6 +801,26 @@ function vpaAxMoney(v){
      text span is what changes). */
   var xb=document.getElementById("xlsxBtn");
   if(xb)xb.onclick=function(){vpaWorkbook(true);};
+  /* Light or dark: the choice is kept in this browser (it is how the app
+     looks, not data), applied to every open VPA tab at once. */
+  var tb=document.getElementById("themeBtn"),tm=document.getElementById("themeMenu");
+  if(tb&&tm&&window.vpaTheme){
+    var NAMES={auto:"matching Windows",light:"light",dark:"dark"};
+    var mark=function(){var p=vpaTheme();
+      tb.title="Light or dark - now "+NAMES[p]+(p==="auto"?" ("+vpaThemeNow()+")":"");
+      tm.querySelectorAll("[data-theme-set]").forEach(function(b){
+        var on=b.dataset.themeSet===p;b.classList.toggle("on",on);b.setAttribute("aria-checked",String(on));});};
+    var shut=function(){tm.hidden=true;tb.setAttribute("aria-expanded","false");tb.classList.remove("on");};
+    tb.onclick=function(e){e.stopPropagation();
+      if(!tm.hidden){shut();return;}
+      mark();tm.hidden=false;tb.setAttribute("aria-expanded","true");tb.classList.add("on");};
+    tm.onclick=function(e){var b=e.target.closest("[data-theme-set]");
+      if(!b)return;vpaTheme(b.dataset.themeSet);mark();shut();};
+    document.addEventListener("click",function(e){if(!tm.hidden&&!e.target.closest(".themewrap"))shut();});
+    document.addEventListener("keydown",function(e){if(e.key==="Escape"&&!tm.hidden){shut();tb.focus();}});
+    window.addEventListener("vpa-theme",mark);
+    mark();
+  }
   var qb=document.getElementById("quitBtn");
   if(qb)qb.onclick=function(){
     // Confirm: it used to be one click, sitting in a row of identical grey
@@ -739,7 +830,7 @@ function vpaAxMoney(v){
     qb.disabled=true;qb.classList.add("busy");
     fetch("/api/shutdown",{method:"POST",body:"{}"}).then(function(){
       document.body.innerHTML='<div style="max-width:520px;margin:16vh auto;'
-        +'text-align:center;font:15px/1.6 system-ui,sans-serif;color:#445">'
+        +'text-align:center;font:15px/1.6 system-ui,sans-serif;color:var(--ink-2)">'
         +'<div style="font-size:34px">&#9679;</div><h2 style="font-weight:600">'
         +'The app has stopped</h2><p>Your data is saved. Close this tab, and '
         +'launch again from the desktop shortcut when you need it.</p></div>';
@@ -765,13 +856,79 @@ HEAD_LINKS = ('<link rel="icon" href="/icon.svg" type="image/svg+xml">'
               '<link rel="alternate icon" href="/favicon.ico" sizes="any">'
               '<meta name="theme-color" content="#2b5fc4">')
 
+#: Light or dark, settled in <head> before anything is drawn, so a dark page
+#: never flashes white first. The choice ("auto", "light", "dark") lives in
+#: this browser's localStorage - how the app looks, not data - and "auto"
+#: follows Windows, live. Every page and every open tab read the same key.
+#: CSS sees only the result: data-theme="light"|"dark" on <html>.
+THEME_HEAD = r"""<script>
+(function(){
+  var K="vpa-theme",d=document.documentElement,p="auto",
+      m=window.matchMedia?matchMedia("(prefers-color-scheme: dark)"):null;
+  try{p=localStorage.getItem(K)||"auto";}catch(e){}
+  function ok(x){return x==="light"||x==="dark"?x:"auto";}
+  function now(){return p==="auto"?(m&&m.matches?"dark":"light"):p;}
+  function apply(){
+    p=ok(p);d.setAttribute("data-theme",now());d.setAttribute("data-theme-pref",p);
+    try{window.dispatchEvent(new Event("vpa-theme"));}catch(e){}
+  }
+  window.vpaTheme=function(np){
+    if(np){p=ok(np);
+      try{p==="auto"?localStorage.removeItem(K):localStorage.setItem(K,p);}catch(e){}
+      apply();}
+    return p;};
+  window.vpaThemeNow=now;
+  if(m){var f=function(){if(p==="auto")apply();};
+    m.addEventListener?m.addEventListener("change",f):m.addListener&&m.addListener(f);}
+  window.addEventListener("storage",function(e){if(e.key===K){p=e.newValue||"auto";apply();}});
+  apply();
+})();
+</script>"""
+
+#: Chart colours in dark. The charts are drawn in page script with literal
+#: colours (fill="#c04040", style="background:#3060a0" on a legend swatch),
+#: tuned for a white card. Rather than thread a theme through ~60 drawing
+#: calls, each literal is mapped to a dark-card equivalent here, by CSS: a
+#: stylesheet rule outranks an SVG presentation attribute, and !important
+#: outranks an inline style. Light is untouched - these apply in dark only.
+#: Same hue, lifted for a dark background; gridlines sink instead of glowing.
+CHART_DARK = {
+    # gridlines, axes, whiskers, neutral marks
+    "#eef0f4": "#262c37", "#edeff3": "#262c37", "#e3e7ee": "#2c333f",
+    "#d4d8e0": "#3d4452", "#c3c8d2": "#4a5262", "#b9c2d0": "#566072",
+    "#b6bdc9": "#566072", "#a9b2c1": "#5d6779", "#8792a5": "#8f9aae",
+    "#8a92a2": "#8f9aae",
+    # series
+    "#c04040": "#ec7070", "#a03030": "#f08a80", "#c56b6b": "#e07b7b",
+    "#3060a0": "#6f9fe6", "#5b87c4": "#6f9fe6",
+    "#2e7d32": "#5cc28c", "#88aa88": "#7fb27f", "#b7cbb0": "#4e6b52",
+    "#a06010": "#e0a24a", "#7048a0": "#b394e8", "#0d7a80": "#4fc3c9",
+    # mid-tones that already read on a dark card: listed so every literal
+    # colour is accounted for (check_importui looks for unmapped ones)
+    "#7d9bc1": "#7d9bc1", "#7d9e7d": "#7d9e7d",
+}
+
+
+def _chart_dark_css() -> str:
+    out = []
+    for lo, hi in CHART_DARK.items():
+        out.append(f'[data-theme=dark] [fill="{lo}" i]{{fill:{hi}}}'
+                   f'[data-theme=dark] [stroke="{lo}" i]{{stroke:{hi}}}'
+                   f'[data-theme=dark] [style*="background:{lo}" i]{{background:{hi}!important}}'
+                   f'[data-theme=dark] [style*="fill:{lo}" i]{{fill:{hi}!important}}'
+                   f'[data-theme=dark] [style*="color:{lo}" i]{{color:{hi}!important}}')
+    # a hollow point is "#fff" inside: it takes the card's colour
+    out.append('[data-theme=dark] svg [fill="#fff" i]{fill:var(--card)}')
+    return "\n ".join(out)
+
 
 def chrome(page: str, active: str, actions: str = "", mode: str = "") -> str:
     """Substitute the shared CSS, nav, page actions, mode switch and
     behaviour into a page template. `actions` lands in the page header,
     beside the title; `mode` marks which Add data mode this page is."""
-    page = page.replace('<meta charset="utf-8">', '<meta charset="utf-8">\n' + HEAD_LINKS, 1)
-    return (page.replace("__CHROME_CSS__", CHROME_CSS)
+    page = page.replace('<meta charset="utf-8">',
+                        '<meta charset="utf-8">\n' + HEAD_LINKS + "\n" + THEME_HEAD, 1)
+    return (page.replace("__CHROME_CSS__", CHROME_CSS.replace("__CHART_DARK__", _chart_dark_css()))
                 .replace("__NAV__", nav(active))
                 .replace("__MODES__", modes(mode) if mode else "")
                 .replace("__ACTIONS__",

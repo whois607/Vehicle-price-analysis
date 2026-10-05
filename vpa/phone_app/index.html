@@ -8,8 +8,33 @@
 <link rel="apple-touch-icon" href="/icon-192.png">
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="manifest" href="/manifest.webmanifest">
-<meta name="theme-color" content="#2b5fc4" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#151a22" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#2b5fc4" id="tc">
+<script>
+/* Light or dark, settled before anything is drawn so a dark app never
+   flashes white. "auto" (the default) follows the phone's setting, live;
+   a choice made on the Sync & settings screen is kept on this phone. */
+(function () {
+  var K = "vpa.theme", d = document.documentElement, p = "auto", tc = document.getElementById("tc"),
+      m = window.matchMedia ? matchMedia("(prefers-color-scheme: dark)") : null;
+  try { p = localStorage.getItem(K) || "auto"; } catch (e) {}
+  function ok(x) { return x === "light" || x === "dark" ? x : "auto"; }
+  function now() { return p === "auto" ? (m && m.matches ? "dark" : "light") : p; }
+  function apply() {
+    p = ok(p); var t = now();
+    d.setAttribute("data-theme", t); d.setAttribute("data-theme-pref", p);
+    if (tc) tc.setAttribute("content", t === "dark" ? "#151a22" : "#2b5fc4");
+  }
+  window.vpaTheme = function (np) {
+    if (np) { p = ok(np);
+      try { p === "auto" ? localStorage.removeItem(K) : localStorage.setItem(K, p); } catch (e) {}
+      apply(); }
+    return p;
+  };
+  if (m) { var f = function () { if (p === "auto") apply(); };
+    m.addEventListener ? m.addEventListener("change", f) : m.addListener && m.addListener(f); }
+  apply();
+})();
+</script>
 <link rel="stylesheet" href="/app.css">
 </head><body>
 <header id="top">

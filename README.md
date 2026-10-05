@@ -140,6 +140,11 @@ dates is three observations sharing one identity, not three cars.
   that car, the way it would on the advert; nothing is downloaded ahead.
   Cars captured from pasted text, or from uploads made before photos were
   kept, have none.
+- **Light and dark**: every page, laptop and phone. On the laptop, the
+  screen / sun / moon button in the header (Match Windows, Light, Dark); on
+  the phone, *Sync & settings* → Appearance (Auto, Light, Dark). Auto
+  follows the system's own setting as it changes. The choice is kept in
+  that browser only.
 - **Excel workbook**: a full pivot-and-chart view, rebuilt on demand (a few
   seconds, with progress on the button; the button shows a dot when the
   workbook no longer matches the database).

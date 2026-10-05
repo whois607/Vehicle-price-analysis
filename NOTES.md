@@ -746,6 +746,8 @@ All of the following is built **and** verified by an automated suite (see §7).
 * **Listing photos** (`vpa/photos.py`) — the photo addresses in saved pages,
   shown on the laptop (car card gallery, car table, comparables, starred)
   and the phone (car lists, swipeable gallery, kept offline once seen).
+* **Light and dark** — every laptop page and the phone app; follows the
+  system, or a choice kept in that browser.
 
 ---
 
@@ -1068,6 +1070,33 @@ Keep these — each one was a bug that took a while to find.
 * The background listener restarts itself when VPA's code changes
   (phone._code_stamp: newest mtime of vpa/*.py/js/html/css): it stops
   listening first, then starts a fresh copy, so it never serves old code.
+
+**Light and dark (05/10/2026)**
+* ONE SWITCH, RESOLVED BEFORE PAINT: `ui.THEME_HEAD` (laptop, injected into
+  every page's <head> by `chrome()`) and the inline script in
+  `phone_app/index.html` turn the choice into `data-theme="light"|"dark"`
+  on <html> before any CSS draws, so dark never flashes white. The choice:
+  localStorage `vpa-theme` (laptop) / `vpa.theme` (phone); absent = auto,
+  which follows `prefers-color-scheme` live. Laptop tabs follow each other
+  (storage event). CSS only ever looks at `[data-theme=dark]`.
+* LIGHT IS UNCHANGED: every literal colour that was in the shared or page
+  CSS became a token whose light value is the exact old colour. Checked by
+  screenshotting every page, new code against the committed code, light
+  theme: pixel-identical below the header (the header gained the switch).
+* DARK: the same palette as the phone's dark (bg #0f1218, card #181c24).
+  Solid buttons use `--fill`/`--on-fill`, not `--accent`: the accent turns
+  pale in dark and white text on it would be unreadable.
+* CHARTS: drawn in page script with literal colours. `ui.CHART_DARK` maps
+  each to a dark-card equivalent with CSS attribute selectors (a stylesheet
+  rule outranks an SVG presentation attribute; `!important` outranks an
+  inline legend style), in dark only. check_importui fails on a literal
+  chart colour CHART_DARK does not name.
+* Phone: the old `@media (prefers-color-scheme:dark)` block is now
+  `:root[data-theme=dark]`; Appearance card on the Sync screen (renamed
+  "Sync & settings"); theme-color follows the theme.
+* Phone listener fix found by the test run: a refused POST (404, 429, 413)
+  is now read before answering - unread, Windows reset the connection and
+  check_phone failed about one run in five (`phonesrv._discard_body`).
 
 **Listing photos (05/10/2026)**
 * WHERE THEY COME FROM: a saved search page's schema.org object per listing

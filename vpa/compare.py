@@ -376,13 +376,14 @@ __CHROME_CSS__
  /* picked selections */
  .picks{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;min-height:30px;align-items:center}
  .pick{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);
-       background:#fafbfd;border-radius:16px;padding:3px 5px 3px 11px;font-size:12.5px}
+       background:var(--pick-bg);border-radius:16px;padding:3px 5px 3px 11px;font-size:12.5px}
+ :root{--pick-bg:#fafbfd}:root[data-theme=dark]{--pick-bg:#1d222b}
  .pick b{font-weight:600}
  /* comparison grid. Columns are a fixed width and the table only as wide as
     it needs: with two selections, a full-width table put each value 500px
     from the label it belongs to. */
  #cmp{width:auto;min-width:520px}
- #cmp th:first-child,#cmp td:first-child{position:sticky;left:0;background:#fff;
+ #cmp th:first-child,#cmp td:first-child{position:sticky;left:0;background:var(--card);
     width:220px;min-width:220px;box-shadow:1px 0 0 var(--line-2)}
  #cmp th:first-child{background:var(--head)}
  #cmp th.num{text-transform:none;letter-spacing:0;font-size:12.5px;color:var(--ink);

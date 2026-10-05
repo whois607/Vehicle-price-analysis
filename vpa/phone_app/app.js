@@ -845,7 +845,7 @@ function connection() {
     : secure ? { cls: "good", text: "HTTPS", host: location.hostname }
     : { cls: "warn", text: "Home Wi-Fi · plain http", host: location.host };
 }
-route("/sync", { tab: null, back: true, titleText: "Sync", needsData: false }, () => {
+route("/sync", { tab: null, back: true, titleText: "Sync & settings", needsData: false }, () => {
   const paired = !!LS.get("token"), S = DB ? DB.snap : null, cn = connection(), alt = LS.get("https");
   let h = "";
   const viaTs = /\.ts\.net$/i.test(location.hostname || "");
@@ -883,6 +883,10 @@ route("/sync", { tab: null, back: true, titleText: "Sync", needsData: false }, (
       cn.text.startsWith("Tailscale") ? ", whenever Tailscale is on and the laptop is awake" : ""}. Only a newer copy is downloaded. With no signal, the copy on this phone is used.</div></div>`;
   const secure = window.isSecureContext && "serviceWorker" in navigator;
   const ready = secure && navigator.serviceWorker.controller;
+  const th = window.vpaTheme ? vpaTheme() : "auto";
+  h += `<div class="card"><h2>Appearance</h2><div class="seg">${[["auto", "Auto"], ["light", "Light"], ["dark", "Dark"]].map(([k, l]) =>
+    `<button data-theme-set="${k}" class="${th === k ? "on" : ""}" aria-pressed="${th === k}">${l}</button>`).join("")}</div>
+    <div class="note">Auto follows the phone's own light or dark setting. Kept on this phone only.</div></div>`;
   h += `<div class="card"><h2>Offline &amp; home screen</h2>
     <p class="sub" id="offl">${ready ? '<span class="good">Ready to open with no signal.</span>' : secure ? "Getting ready for offline use…"
       : '<span class="warn">This address is plain http</span>, so the app itself can\'t open with no signal (browsers only allow that on HTTPS). Your data is still saved on the phone. Opening VPA through the laptop\'s HTTPS (Tailscale) address fixes this.'}</p>
@@ -892,6 +896,11 @@ route("/sync", { tab: null, back: true, titleText: "Sync", needsData: false }, (
   return h;
 });
 ROUTES["/sync"].after = () => {
+  const ths = document.querySelectorAll("[data-theme-set]");
+  ths.forEach(b => b.onclick = () => {
+    if (window.vpaTheme) vpaTheme(b.dataset.themeSet);
+    ths.forEach(x => { x.classList.toggle("on", x === b); x.setAttribute("aria-pressed", String(x === b)); });
+  });
   if ($("syncGo2")) $("syncGo2").onclick = () => sync(true);
   if (window.isSecureContext && "serviceWorker" in navigator && !navigator.serviceWorker.controller)
     navigator.serviceWorker.getRegistration().then(r => {

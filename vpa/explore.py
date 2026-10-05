@@ -1309,9 +1309,20 @@ __CHROME_CSS__
  #carcard{border-color:var(--accent-line);box-shadow:0 1px 3px rgba(20,50,110,.10)}
  .verdict{font-size:15px;line-height:1.5;margin:2px 0 14px}
  .verdict b{font-weight:600}
- .subjtag{display:inline-block;background:var(--accent);color:#fff;border-radius:4px;
+ /* this page's own tints, light (as always) and dark */
+ :root{--fix-line:#d9c9a0;--fix-bg:#fffdf6;--fix-ink:#7a5a10;--dirty-line:#b8860b;
+   --dirty-bg:#fffbea;--fix-div:#f0ecdf;--star-off:#c9ccd4;--starred-row:#fffaf0;
+   --wl-line:#ead9b0;--wl-bg:#fffdf7;--wl-div:#f2ead8;--wl-live:#245224;
+   --find-a:#f3f7ff;--find-b:#e9f0fc;--find-c:#e3ecfb;--alt-line:#9db8dd;
+   --alt-hover:#f2f7ff;--drag:#e9f1fd;--pooled:#f7f9fd}
+ :root[data-theme=dark]{--fix-line:#5e4a22;--fix-bg:#1f1b12;--fix-ink:#e7b45a;
+   --dirty-line:#d29a2a;--dirty-bg:#2a2210;--fix-div:#2e2a20;--star-off:#4a5262;
+   --starred-row:#221e14;--wl-line:#4a3d22;--wl-bg:#1c1a14;--wl-div:#2e2a20;
+   --wl-live:#7fd1a4;--find-a:#1b2438;--find-b:#18213a;--find-c:#162036;
+   --alt-line:#3d5a8c;--alt-hover:#1f2a40;--drag:#1d2a44;--pooled:#1d2230}
+ .subjtag{display:inline-block;background:var(--fill);color:var(--on-fill);border-radius:4px;
           padding:0 7px;font-size:11px;line-height:18px;margin-left:6px;vertical-align:2px}
- .subjtag.typed{background:var(--warn)}
+ .subjtag.typed{background:var(--fill-warn)}
  .grid2>div{flex:1 1 300px;min-width:280px}
  .gated{color:var(--dim);font-style:italic}
  .mine{color:var(--warn);font-weight:600}
@@ -1323,46 +1334,46 @@ __CHROME_CSS__
      vertical-align:-1px;margin-right:3px}
  /* correcting stored data - visually separated from every read-only panel,
     because this is the one place on this page that WRITES */
- .fixbox{border:1px solid #d9c9a0;background:#fffdf6;border-radius:8px;
+ .fixbox{border:1px solid var(--fix-line);background:var(--fix-bg);border-radius:8px;
    padding:12px 14px;margin:10px 0}
- .fixbox h4{margin:0 0 8px;font-size:13px;color:#7a5a10;font-weight:600}
+ .fixbox h4{margin:0 0 8px;font-size:13px;color:var(--fix-ink);font-weight:600}
  .fixgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));
    gap:8px}
  .fixgrid label{margin-bottom:2px}
  .fixgrid input{width:100%;height:30px;font-size:12.5px}
- .fixgrid input.dirty{border-color:#b8860b;background:#fffbea}
+ .fixgrid input.dirty{border-color:var(--dirty-line);background:var(--dirty-bg)}
  .fixobs{width:100%;border-collapse:collapse;margin-top:6px}
  .fixobs th{font-size:11px;background:none;border:0;padding:2px 4px}
  .fixobs td{padding:2px 4px;border:0}
  .fixobs input{width:100%;height:28px;font-size:12px}
  .fixdiff{font-size:12.5px;margin:8px 0}
- .fixdiff div{padding:2px 0;border-top:1px solid #f0ecdf}
+ .fixdiff div{padding:2px 0;border-top:1px solid var(--fix-div)}
  .fixdiff b{font-weight:600}
  .fixdiff .was{color:var(--bad);text-decoration:line-through;margin-right:6px}
  .fixdiff .now{color:var(--good);font-weight:600}
  /* the watchlist. A star is YOUR annotation, so it is coloured apart from
     every computed thing on the page - nothing amber here came from a stat. */
- button.star{cursor:pointer;font-size:15px;line-height:1;color:#c9ccd4;
+ button.star{cursor:pointer;font-size:15px;line-height:1;color:var(--star-off);
    background:none;border:0;padding:0 2px;height:auto;min-width:0}
  button.star.on,button.star:hover:not(:disabled){color:var(--mine);background:none}
- tr.starred td{background:#fffaf0}
+ tr.starred td{background:var(--starred-row)}
  tr.starred td:first-child{box-shadow:inset 3px 0 0 var(--mine)}
- .wl{border:1px solid #ead9b0;background:#fffdf7;border-radius:8px;padding:4px 14px}
+ .wl{border:1px solid var(--wl-line);background:var(--wl-bg);border-radius:8px;padding:4px 14px}
  td.ph,th.ph{width:72px;padding-top:3px;padding-bottom:3px}
  .wlrow .vpa-th{align-self:center}
  .wlrow{display:flex;gap:12px;align-items:baseline;padding:9px 0;
-   border-top:1px solid #f2ead8;font-size:12.5px;flex-wrap:wrap}
+   border-top:1px solid var(--wl-div);font-size:12.5px;flex-wrap:wrap}
  .wlrow:first-child{border-top:0}
  .wlname{flex:1 1 210px;font-weight:600}
  .wltag{font-size:11px;border-radius:9px;padding:0 7px;line-height:18px;border:1px solid}
- .wltag.live{color:#245224;background:var(--good-soft);border-color:var(--good-line)}
+ .wltag.live{color:var(--wl-live);background:var(--good-soft);border-color:var(--good-line)}
  .wltag.stale{color:var(--warn);background:var(--warn-soft);border-color:var(--warn-line)}
  .wltag.gone{color:var(--bad);background:var(--bad-soft);border-color:var(--bad-line)}
- .okbox code{background:#fff}
+ .okbox code{background:var(--card)}
  /* find-a-car bar: the primary way in, so it leads the page */
  .findbar{display:grid;grid-template-columns:1fr;
    grid-template-areas:"h" "p" "row" "msg";
-   background:radial-gradient(120% 140% at 0% 0%,#f3f7ff 0%,#e9f0fc 60%,#e3ecfb 100%);
+   background:radial-gradient(120% 140% at 0% 0%,var(--find-a) 0%,var(--find-b) 60%,var(--find-c) 100%);
    border:1px solid var(--accent-line);border-radius:var(--r);padding:16px 20px;margin-bottom:16px;
    box-shadow:var(--shadow);animation:vpa-rise .3s ease-out backwards}
  .findbar h2{grid-area:h;font-family:var(--ui-d);font-size:16px;margin:0 0 2px;font-weight:650;
@@ -1372,23 +1383,23 @@ __CHROME_CSS__
  .linkform{flex:1 1 420px;display:flex;align-items:center;gap:0;position:relative;min-width:0}
  .linkform .lk{position:absolute;left:12px;color:var(--faint);pointer-events:none}
  .linkform input{flex:1;min-width:0;height:38px;padding-left:36px;border-radius:var(--r-sm) 0 0 var(--r-sm);
-   border-right:0;background:#fff}
+   border-right:0;background:var(--field-bg)}
  .linkform .bigbtn{border-radius:0 var(--r-sm) var(--r-sm) 0}
  #findmsg{grid-area:msg}
- button.bigbtn{height:38px;padding:0 16px;border:1px solid var(--accent);border-radius:var(--r-sm);
-   background:var(--accent);color:#fff;font-size:13.5px;font-weight:600;
+ button.bigbtn{height:38px;padding:0 16px;border:1px solid var(--fill);border-radius:var(--r-sm);
+   background:var(--fill);color:var(--on-fill);font-size:13.5px;font-weight:600;
    box-shadow:0 1px 2px rgba(34,78,165,.3),inset 0 1px 0 rgba(255,255,255,.12)}
- button.bigbtn:hover:not(:disabled){background:var(--accent-2);border-color:var(--accent-2);color:#fff}
- button.bigbtn.alt{background:#fff;color:var(--accent-2);border-color:#9db8dd;font-weight:500}
- button.bigbtn.alt:hover:not(:disabled){background:#f2f7ff;color:var(--accent-2)}
- .findbar.drag{border-color:var(--accent);background:#e9f1fd}
+ button.bigbtn:hover:not(:disabled){background:var(--fill-2);border-color:var(--fill-2);color:var(--on-fill)}
+ button.bigbtn.alt{background:var(--field-bg);color:var(--accent-2);border-color:var(--alt-line);font-weight:500}
+ button.bigbtn.alt:hover:not(:disabled){background:var(--alt-hover);color:var(--accent-2)}
+ .findbar.drag{border-color:var(--accent);background:var(--drag)}
  #findmsg{font-size:12.5px}
  #findmsg:not(:empty){margin-top:10px}
- .idcard{background:#fff;border:1px solid var(--accent-line);border-radius:8px;
+ .idcard{background:var(--card);border:1px solid var(--accent-line);border-radius:8px;
    padding:10px 12px;margin-top:10px;font-size:12.5px}
  .idcard b{font-weight:600}
  .swatchdot{display:inline-block;width:11px;height:11px;border-radius:3px;
-   border:1px solid rgba(0,0,0,.25);vertical-align:-1px;margin-right:5px}
+   border:1px solid var(--dot-line);vertical-align:-1px;margin-right:5px}
 </style></head><body><div class="wrap">
 __NAV__
 <div class="pagehead"><div>
@@ -2025,7 +2036,7 @@ function renderFix(){
     <table class="fixobs"><thead><tr><th>capture day</th><th>price</th>
       <th>odometer</th><th>note</th><th></th></tr></thead>
       <tbody>${obs}</tbody></table>
-    <div><label style="font-size:10.5px;color:#667">why (recorded with the change)</label>
+    <div><label style="font-size:10.5px;color:var(--dim)">why (recorded with the change)</label>
       <input id="fixWhy" style="width:100%;height:30px;font-size:12.5px"
         placeholder="e.g. misread the ad, wrong trim on the tile"></div>
     <div id="fixdiff"></div>
@@ -3077,7 +3088,7 @@ function trimCompare(tc){
     <th class="num">stock age (d)</th><th class="num">left</th>
     <th class="num">arrived</th><th class="num">up now</th></tr></thead>
    <tbody>${ok.map(row).join("")}
-    ${p?`<tr style="font-weight:600;background:#f7f9fd"><td>all ${p.trims} trims pooled</td>
+    ${p?`<tr style="font-weight:600;background:var(--pooled)"><td>all ${p.trims} trims pooled</td>
       <td class="num">&mdash;</td><td class="num">&mdash;</td>
       <td class="num">${p.rate30.toFixed(0)}%</td>
       <td class="num">${p.half_life==null?"—":p.half_life.toFixed(0)}</td>

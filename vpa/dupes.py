@@ -423,7 +423,7 @@ __CHROME_CSS__
  .ghead .acts{margin-left:auto;display:flex;gap:6px}
  .facts{margin:6px 0 2px;display:flex;flex-wrap:wrap;gap:4px}
  .facts .tag{margin-left:0}
- .tag.unk{background:#fff;border:1px solid var(--line);color:var(--dim)}
+ .tag.unk{background:var(--card);border:1px solid var(--line);color:var(--dim)}
  .grp table{margin-top:6px;table-layout:fixed}
  .grp th{font-size:10px;color:var(--faint);padding:5px 10px}
  .grp td{vertical-align:top}

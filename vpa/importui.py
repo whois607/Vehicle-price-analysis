@@ -1000,7 +1000,11 @@ __CHROME_CSS__
        transition:background .15s,border-color .15s,color .15s}
  #drop b{color:var(--ink);font-weight:600}
  #drop .dropico{color:var(--accent)}
- #drop:hover{background:#f3f7fe;border-color:var(--accent-line);color:var(--ink-2)}
+ #drop:hover{background:var(--drop-hover);border-color:var(--accent-line);color:var(--ink-2)}
+ :root{--drop-hover:#f3f7fe;--heat0:#e8eaee;--heat1:#c9e6c9;--heat2:#8fcb8f;--heat3:#4d9e4d;--heat4:#256e25}
+ /* dark: the busiest day is the BRIGHTEST, as dark heatmaps read */
+ :root[data-theme=dark]{--drop-hover:#1d2638;--heat0:#232934;--heat1:#1f4a2c;--heat2:#2c7040;
+   --heat3:#42a05c;--heat4:#7fdc98}
  #drop.hover{background:var(--accent-soft);border-color:var(--accent)}
  #paste{width:100%;height:92px;margin-top:10px;resize:vertical}
  input[type=date]{width:148px}
@@ -1015,7 +1019,7 @@ __CHROME_CSS__
  td input[data-f=odometer_km]{width:80px}td input[data-f=state]{width:48px}
  td input[data-f=seller_type]{width:68px}
  td input:hover{border-color:var(--field)}
- td input:focus{border-color:var(--accent);background:#fff;outline:0}
+ td input:focus{border-color:var(--accent);background:var(--field-bg);outline:0}
  tr.off{opacity:.45}
  .flag{margin:1px 3px 1px 0}
  .count{font-weight:600}
@@ -1025,12 +1029,12 @@ __CHROME_CSS__
  #result{white-space:pre-line;font-size:13.5px}
  /* ---- overview ---- */
  #heat{display:grid;grid-auto-flow:column;grid-template-rows:repeat(7,11px);gap:2px}
- #heat div{width:11px;height:11px;border-radius:2px;background:#e8eaee}
- .h1{background:#c9e6c9!important}.h2{background:#8fcb8f!important}
- .h3{background:#4d9e4d!important}.h4{background:#256e25!important}
+ #heat div{width:11px;height:11px;border-radius:2px;background:var(--heat0)}
+ .h1{background:var(--heat1)!important}.h2{background:var(--heat2)!important}
+ .h3{background:var(--heat3)!important}.h4{background:var(--heat4)!important}
  .heatlegend{font-size:11.5px;color:var(--dim);display:flex;gap:3px;align-items:center;
              margin-top:10px}
- .heatlegend div{width:11px;height:11px;border-radius:2px;background:#e8eaee}
+ .heatlegend div{width:11px;height:11px;border-radius:2px;background:var(--heat0)}
  .ov td{vertical-align:middle}
  .ov .nm{font-weight:600}
  .bar{height:6px;border-radius:3px;background:var(--line-2);overflow:hidden;margin-top:3px}
@@ -1349,7 +1353,7 @@ async function showStarredAfterImport(){
     +`</div>`;
   const interesting=[...moved,...stale,...missing];
   $("result").innerHTML+=
-    `<div style="margin-top:12px;padding-top:10px;border-top:1px solid #e6e9ef">`
+    `<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--line)">`
     +`<b>Your watchlist after this import</b> &mdash; ${w.total} car(s) followed`
     +(interesting.length
       ?`:</div>`+interesting.map(line).join("")
@@ -1382,7 +1386,11 @@ __CHROME_CSS__
        transition:background .15s,border-color .15s,color .15s}
  #drop b{color:var(--ink);font-weight:600}
  #drop .dropico{color:var(--accent)}
- #drop:hover{background:#f3f7fe;border-color:var(--accent-line);color:var(--ink-2)}
+ #drop:hover{background:var(--drop-hover);border-color:var(--accent-line);color:var(--ink-2)}
+ :root{--drop-hover:#f3f7fe;--heat0:#e8eaee;--heat1:#c9e6c9;--heat2:#8fcb8f;--heat3:#4d9e4d;--heat4:#256e25}
+ /* dark: the busiest day is the BRIGHTEST, as dark heatmaps read */
+ :root[data-theme=dark]{--drop-hover:#1d2638;--heat0:#232934;--heat1:#1f4a2c;--heat2:#2c7040;
+   --heat3:#42a05c;--heat4:#7fdc98}
  #drop.hover{background:var(--accent-soft);border-color:var(--accent)}
  #paste{width:100%;height:92px;margin-top:10px;resize:vertical}
  input[type=date]{width:148px}
@@ -1397,7 +1405,7 @@ __CHROME_CSS__
  td input[data-f=odometer_km]{width:80px}td input[data-f=state]{width:48px}
  td input[data-f=seller_type]{width:68px}
  td input:hover{border-color:var(--field)}
- td input:focus{border-color:var(--accent);background:#fff;outline:0}
+ td input:focus{border-color:var(--accent);background:var(--field-bg);outline:0}
  tr.off{opacity:.45}
  .flag{margin:1px 3px 1px 0}
  .count{font-weight:600}
@@ -1407,12 +1415,12 @@ __CHROME_CSS__
  #result{white-space:pre-line;font-size:13.5px}
  /* ---- overview ---- */
  #heat{display:grid;grid-auto-flow:column;grid-template-rows:repeat(7,11px);gap:2px}
- #heat div{width:11px;height:11px;border-radius:2px;background:#e8eaee}
- .h1{background:#c9e6c9!important}.h2{background:#8fcb8f!important}
- .h3{background:#4d9e4d!important}.h4{background:#256e25!important}
+ #heat div{width:11px;height:11px;border-radius:2px;background:var(--heat0)}
+ .h1{background:var(--heat1)!important}.h2{background:var(--heat2)!important}
+ .h3{background:var(--heat3)!important}.h4{background:var(--heat4)!important}
  .heatlegend{font-size:11.5px;color:var(--dim);display:flex;gap:3px;align-items:center;
              margin-top:10px}
- .heatlegend div{width:11px;height:11px;border-radius:2px;background:#e8eaee}
+ .heatlegend div{width:11px;height:11px;border-radius:2px;background:var(--heat0)}
  .ov td{vertical-align:middle}
  .ov .nm{font-weight:600}
  .bar{height:6px;border-radius:3px;background:var(--line-2);overflow:hidden;margin-top:3px}

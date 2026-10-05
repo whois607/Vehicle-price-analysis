@@ -31,6 +31,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from . import phonecfg
 
 MAX_BODY = 4096
+DISCARD_MAX = 64 * 1024     # a refused body read (and dropped) before answering
 FAIL_WINDOW = 600              # seconds
 FAIL_LIMIT = 30                # bad tokens / pair attempts per window, all callers
 _CGNAT = ipaddress.ip_network("100.64.0.0/10")    # Tailscale addresses
@@ -181,13 +182,28 @@ class PhoneHandler(BaseHTTPRequestHandler):
         else:
             self._send(404, b"not found", "text/plain")
 
+    def _discard_body(self):
+        """Read and drop the body of a request being refused. Answering
+        before it is read leaves it unread when the connection closes, and
+        Windows then RESETS the connection - the client sees an abort instead
+        of the answer. Only up to DISCARD_MAX is read; past that the
+        connection is simply closed."""
+        try:
+            n = int(self.headers.get("Content-Length", 0))
+        except ValueError:
+            return
+        if 0 < n <= DISCARD_MAX:
+            self.rfile.read(n)
+
     def do_POST(self):
         if not self._gate():
             return
         if self.path != "/api/pair":
+            self._discard_body()
             self._send(404, b"not found", "text/plain")
             return
         if _locked_out():
+            self._discard_body()
             self._json({"ok": False, "error": "too many failed attempts - wait ten "
                         "minutes"}, 429)
             return
@@ -196,6 +212,7 @@ class PhoneHandler(BaseHTTPRequestHandler):
         except ValueError:
             n = -1
         if n < 0 or n > MAX_BODY:
+            self._discard_body()
             self._json({"ok": False, "error": "bad request"}, 413)
             return
         try:

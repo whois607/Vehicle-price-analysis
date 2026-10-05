@@ -132,6 +132,50 @@ CREATE TABLE IF NOT EXISTS not_duplicates (
 
 DEFAULT_DB = Path(__file__).resolve().parent.parent / "data" / "vpa.db"
 
+_FRAME_SQL = """
+    SELECT o.key, o.capture_date, o.price_aud, o.price_note, o.odometer_km,
+           v.source, v.listing_id, v.vehicle_type, v.make, v.model,
+           v.variant, v.year, v.body_type, v.state, v.seller_type,
+           v.raw_title, v.url, v.first_seen, v.last_seen
+    FROM observations o JOIN vehicles v ON v.key = o.key
+    ORDER BY o.capture_date, o.key
+"""
+
+
+def _frame_from(conn) -> pd.DataFrame:
+    df = pd.read_sql_query(_FRAME_SQL, conn)
+    if not df.empty:
+        df["capture_date"] = pd.to_datetime(df["capture_date"])
+    # Per-row detail marker (backfill rule confirmed 04/07/2026): quick_add
+    # rows carry only model+price+date -> 'brief'; every other source
+    # (imports, v2 history, manual adds) -> 'full'. Stats that need only
+    # model+price+date accept both; richer stats restrict to 'full'.
+    df["detail_level"] = (df["source"] == "quick_add").map(
+        {True: "brief", False: "full"})
+    return df
+
+
+def connect_readonly(path: str | Path = DEFAULT_DB) -> sqlite3.Connection:
+    """A connection that CANNOT write: SQLite itself refuses every change.
+    For code that only ever reads (the phone copy), so a bug there can never
+    reach the data. Unlike Store(), it never creates the file or the schema;
+    a missing database is an error, not an empty one."""
+    p = Path(path).resolve()
+    if not p.is_file():
+        raise FileNotFoundError(f"no database at {p}")
+    conn = sqlite3.connect(f"{p.as_uri()}?mode=ro", uri=True, timeout=15)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def read_frame(path: str | Path = DEFAULT_DB) -> pd.DataFrame:
+    """Store(path).frame(), through a read-only connection."""
+    conn = connect_readonly(path)
+    try:
+        return _frame_from(conn)
+    finally:
+        conn.close()
+
 
 class Store:
     def __init__(self, path: str | Path = DEFAULT_DB):
@@ -240,23 +284,7 @@ class Store:
     def frame(self) -> pd.DataFrame:
         """Every observation joined to its vehicle — the analysis dataset.
         One row = one sighting of one vehicle on one date."""
-        df = pd.read_sql_query("""
-            SELECT o.key, o.capture_date, o.price_aud, o.price_note, o.odometer_km,
-                   v.source, v.listing_id, v.vehicle_type, v.make, v.model,
-                   v.variant, v.year, v.body_type, v.state, v.seller_type,
-                   v.raw_title, v.url, v.first_seen, v.last_seen
-            FROM observations o JOIN vehicles v ON v.key = o.key
-            ORDER BY o.capture_date, o.key
-        """, self.conn)
-        if not df.empty:
-            df["capture_date"] = pd.to_datetime(df["capture_date"])
-        # Per-row detail marker (backfill rule confirmed 04/07/2026): quick_add
-        # rows carry only model+price+date -> 'brief'; every other source
-        # (imports, v2 history, manual adds) -> 'full'. Stats that need only
-        # model+price+date accept both; richer stats restrict to 'full'.
-        df["detail_level"] = (df["source"] == "quick_add").map(
-            {True: "brief", False: "full"})
-        return df
+        return _frame_from(self.conn)
 
     def sightings(self, key: str) -> list[dict]:
         """Every stored sighting of ONE vehicle, with the import that recorded it.

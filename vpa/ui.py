@@ -39,6 +39,8 @@ ICONS = {
     "power": "M12 3v9M7.5 6.4a7.5 7.5 0 1 0 9 0",
     # two overlapping cards - one car stored twice
     "dupes": "M8 8h12v12H8zM16 8V4H4v12h4",
+    # a phone - carrying the data to the car yard
+    "phone": "M8 2h8a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2zM11 18h2",
     # rising line - the brand mark: prices over time
     "trend": "M3 17l6-6 4 4 8-8M15 7h6v6",
     # circular arrow - rebuild in place, without opening anything
@@ -93,6 +95,7 @@ def nav(active: str) -> str:
  <nav class="navtabs">{tabs}</nav>
  <div class="navacts">
   <a class="navbtn dup" id="dupBtn" href="/duplicates" hidden title="the same car stored as two identities - review">{icon("dupes")}<span id="dupTxt">Duplicates</span></a>
+  <a class="navbtn{" on" if active == "phone" else ""}" id="phoneBtn" href="/phone" title="sync your data to your phone">{icon("phone")}<span>Phone</span></a>
   <button class="navbtn" id="xlsxBtn" title="rebuild viewer.xlsx from the database and open it in Excel">{icon("excel")}<span>Excel</span></button>
   <span class="navsep"></span>
   <button class="navbtn" id="helpBtn" title="How to use this page" aria-label="How to use this page">{icon("help")}<span>How to use</span></button>

@@ -243,6 +243,13 @@ def build_parser() -> argparse.ArgumentParser:
     q.add_argument("--port", type=int, default=None)
     q.add_argument("--no-browser", action="store_true")
     q.set_defaults(fn=_cmd_import_ui)
+    q = sub.add_parser("phone-serve", help="phone sync in the background (what the "
+                       "Startup shortcut runs); only if switched on in the app")
+    q.set_defaults(fn=_cmd_phone_serve)
+    q = sub.add_parser("phone-copy", help="build the phone copy now (read-only on "
+                       "the database; normally automatic)")
+    q.add_argument("--force", action="store_true", help="rebuild even if up to date")
+    q.set_defaults(fn=_cmd_phone_copy)
     return p
 
 
@@ -321,6 +328,28 @@ def _cmd_verify(args) -> int:
                              Path(args.workbook) if args.workbook else None)
     print_report(payload)
     return 0 if payload["ok"] else 1
+
+
+def _cmd_phone_serve(args) -> int:
+    from .importui import _open_log
+    import sys
+    if sys.stdout is None or sys.stderr is None:      # pythonw (Startup shortcut)
+        log = _open_log()
+        sys.stdout = sys.stdout or log
+        sys.stderr = sys.stderr or log
+    from . import phone
+    return phone.serve_forever(args.db)
+
+
+def _cmd_phone_copy(args) -> int:
+    from . import phone
+    m = phone.build_snapshot(args.db, force=args.force)
+    c = m["counts"]
+    print(f"phone copy {'written' if m['built'] else 'already up to date'}: "
+          f"{c['vehicles']:,} cars, {c['sightings']:,} sightings, "
+          f"{c['forecasts']} forecasts, {m['bytes'] // 1024} KB "
+          f"(version {m['version']}, {m['seconds']}s)")
+    return 0
 
 
 def _cmd_import_ui(args) -> int:

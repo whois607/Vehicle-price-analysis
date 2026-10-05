@@ -260,12 +260,7 @@ def generate(db_path=DEFAULT_DB, out_path: Path = DEFAULT_OUT,
     if raw.empty:
         raise RuntimeError("Dataset is empty - ingest something first.")
     data_fp = _fingerprint(raw)
-    df = add_segment_cols(raw)
-    df = df.sort_values(["model_line", "capture_date"]).reset_index(drop=True)
-    df["day"] = df["capture_date"].dt.strftime("%Y-%m-%d")
-    df["sel_key"] = df.apply(
-        lambda r: "-" if not isinstance(r["variant"], str) or not r["variant"].strip()
-        else f"{r['model_line']} {r['variant']}", axis=1)
+    df = analysis_frame(raw)
 
     by_line = df.groupby("model_line")["price_aud"].count().sort_values(ascending=False)
     top = df[df["model_line"] == by_line.index[0]].iloc[0]
@@ -441,6 +436,20 @@ class _Progress:
         self.fn(self.last, text)
 
 
+def analysis_frame(raw: pd.DataFrame) -> pd.DataFrame:
+    """Store.frame() -> the frame every workbook figure (and the phone copy's
+    forecasts) is computed from. One definition: _forecast_entries digests
+    these exact rows, so two copies of this would quietly stop sharing a
+    forecast cache, or worse, disagree."""
+    df = add_segment_cols(raw)
+    df = df.sort_values(["model_line", "capture_date"]).reset_index(drop=True)
+    df["day"] = df["capture_date"].dt.strftime("%Y-%m-%d")
+    df["sel_key"] = df.apply(
+        lambda r: "-" if not isinstance(r["variant"], str) or not r["variant"].strip()
+        else f"{r['model_line']} {r['variant']}", axis=1)
+    return df
+
+
 def _fingerprint(frame: pd.DataFrame) -> str:
     """Hash of every stored value the workbook is built from. Equal hashes =
     the workbook shows exactly what the database holds."""
@@ -612,8 +621,8 @@ class _FcCache:
     numeric library changes, so a reused row is the row a fresh computation
     gives. Deleting the file is always safe; it only costs one slow build."""
 
-    def __init__(self, out_path: Path):
-        self.path = Path(out_path).with_name("viewer_cache.json")
+    def __init__(self, out_path: Path, path: Path | None = None):
+        self.path = Path(path) if path else Path(out_path).with_name("viewer_cache.json")
         self.sig = _code_signature()
         self.old, self.rows = {}, {}
         try:

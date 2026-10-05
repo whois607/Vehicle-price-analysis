@@ -105,12 +105,16 @@ vehicle-price-analysis/
   data/                    PRIVATE, irreplaceable
     vpa.db                 the database
     backups/               vpa_backup_*.db snapshots (Store.backup())
+    phone.json             phone sync switches + paired phones (token HASHES)
     raw/                   the 16 saved carsales/Facebook .htm captures
   output/                  GENERATED - rebuild with `python -m vpa report --all`
     reports/<segment>/     trend/forecast .html + .png, stats/listings .csv
     reports/plotly.min.js  ONE shared copy for every report page
     exports/               dataset.csv and summaries
     viewer.xlsx            the Excel workbook
+    phone/                 the phone copy: snapshot-<version>.json.gz (newest
+                           two), meta.json, forecast_cache.json
+    vpa-app.log            what a console-less launch printed
 ```
 
 Only `data/` cannot be regenerated. `output/` and `tests/synthetic/` are
@@ -729,6 +733,10 @@ All of the following is built **and** verified by an automated suite (see §7).
   (make, model line, trim), matching the app exactly.
 * **Launcher** — icon'd Windows shortcut, no console, single instance,
   auto-replaces a stale instance after a code change.
+* **Phone sync, laptop side** (`/phone`) — a read-only, compact copy of the
+  data kept current automatically, handed to paired phones by a separate
+  listener that cannot reach the database. The phone's search screens are
+  the next step (§6).
 
 ---
 
@@ -1016,6 +1024,48 @@ Keep these — each one was a bug that took a while to find.
   "New car" entries, left blank rather than called dealer.
 * Worth a periodic check: parse the newest saved page and look at the
   per-field fill (`tests/check_carsales.py` pins both formats).
+
+**Phone sync, laptop side (05/10/2026)**
+* Option B from the brainstorm: the phone carries its OWN copy and searches
+  it offline (car yards: no signal, laptop asleep); it refreshes whenever it
+  can reach the laptop. Three modules, split by what they may touch:
+  * `phone.py` - builds the copy and keeps it current. Reads the database
+    ONLY through `store.read_frame()` / `connect_readonly()` (SQLite
+    `mode=ro`: writes are refused by SQLite itself). Forecasts come from
+    `viewer_xlsx._forecast_entries/_forecast_row` on `analysis_frame()` (now
+    shared with the workbook) with their own `_FcCache` file, so the phone
+    and Excel can never disagree; each entry also carries its mileage fit.
+  * `phonecfg.py` - settings, pairing, tokens (`data/phone.json`). Stdlib
+    only. Every change is read-modify-write under a lock file + atomic
+    replace, because the app and the background listener are two processes.
+  * `phonesrv.py` - the listener phones talk to: `/ping`, `POST /api/pair`,
+    `/api/meta`, `/api/snapshot` (gzip, ETag -> 304), the page shell. It
+    imports only `phonecfg` (enforced by check_phone's import walk), so no
+    request can reach vpa.db. Private/Tailscale/loopback source addresses
+    only; 30 bad tokens or codes in 10 min locks everyone out.
+* Version = hash(data fingerprint, starred list, layout, analysis + phone
+  code). Unchanged -> nothing written (0.05 s). Snapshot written before
+  meta.json, newest two kept, so a phone mid-download always gets a whole
+  file. ~180 KB gzip for 3.6k cars / 6.4k sightings; cold build ~5 s.
+* Rebuild trigger: the supervisor stats vpa.db every 4 s; a change that has
+  settled for 2.5 s rebuilds. That covers every writer (app, watch folder,
+  CLI, undo, merges) with no hooks in any of them.
+* Who listens: `supervise()` in whichever process - the app while open, or
+  with "keep running when VPA is closed" the background listener
+  (`python -m vpa phone-serve`, a Startup shortcut "VPA phone sync.lnk").
+  Exactly one at a time; they hand over through the settings file. The app
+  runs phone sync ONLY when serving the real database (`DEFAULT_DB`), so a
+  scratch/test app can never become what a phone downloads.
+* Pairing: 6-digit code on the laptop (10 min, 5 tries, stored hashed) ->
+  the phone gets a 32-byte token, stored on the laptop only as SHA-256.
+  Remove = locked out on the next request.
+* Binds 127.0.0.1 by default (the HTTPS route, `tailscale serve`, reaches it
+  there); "Home Wi-Fi" binds 0.0.0.0 for plain-http testing. KEY CONSTRAINT:
+  Android browsers only allow offline web apps (service workers) on HTTPS,
+  so plain LAN http can sync but cannot open with no signal. Offline use
+  needs the Tailscale HTTPS address - step 4.
+* `tests/check_phone.py` (43 checks) incl. a real app -> background ->
+  app hand-over with live rebuilds, and integrity_check at the end.
 
 **Watch folder (29/09/2026)**
 * `vpa/inbox.py` + a "Watch a folder" card on Bulk. You still browse and

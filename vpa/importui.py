@@ -581,6 +581,12 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(200, OVERVIEW.encode("utf-8"), "text/html; charset=utf-8")
         elif bare in ("/add", "/import"):
             self._send(200, PAGE.encode("utf-8"), "text/html; charset=utf-8")
+        elif bare == "/phone":
+            from . import phoneui
+            self._send(200, phoneui.PAGE.encode("utf-8"), "text/html; charset=utf-8")
+        elif bare == "/api/phone":
+            from . import phone
+            self._json(phone.ui_state(self.db_path))
         elif bare == "/bulk":
             from . import bulk
             self._send(200, bulk.PAGE.encode("utf-8"), "text/html; charset=utf-8")
@@ -766,6 +772,25 @@ class _Handler(BaseHTTPRequestHandler):
             elif self.path == "/api/dupes/undo":
                 from . import dupes
                 self._json(dupes.undo(self.db_path, payload.get("batch") or ""))
+            elif self.path == "/api/phone/options":
+                from . import phone
+                self._json(phone.apply_options(
+                    self.db_path, enabled=payload.get("enabled"),
+                    lan=payload.get("lan"), background=payload.get("background")))
+            elif self.path == "/api/phone/pair":
+                from . import phonecfg
+                self._json(phonecfg.start_pairing())
+            elif self.path == "/api/phone/pair/cancel":
+                from . import phonecfg
+                self._json(phonecfg.cancel_pairing())
+            elif self.path == "/api/phone/remove":
+                from . import phone, phonecfg
+                r = phonecfg.remove_device(payload.get("id"),
+                                           everything=payload.get("all") is True)
+                self._json({**phone.ui_state(self.db_path), **r})
+            elif self.path == "/api/phone/rebuild":
+                from . import phone
+                self._json(phone.rebuild_now(self.db_path))
             elif self.path == "/api/inbox/start":
                 from . import inbox
                 self._json(inbox.start(self.db_path, payload.get("folder") or "",
@@ -846,6 +871,14 @@ def serve(db_path: str | Path = DEFAULT_DB, port: int = DEFAULT_PORT,
         raise SystemExit(f"no free port in {port}..{port + 9}; use --port")
     url = f"http://127.0.0.1:{port}"
     print(f"Import UI on {url}  (database: {db_path})")
+    # Phone sync follows the real database only: a scratch or test database
+    # served by this same code must never become what a phone downloads.
+    if Path(db_path).resolve() == Path(DEFAULT_DB).resolve():
+        try:
+            from . import phone
+            phone.start(db_path, role="app")
+        except Exception:               # phone sync must never stop the app
+            traceback.print_exc()
     print("Ctrl+C to stop.")
     if open_browser:
         webbrowser.open(url)

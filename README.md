@@ -61,8 +61,9 @@ That opens the app at `http://127.0.0.1:8765` — four pages, all local:
 | **Explore** | what is one trim worth, where it is heading, and how one specific car compares to it |
 | **Compare** | several trims or models side by side, on identical statistics — including how fast each one clears |
 
-On Windows, `Setup Import App.bat` creates a desktop shortcut so you can
-double-click it instead.
+On Windows, `Setup VPA.bat` puts a **VPA** shortcut (with the app's icon) on
+the Desktop and in the Start menu, so you can double-click it instead. It
+starts with no console window; if it cannot start, a message box says why.
 
 ### Command line
 

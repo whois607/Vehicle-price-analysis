@@ -528,6 +528,15 @@ def _running_instance(port: int) -> bool:
     return False
 
 
+#: Static files the pages ask for: the app icon in its several forms.
+ASSETS = Path(__file__).resolve().parent.parent / "assets"
+_STATIC = {"/favicon.ico": ("vpa.ico", "image/x-icon"),
+           "/icon.svg": ("vpa.svg", "image/svg+xml"),
+           "/icon-192.png": ("vpa-192.png", "image/png"),
+           "/icon-512.png": ("vpa-512.png", "image/png")}
+LOG = Path(__file__).resolve().parent.parent / "output" / "vpa-app.log"
+
+
 # ------------------------------------------------------------------ server
 class _Handler(BaseHTTPRequestHandler):
     db_path: str = str(DEFAULT_DB)   # set by serve()
@@ -669,14 +678,20 @@ class _Handler(BaseHTTPRequestHandler):
                                         level=(q.get("level") or ["line"])[0]))
         elif self.path == "/api/status":
             self._json(status_payload(self.db_path))
+        elif bare in _STATIC:
+            name, ctype = _STATIC[bare]
+            f = ASSETS / name
+            if f.is_file():
+                self._send(200, f.read_bytes(), ctype)
+            else:
+                self._send(404, b"not found", "text/plain")
         elif self.path.startswith("/api/"):
             # a GET to an API route this build does not have - same stale
             # process story as the POST side, and the page can act on it
             self._json({"ok": False, "stale": True, "error":
                         f"this copy of the app does not have {self.path}. It "
                         f"is running an older version than the page you are "
-                        f"looking at - click Shut down, then reopen Vehicle "
-                        f"Import."}, 404)
+                        f"looking at - click Shut down, then reopen VPA."}, 404)
         else:
             self._send(404, b"not found", "text/plain")
 
@@ -796,7 +811,7 @@ class _Handler(BaseHTTPRequestHandler):
                             f"this copy of the app does not have {self.path}. "
                             f"It is running an older version than the page you "
                             f"are looking at - click Shut down, then reopen "
-                            f"Vehicle Import."}, 404)
+                            f"VPA."}, 404)
         except Exception as e:   # surface real errors to the page, not a 500 page
             self._json({"ok": False, "error": f"{type(e).__name__}: {e}"}, 500)
 
@@ -804,11 +819,14 @@ class _Handler(BaseHTTPRequestHandler):
 def serve(db_path: str | Path = DEFAULT_DB, port: int = DEFAULT_PORT,
           open_browser: bool = True) -> None:
     # Under pythonw.exe (the no-console launcher) stdout/stderr are None and
-    # any print() would crash the server thread — route them to devnull.
-    if sys.stdout is None:
-        sys.stdout = open(os.devnull, "w", encoding="utf-8")
-    if sys.stderr is None:
-        sys.stderr = open(os.devnull, "w", encoding="utf-8")
+    # any print() would crash the server thread — route them to a small log
+    # instead, so a launch that goes wrong leaves a trace (see _quiet_start).
+    if sys.stdout is None or sys.stderr is None:
+        log = _open_log()
+        if sys.stdout is None:
+            sys.stdout = log
+        if sys.stderr is None:
+            sys.stderr = log
     # One instance is enough: if the UI is already up, just open the page.
     if _running_instance(port):
         print(f"Import UI already running on http://127.0.0.1:{port} - opening it.")
@@ -839,6 +857,49 @@ def serve(db_path: str | Path = DEFAULT_DB, port: int = DEFAULT_PORT,
     print("stopped.")
 
 
+def _open_log():
+    """output/vpa-app.log, started afresh once it passes 1 MB. Falls back to
+    devnull if it cannot be written - logging must never stop the app."""
+    try:
+        LOG.parent.mkdir(exist_ok=True)
+        if LOG.exists() and LOG.stat().st_size > 1_000_000:
+            LOG.replace(LOG.with_suffix(".old.log"))
+        f = open(LOG, "a", encoding="utf-8", buffering=1)
+        f.write(f"\n--- {time.strftime('%Y-%m-%d %H:%M:%S')} start (pid {os.getpid()})\n")
+        return f
+    except OSError:
+        return open(os.devnull, "w", encoding="utf-8")
+
+
+def _alert(text: str) -> None:
+    """A Windows message box: the only way a console-less launch can say it
+    failed. Silently does nothing anywhere else."""
+    try:
+        import ctypes
+        ctypes.windll.user32.MessageBoxW(None, text, "VPA", 0x10)   # MB_ICONERROR
+    except Exception:
+        pass
+
+
+def serve_quiet(db_path, port, open_browser=True) -> None:
+    """serve(), for a launch with no console (the desktop shortcut runs
+    pythonw.exe): if the app cannot start, say so in a message box instead
+    of doing nothing at all, and keep the details in the log."""
+    if sys.stdout is not None:
+        return serve(db_path, port, open_browser=open_browser)
+    try:
+        serve(db_path, port, open_browser=open_browser)
+    except SystemExit as e:
+        if e.code not in (None, 0):
+            print(f"could not start: {e.code}")
+            _alert(f"VPA could not start.\n\n{e.code}\n\nDetails: {LOG}")
+        raise
+    except Exception as e:
+        traceback.print_exc()
+        _alert(f"VPA could not start.\n\n{type(e).__name__}: {e}\n\nDetails: {LOG}")
+        raise
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="vpa import-ui",
                                  description="Local preview-before-commit import page.")
@@ -846,14 +907,14 @@ def main(argv=None) -> int:
     ap.add_argument("--port", type=int, default=DEFAULT_PORT)
     ap.add_argument("--no-browser", action="store_true")
     args = ap.parse_args(argv)
-    serve(args.db, args.port, open_browser=not args.no_browser)
+    serve_quiet(args.db, args.port, open_browser=not args.no_browser)
     return 0
 
 
 # -------------------------------------------------------------------- page
 _PAGE = r"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
-<title>vpa add data - import</title>
+<title>Import &middot; VPA</title>
 <style>
 __CHROME_CSS__
  /* ---- bringing data in ---- */
@@ -1235,7 +1296,7 @@ __CHROME_JS__
 #: which made "Import" the home page and the place to read the data.
 _OVERVIEW = r"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
-<title>vpa overview</title>
+<title>Overview &middot; VPA</title>
 <style>
 __CHROME_CSS__
  /* ---- bringing data in ---- */

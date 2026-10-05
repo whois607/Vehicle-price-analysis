@@ -516,7 +516,7 @@ function vpaWorkbook(open){
       if(!res.ok||!res.job){
         _vpaXlShow(null);
         alert(res.stale||String(res.error).indexOf("unknown endpoint")>=0
-          ?"The app is running an older version - click Shut down, then reopen Vehicle Import."
+          ?"The app is running an older version - click Shut down, then reopen VPA."
           :(res.error||"could not start the workbook build"));
         return;
       }
@@ -677,10 +677,19 @@ function vpaAxMoney(v){
 """
 
 
+#: The app icon (assets/vpa.*, drawn by tools/make_launcher.py and served by
+#: importui) - the same mark as the nav logo, so the tab, the taskbar and the
+#: desktop shortcut all look like one app.
+HEAD_LINKS = ('<link rel="icon" href="/icon.svg" type="image/svg+xml">'
+              '<link rel="alternate icon" href="/favicon.ico" sizes="any">'
+              '<meta name="theme-color" content="#2b5fc4">')
+
+
 def chrome(page: str, active: str, actions: str = "", mode: str = "") -> str:
     """Substitute the shared CSS, nav, page actions, mode switch and
     behaviour into a page template. `actions` lands in the page header,
     beside the title; `mode` marks which Add data mode this page is."""
+    page = page.replace('<meta charset="utf-8">', '<meta charset="utf-8">\n' + HEAD_LINKS, 1)
     return (page.replace("__CHROME_CSS__", CHROME_CSS)
                 .replace("__NAV__", nav(active))
                 .replace("__MODES__", modes(mode) if mode else "")

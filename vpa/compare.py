@@ -370,7 +370,7 @@ def _row_meta() -> list[dict]:
 # -------------------------------------------------------------------- page
 _PAGE = r"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
-<title>vpa compare</title>
+<title>Compare &middot; VPA</title>
 <style>
 __CHROME_CSS__
  /* picked selections */

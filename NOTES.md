@@ -99,7 +99,7 @@ starts there.
 vehicle-price-analysis/
   vpa/                     the package - the only irreplaceable code
   tools/                   make_launcher.py
-  assets/                  app icon
+  assets/                  app icon (vpa.ico / .svg / -192.png / -512.png)
   tests/
     synthetic/             GENERATED fixtures + out/ report tree - safe to delete
   data/                    PRIVATE, irreplaceable
@@ -663,8 +663,19 @@ chart and status together.
   `_sheet_sandbox()` creates MyView once. `Match` builds selection formulas;
   `_name()` defines workbook named ranges; `_keep_style()` implements the
   styling-preservation rule.
-* `tools/make_launcher.py` — `draw_icon()`, `make_shortcut()`. One-time,
-  run via `Setup Import App.bat`.
+* `tools/make_launcher.py` — `draw_icon()`, `make_shortcut(where)`. One-time,
+  run via `Setup VPA.bat`. Draws the brand mark (the nav logo's rising line on
+  its blue gradient tile) as `assets/vpa.ico` (9 sizes; small ones get a
+  bolder line), `vpa.svg` (browser tab) and full-bleed `vpa-192/512.png`
+  (phone home screen, for later). Writes `VPA.lnk` to the Desktop (asked of
+  Windows - OneDrive moves it), the Start menu and the project folder, and
+  removes the old `Vehicle Import.lnk`.
+* App icon in the browser: `ui.HEAD_LINKS` goes in every page's head via
+  `chrome()`; importui serves `/favicon.ico`, `/icon.svg`, `/icon-192.png`,
+  `/icon-512.png` from `assets/` (`_STATIC`). Tab titles read "Page · VPA".
+* Console-less launch: `serve_quiet()` (used by `main()` and the CLI) - under
+  pythonw, output goes to `output/vpa-app.log` (restarted past 1 MB) and a
+  failed start shows a Windows message box instead of doing nothing.
 
 ---
 
@@ -806,7 +817,7 @@ green; there is no half-finished branch or disabled code path. The items in
 4. **Excel must be closed before a refresh.** `generate()` can't write a
    locked file; the CLI and the app both say so clearly. OneDrive sync can
    also lock it briefly.
-5. **Windows-only launcher.** `Setup Import App.bat`, the `.lnk`, `pythonw`
+5. **Windows-only launcher.** `Setup VPA.bat`, the `.lnk`, `pythonw`
    and `os.startfile` (used to open the workbook) are Windows-specific. The
    CLI and `python -m vpa import-ui` work anywhere.
 6. **Facebook rows carry no trim and no odometer**, so they land under the
@@ -888,7 +899,7 @@ In the order I'd do them:
 
 1. **Sharing prep** (asked about 01/08/2026): package the folder minus
    `data/` and `output/`; the recipient runs `pip install -r
-   requirements.txt` then `Setup Import App.bat`, which rebuilds the
+   requirements.txt` then `Setup VPA.bat`, which rebuilds the
    shortcut against *their* Python path and folder. Optionally add a
    `--db` flag to `tools/make_launcher.py::make_shortcut()` so two people
    can share one code copy on one machine.

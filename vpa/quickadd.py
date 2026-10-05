@@ -199,7 +199,7 @@ def commit_payload(payload: dict, db_path: str | Path) -> dict:
 # -------------------------------------------------------------------- page
 _PAGE = r"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
-<title>vpa add data - quick</title>
+<title>Quick add &middot; VPA</title>
 <style>
 __CHROME_CSS__
  .cols{gap:14px}

@@ -324,8 +324,8 @@ def _cmd_verify(args) -> int:
 
 
 def _cmd_import_ui(args) -> int:
-    from .importui import serve, DEFAULT_PORT
-    serve(args.db, args.port or DEFAULT_PORT, open_browser=not args.no_browser)
+    from .importui import serve_quiet, DEFAULT_PORT
+    serve_quiet(args.db, args.port or DEFAULT_PORT, open_browser=not args.no_browser)
     return 0
 
 

@@ -457,7 +457,7 @@ def run_payload(payload: dict, db_path: str | Path) -> dict:
 # wrong one gets clicked.
 _PAGE = r"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
-<title>vpa add data - bulk</title>
+<title>Bulk add &middot; VPA</title>
 <style>
 __CHROME_CSS__
  /* ---- the fixed frame -------------------------------------------------

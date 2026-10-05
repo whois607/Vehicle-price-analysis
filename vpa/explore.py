@@ -1264,7 +1264,7 @@ def link_payload(db_path: str | Path = DEFAULT_DB, link: str = "") -> dict:
 # -------------------------------------------------------------------- page
 _PAGE = r"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
-<title>vpa explore</title>
+<title>Explore &middot; VPA</title>
 <style>
 __CHROME_CSS__
  select{min-width:150px;max-width:280px}
@@ -1899,7 +1899,7 @@ function showStale(msg){
   (document.querySelector(".wrap") || document.body).prepend(bar);
   const b=document.getElementById("staleQuit");
   if(b)b.onclick=()=>{fetch("/api/shutdown",{method:"POST",body:"{}"})
-    .then(()=>{bar.innerHTML="<b>Stopped.</b> Reopen Vehicle Import to "
+    .then(()=>{bar.innerHTML="<b>Stopped.</b> Reopen VPA to "
       +"pick up the new version.";});};
   bar.scrollIntoView({behavior:"smooth",block:"nearest"});
 }

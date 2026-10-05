@@ -410,7 +410,7 @@ def undo(db_path: str | Path = DEFAULT_DB, batch: str = "") -> dict:
 # --- the page ----------------------------------------------------------------
 _PAGE = r"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
-<title>vpa duplicates</title>
+<title>Duplicates &middot; VPA</title>
 <style>
 __CHROME_CSS__
  .grp{border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-top:12px;

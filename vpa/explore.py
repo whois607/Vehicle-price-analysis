@@ -32,6 +32,7 @@ from pathlib import Path
 import pandas as pd
 
 from . import dupes, links
+from . import photos as _photos
 from .store import Store, DEFAULT_DB
 
 MAX_VEHICLES = 400          # table rows sent to the page; total is reported
@@ -255,6 +256,7 @@ def detail_payload(db_path: str | Path = DEFAULT_DB, make: str | None = None,
 
     from .starred import keys as _star_keys
     STARS = _star_keys(db_path)
+    PHOTOS = _photos.load(db_path)
     NOT_DUP = dupes.dismissed_sets(db_path)
     sub = _select_multi(df, make, model, picked)
     unfiltered_n = int(len(sub))
@@ -540,6 +542,7 @@ def detail_payload(db_path: str | Path = DEFAULT_DB, make: str | None = None,
             "starred": str(last["key"]) in STARS,
             "change": (round((last_price - first_price) / first_price * 100, 1)
                        if moved and first_price else None),
+            "ph": _first_photo(PHOTOS, last),
         }
         vehicles.append(v)
         if moved:
@@ -628,6 +631,15 @@ def detail_payload(db_path: str | Path = DEFAULT_DB, make: str | None = None,
 
 
 # ------------------------------------------------------- one car vs its trim
+def _first_photo(photos: dict, row) -> str | None:
+    """The first stored photo address for a frame row, or None."""
+    lid, url = row.get("listing_id"), row.get("url")
+    ad = _photos.ad_id(lid if isinstance(lid, str) else None,
+                       url if isinstance(url, str) else None)
+    got = photos.get(ad) if ad else None
+    return got[0] if got else None
+
+
 def _subject_from_row(row) -> dict:
     """The car being judged, taken from a stored row."""
     return {"key": str(row["key"]), "stored": True,
@@ -845,6 +857,11 @@ def car_payload(db_path: str | Path = DEFAULT_DB, make: str | None = None,
         peers = pool
         fit_rows = prepped
     subject["label"] = label
+    PHOTOS = _photos.load(db_path)
+    if key:
+        r0 = own.iloc[0]
+        subject["photos"] = list(PHOTOS.get(_photos.ad_id(
+            r0.get("listing_id"), r0.get("url")) or "", []))
 
     peer_prices = [float(p) for p in peers["price_aud"].dropna()]
     raw = _rank_in(peer_prices, subject["price"])
@@ -969,6 +986,7 @@ def car_payload(db_path: str | Path = DEFAULT_DB, make: str | None = None,
             "url": links.ad_url(r["url"], r.get("source")),
             "title": None if pd.isna(r["raw_title"]) else str(r["raw_title"]),
             "dup": sig in dup_set,
+            "ph": _first_photo(PHOTOS, r),
         })
     band = {"basis": basis, "n": len(comparables), "dup_in_pool": dup_total,
             "median": _num(pd.Series([c["price"] for c in comparables],
@@ -1330,6 +1348,8 @@ __CHROME_CSS__
  tr.starred td{background:#fffaf0}
  tr.starred td:first-child{box-shadow:inset 3px 0 0 var(--mine)}
  .wl{border:1px solid #ead9b0;background:#fffdf7;border-radius:8px;padding:4px 14px}
+ td.ph,th.ph{width:72px;padding-top:3px;padding-bottom:3px}
+ .wlrow .vpa-th{align-self:center}
  .wlrow{display:flex;gap:12px;align-items:baseline;padding:9px 0;
    border-top:1px solid #f2ead8;font-size:12.5px;flex-wrap:wrap}
  .wlrow:first-child{border-top:0}
@@ -1597,6 +1617,7 @@ __NAV__
  </div>
  <div class="scroll"><table id="vtbl"><thead><tr>
   <th class="s" data-k="starred" title="cars you are following">&#9733;</th>
+  <th class="ph" title="the advert's photo, where a saved page had one - hover to enlarge"></th>
   <th class="s" data-k="year">year</th><th class="s" data-k="variant">trim</th>
   <th class="s num" data-k="price">price</th>
   <th class="s num" data-k="odometer_km">odometer</th>
@@ -1943,6 +1964,7 @@ async function loadWatchlist(){
       dearer, whatever its own price did"><span class="flat">vs its trim</span>
       <b class="${s.vs_trim>0?"down":"up"}">${s.vs_trim>0?"+":""}${s.vs_trim}%</b></span>`;
     return `<div class="wlrow">
+      ${vpaThumb(c.ph)}
       <span class="wlname">${esc(c.label)}${c.year?` <span class="flat">${c.year}</span>`:""}</span>
       <span>${starMoney(c.price)}</span>
       <span>${c.odometer_km==null?"":km(c.odometer_km)}</span>
@@ -2205,16 +2227,16 @@ function renderCar(){
     </div>`;
 
   /* --- comparables */
-  const cmp=`<table class="cmp"><thead><tr><th>year</th><th class="num">price</th>
+  const cmp=`<table class="cmp"><thead><tr><th class="ph"></th><th>year</th><th class="num">price</th>
     <th class="num">odometer</th><th>state</th><th>seller</th><th>last seen</th>
     <th></th></tr></thead><tbody>
     ${d.comparables.map(c=>`<tr class="${c.dup?"dupe":""}">
-      <td>${c.year||""}</td><td class="num">${money(c.price)}</td>
+      <td class="ph">${vpaThumb(c.ph)}</td><td>${c.year||""}</td><td class="num">${money(c.price)}</td>
       <td class="num">${km(c.odometer_km)}</td><td>${esc(c.state||"")}</td>
       <td>${esc(c.seller_type||"")}</td><td>${c.day}</td>
       <td>${vpaAdLinks(c.url,false,c)}
         ${c.dup?dupTag(c.key):""}</td>
-    </tr>`).join("")||'<tr><td colspan="7" class="flat">none</td></tr>'}</tbody></table>
+    </tr>`).join("")||'<tr><td colspan="8" class="flat">none</td></tr>'}</tbody></table>
     <div class="hint">The ${d.band.n} nearest on kilometres${
       d.band.basis==="year"?" (matched on year - this car has no odometer)":""},
       median ${money(d.band.median)}${d.band.vs!=null
@@ -2243,11 +2265,17 @@ function renderCar(){
     (${((s.price/TARGET-1)*100).toFixed(1)}%)</b>
     <span class="flat">your number, not from the data</span></div></div>`;
 
-  el.innerHTML=head+`<div class="grid2">
+  const gal=vpaGallery(s.photos,s.url);
+  el.innerHTML=(gal
+    ?`<div class="vpa-hero">${gal}<div class="vpa-txt">${head}${strips}</div></div>
+      <div class="grid2" style="margin-top:14px">
+       <div><div class="mini-h">expected for its kilometres</div>${exp}</div>
+       <div><div class="mini-h">like for like</div>${like}</div></div>`
+    :head+`<div class="grid2">
      <div>${strips}</div>
      <div><div class="mini-h">expected for its kilometres</div>${exp}
        <div class="mini-h" style="margin-top:12px">like for like</div>${like}</div>
-    </div>
+    </div>`)+`
     ${hist}${mine}
     <div class="mini-h" style="margin-top:14px">nearest comparable ads</div>${cmp}
     <div class="hint">${esc(d.basis)}. Pool captured ${d.pool.first} to
@@ -3348,6 +3376,7 @@ function renderVehicles(){
     <td><button class="star${v.starred?" on":""}" data-star="${esc(v.key)}"
       title="${v.starred?"stop following this car":"follow this car"}"
       >${v.starred?"★":"☆"}</button></td>
+    <td class="ph">${vpaThumb(v.ph)}</td>
     <td>${v.year||""}</td>
     <td>${esc(v.variant||"")}${v.clash?'<span class="tag warn" title="two cars share this identity - they show two prices on the same capture day">merged identity</span>':""}
       ${v.detail==="brief"?'<span class="tag">price only</span>':""}</td>
@@ -3358,7 +3387,7 @@ function renderVehicles(){
     <td>${esc(v.source)}</td><td class="num">${v.sightings}</td>
     <td>${v.last_day}</td>
     <td>${vpaAdLinks(v.url,v.last_day<newest,v)}</td>
-  </tr>`).join("")||'<tr><td colspan="12" class="flat">nothing matches that filter</td></tr>';
+  </tr>`).join("")||'<tr><td colspan="13" class="flat">nothing matches that filter</td></tr>';
   $("vspan").textContent=`— showing ${rows.length}`
     +(d.vehicle_total>d.vehicles.length?` of ${d.vehicle_total} (newest ${d.vehicles.length} loaded)`:"");
   $("vhint").textContent="Click any row to judge that car against the rest of "

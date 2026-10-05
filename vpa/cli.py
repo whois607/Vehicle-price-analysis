@@ -38,6 +38,10 @@ def _cmd_ingest(args) -> int:
         return 1
     with Store(args.db) as store:
         counts = store.ingest(records, source_file=str(path), adapter=fmt)
+    if fmt == "html":
+        from . import photos
+        photos.remember_html(args.db, path.read_text(encoding="utf-8", errors="replace"),
+                             max((str(r.capture_date) for r in records), default=None))
     print(f"Ingested {path.name} [{fmt}]: parsed {counts['rows_parsed']}, "
           f"new vehicles {counts['vehicles_new']}, new observations "
           f"{counts['obs_new']}, duplicates skipped {counts['obs_duplicate']}")
@@ -251,7 +255,25 @@ def build_parser() -> argparse.ArgumentParser:
     q.add_argument("--force", action="store_true", help="rebuild even if up to date")
     q.add_argument("--out", default=None, help="output folder (default output/phone)")
     q.set_defaults(fn=_cmd_phone_copy)
+    q = sub.add_parser("photos", help="how many cars have a photo; --backfill reads "
+                       "the photo addresses in every kept saved page (writes only "
+                       "data/photos.json, never the database)")
+    q.add_argument("--backfill", action="store_true")
+    q.set_defaults(fn=_cmd_photos)
     return p
+
+
+def _cmd_photos(args) -> int:
+    from . import photos
+    if args.backfill:
+        r = photos.backfill(args.db)
+        print(f"Read {r['pages']} kept page(s): {r['ads_in_pages']:,} listing photo sets, "
+              f"{r['changed']:,} new or updated.")
+    else:
+        r = photos.coverage(args.db)
+    print(f"{r['with_photo']:,} of {r['cars']:,} cars have a photo "
+          f"({r['stored_ads']:,} ads in {photos.store_path(args.db)}).")
+    return 0
 
 
 def _cmd_viewer(args) -> int:

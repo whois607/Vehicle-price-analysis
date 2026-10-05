@@ -80,6 +80,8 @@ def parse_payload(payload: dict, db_path: str | Path) -> dict:
 
     with Store(db_path) as store:
         verdicts = store.preview(records)
+    if used_fmt == "html":
+        _hold_photos(text, max((str(r.capture_date) for r in records), default=None))
 
     seen: set[tuple] = set()
     rows = []
@@ -130,6 +132,39 @@ def parse_payload(payload: dict, db_path: str | Path) -> dict:
                         "no_odometer": sum(1 for r in rows if r["odometer_km"] is None)}}
 
 
+# Photo addresses read from the last pages previewed, by ad id. Held here
+# (in memory) between Preview and Commit and stored only for the rows that
+# are committed - a previewed page that is never committed leaves nothing.
+_PHOTOS_HELD: dict[str, tuple] = {}
+
+
+def _hold_photos(text: str, day) -> None:
+    from . import photos
+    try:
+        for ad, pics in photos.extract(text).items():
+            _PHOTOS_HELD.pop(ad, None)
+            _PHOTOS_HELD[ad] = (pics, day)
+        while len(_PHOTOS_HELD) > 5000:
+            _PHOTOS_HELD.pop(next(iter(_PHOTOS_HELD)))
+    except Exception:
+        pass
+
+
+def _store_held_photos(records, db_path) -> None:
+    from . import photos
+    by_day: dict = {}
+    for r in records:
+        ad = photos.ad_id(r.listing_id, r.url)
+        if ad and ad in _PHOTOS_HELD:
+            pics, day = _PHOTOS_HELD[ad]
+            by_day.setdefault(day, {})[ad] = pics
+    for day, found in by_day.items():
+        try:
+            photos.remember(db_path, found, day)
+        except Exception:
+            pass
+
+
 def commit_payload(payload: dict, db_path: str | Path) -> dict:
     """Re-normalise the (possibly edited) rows and write via Store.ingest."""
     rows = payload.get("rows") or []
@@ -149,6 +184,7 @@ def commit_payload(payload: dict, db_path: str | Path) -> dict:
     if records:
         with Store(db_path) as store:
             counts = store.ingest(records, source_file="(import-ui)", adapter="ui")
+        _store_held_photos(records, db_path)
     return {"ok": True, "committed": counts["obs_new"],
             "new_vehicles": counts["vehicles_new"],
             "duplicates_skipped": counts["obs_duplicate"],
@@ -879,6 +915,12 @@ def serve(db_path: str | Path = DEFAULT_DB, port: int = DEFAULT_PORT,
             phone.start(db_path, role="app")
         except Exception:               # phone sync must never stop the app
             traceback.print_exc()
+    # First run with photos: read the photo addresses out of the pages already
+    # kept (data/raw, the watch folder's archive). Writes only photos.json.
+    from . import photos
+    if not photos.store_path(db_path).exists():
+        threading.Thread(target=lambda: photos.backfill(db_path), daemon=True,
+                         name="photo-backfill").start()
     print("Ctrl+C to stop.")
     if open_browser:
         webbrowser.open(url)

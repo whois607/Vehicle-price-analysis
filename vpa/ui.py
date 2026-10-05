@@ -392,6 +392,29 @@ CHROME_CSS = """
  a.ext{color:var(--accent);text-decoration:none}a.ext:hover{text-decoration:underline}
  a.ext.muted{color:var(--dim)}
  .adlinks{white-space:nowrap}
+
+ /* ---- listing photos (vpa/photos.py): a thumbnail, and a larger copy on
+    hover. A car with no stored photo gets a quiet blank of the same size,
+    so rows still line up. ---- */
+ .vpa-th{display:inline-block;width:64px;height:43px;border-radius:6px;object-fit:cover;
+   background:var(--line-2);vertical-align:middle;flex:none}
+ .vpa-th.none,.vpa-th.gone{background:var(--line-2) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23b6bcc8' stroke-width='1.6'%3E%3Cpath d='M5 15l1.5-4.5A2 2 0 0 1 8.4 9h7.2a2 2 0 0 1 1.9 1.5L19 15M4 15h16v3H4zM7 18v1.5M17 18v1.5'/%3E%3C/svg%3E") center/22px no-repeat}
+ img.vpa-th[data-ph]{cursor:zoom-in}
+ img.vpa-th.gone{font-size:0;color:transparent}
+ #vpaphpop{position:fixed;z-index:90;pointer-events:none;width:360px;height:240px;border-radius:10px;
+   background:var(--line-2);box-shadow:var(--shadow-lg);border:3px solid #fff;display:none;object-fit:cover}
+ .vpa-gal{display:flex;flex-direction:column;gap:6px;width:300px;flex:none}
+ .vpa-gal .main{display:block;width:300px;height:200px;border-radius:10px;object-fit:cover;
+   background:var(--line-2)}
+ .vpa-gal .strip{display:flex;gap:5px;flex-wrap:wrap}
+ .vpa-gal .strip img{width:56px;height:37px;border-radius:5px;object-fit:cover;cursor:pointer;
+   opacity:.75;border:2px solid transparent;background:var(--line-2)}
+ .vpa-gal .strip img.on,.vpa-gal .strip img:hover{opacity:1;border-color:var(--accent)}
+ .vpa-gal .cap{font-size:11px;color:var(--faint)}
+ .vpa-hero{display:flex;gap:18px;align-items:flex-start}
+ .vpa-hero>.vpa-txt{flex:1;min-width:0}
+ @media (max-width:760px){.vpa-hero{flex-direction:column}.vpa-gal,.vpa-gal .main{width:100%}
+   .vpa-gal .main{height:auto;aspect-ratio:3/2}}
  code{background:var(--line-2);border-radius:5px;padding:1px 5px;font-size:12px}
  kbd{background:#fff;border:1px solid var(--field);border-bottom-width:2px;border-radius:5px;
    padding:0 5px;font-size:11px;font-family:inherit}
@@ -587,6 +610,61 @@ function vpaAdLinks(url,gone,car){
     +'" target="_blank" rel="noreferrer noopener" title="copies of this advert saved by the Internet Archive, if it saved any">archive &#8599;</a>';
   return '<span class="adlinks">'+(gone?arch+" "+live:live+" "+arch)+"</span>";
 }
+/* Listing photos. The server sends stored photo ADDRESSES only (vpa/
+   photos.py, never the database); the browser loads one from the site's
+   photo server when it scrolls into view - nothing is fetched ahead. The
+   same shape check as the server, so nothing but that server is ever asked. */
+var VPA_PH=/^[a-z]{3,20}\/[a-z]{2,20}\/[a-z]{2,20}\/[a-z0-9]{10,64}\.(jpg|jpeg|png|webp)$/;
+function vpaPhotoUrl(p,w,h){
+  if(!p||!VPA_PH.test(p))return null;
+  return "https://"+p.split("/")[0]+".pxcrush.net/"+p
+    +"?pxc_method=fitfill&pxc_bgtype=self&pxc_size="+w+","+h;
+}
+function vpaThumb(p){
+  var u=vpaPhotoUrl(p,160,107);
+  return u?'<img class="vpa-th" loading="lazy" decoding="async" referrerpolicy="no-referrer" alt="" src="'
+    +u+'" data-ph="'+p+'" onerror="this.classList.add(\'gone\');this.removeAttribute(\'data-ph\')">'
+    :'<span class="vpa-th none" title="no photo stored for this car"></span>';
+}
+/* A car's photos: one large, the rest as a strip to switch between. The
+   large one opens the advert when there is one. */
+function vpaGallery(ps,url){
+  ps=(ps||[]).filter(function(p){return VPA_PH.test(p);});
+  if(!ps.length)return "";
+  var big='<img class="main" referrerpolicy="no-referrer" alt="" src="'+vpaPhotoUrl(ps[0],600,400)+'">';
+  return '<div class="vpa-gal">'+(url?'<a href="'+String(url).replace(/"/g,"&quot;")
+      +'" target="_blank" rel="noreferrer noopener" title="open the advert">'+big+'</a>':big)
+    +(ps.length>1?'<div class="strip">'+ps.map(function(p,i){
+      return '<img loading="lazy" referrerpolicy="no-referrer" alt="" class="'+(i?"":"on")
+        +'" data-big="'+vpaPhotoUrl(p,600,400)+'" src="'+vpaPhotoUrl(p,160,107)+'">';}).join("")+'</div>':"")
+    +'<div class="cap">photos from the advert, as it was captured</div></div>';
+}
+document.addEventListener("click",function(e){
+  var t=e.target.closest&&e.target.closest(".vpa-gal .strip img");
+  if(!t)return;
+  var g=t.closest(".vpa-gal");
+  g.querySelector(".main").src=t.dataset.big;
+  g.querySelectorAll(".strip img").forEach(function(x){x.classList.toggle("on",x===t);});
+});
+(function(){
+  var pop=null;
+  function hide(){if(pop)pop.style.display="none";}
+  document.addEventListener("mouseover",function(e){
+    var t=e.target;
+    if(!(t&&t.tagName==="IMG"&&t.classList.contains("vpa-th")&&t.dataset.ph))return;
+    if(!pop){pop=document.createElement("img");pop.id="vpaphpop";pop.alt="";
+      pop.referrerPolicy="no-referrer";document.body.appendChild(pop);}
+    pop.src=vpaPhotoUrl(t.dataset.ph,480,320);
+    var r=t.getBoundingClientRect(),x=r.right+12,y=r.top-90;
+    if(x+366>innerWidth)x=r.left-372;
+    pop.style.left=Math.max(6,x)+"px";
+    pop.style.top=Math.max(6,Math.min(innerHeight-252,y))+"px";
+    pop.style.display="block";
+  });
+  document.addEventListener("mouseout",function(e){
+    if(e.target&&e.target.classList&&e.target.classList.contains("vpa-th"))hide();});
+  window.addEventListener("scroll",hide,true);
+})();
 /* Bring a card into view with its START showing. scrollIntoView's
    "nearest" lines a card taller than the window up by its BOTTOM edge when
    it lies above the view, so selecting a car in the table below landed part

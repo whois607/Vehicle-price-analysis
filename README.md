@@ -81,6 +81,8 @@ python -m vpa verify                       # cross-check the data against itself
 python -m vpa merge-duplicates             # dry run; --apply to act (proven only;
                                            # the app's Duplicates page does the rest)
 python -m vpa edit --history               # manual corrections, and undo
+python -m vpa photos                       # how many cars have a photo
+python -m vpa photos --backfill            # read photo addresses from kept pages
 ```
 
 ## How to collect listings
@@ -131,6 +133,13 @@ dates is three observations sharing one identity, not three cars.
 - **A watchlist**: star specific cars and see what each new import did to
   them, including the figure that matters — how a car moved *relative to its
   own trim*.
+- **Photos**: each car's photos from the advert, on the car card (a gallery),
+  beside every car in the lists, and on the phone. Only the photo
+  *addresses* are kept — read from the pages you saved, into
+  `data/photos.json`, never the database. A photo loads when you look at
+  that car, the way it would on the advert; nothing is downloaded ahead.
+  Cars captured from pasted text, or from uploads made before photos were
+  kept, have none.
 - **Excel workbook**: a full pivot-and-chart view, rebuilt on demand (a few
   seconds, with progress on the button; the button shows a dot when the
   workbook no longer matches the database).

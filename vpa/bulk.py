@@ -195,7 +195,7 @@ def run(files: list[dict], db_path: str | Path = DEFAULT_DB,
                             "duplicates": 0})
             continue
         parsed.append({"name": name, "records": records, "format": used_fmt,
-                       "raw": raw})
+                       "raw": raw, "text": f.get("text") or ""})
 
     if not parsed:
         return {"ok": True, "wrote": False, "run": None, "backup": None,
@@ -268,6 +268,16 @@ def run(files: list[dict], db_path: str | Path = DEFAULT_DB,
              totals["obs_new"], totals["obs_duplicate"]))
         store.conn.commit()
         run_id = cur.lastrowid
+
+    # the photo addresses in each page (data/photos.json, never vpa.db) -
+    # only now, after the run is committed; a failure here costs pictures,
+    # never the import
+    from . import photos
+    for p in parsed:
+        if p["format"] == "html":
+            photos.remember_html(db_path, p["text"],
+                                 max((str(r.capture_date) for r in p["records"]), default=None))
+        p["text"] = ""
 
     # keep the per-file rows in the order they were dropped
     order = {str(f.get("name") or "pasted.txt"): i for i, f in enumerate(files)}

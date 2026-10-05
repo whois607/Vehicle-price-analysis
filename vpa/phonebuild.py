@@ -39,9 +39,10 @@ from . import phonecfg
 from .phonecfg import FORMAT
 KEEP_SNAPSHOTS = 2
 _CODE_FILES = ("explore.py", "compare.py", "turnover.py", "analyze.py", "forecast.py",
-               "dupes.py", "importui.py", "segments.py", "links.py", "phonebuild.py")
+               "dupes.py", "importui.py", "segments.py", "links.py", "phonebuild.py",
+               "photos.py")
 _COLS_V = ["k", "src", "id", "url", "make", "model", "variant", "year", "body",
-           "type", "state", "seller", "title", "first", "last", "u0"]
+           "type", "state", "seller", "title", "first", "last", "u0", "ph"]
 _COLS_S = ["v", "d", "p", "km"]
 
 
@@ -258,8 +259,13 @@ def _build(db_path, out: Path, force: bool) -> dict:
             "SELECT keys FROM not_duplicates"))
     data_fp = viewer_xlsx._fingerprint(raw) if not raw.empty else "empty"
     sig = _code_sig()
+    # photo addresses (data/photos.json beside the REAL database, read-only):
+    # a backfill changes the copy even when no price did
+    from . import photos
+    PH = photos.load(db_path)
     vh = hashlib.sha1(f"{FORMAT}|{data_fp}|{sig}|".encode())
     vh.update(json.dumps([starred_rows, dismissed_raw]).encode())
+    vh.update(json.dumps(PH, sort_keys=True).encode())
     version = vh.hexdigest()[:16]
     try:
         old = json.loads((out / "meta.json").read_text(encoding="utf-8"))
@@ -329,7 +335,11 @@ def _build(db_path, out: Path, force: bool) -> dict:
                 # the stored address, only where no advert link can be made
                 # from it - link matching needs it, display does not
                 txt(row.url) if isinstance(row.url, str)
-                and not links.ad_url(row.url, row.source) else None])
+                and not links.ad_url(row.url, row.source) else None,
+                # its photo addresses; the phone asks the site's photo server
+                # for one only when that car is on screen
+                PH.get(photos.ad_id(row.listing_id if isinstance(row.listing_id, str) else None,
+                                    row.url if isinstance(row.url, str) else None) or "")])
         # sightings in the frame's own order (capture_date, key): the phone's
         # "last sighting wins" must break ties exactly as the laptop does
         for row in raw.itertuples(index=False):

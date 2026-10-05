@@ -44,6 +44,23 @@ function ago(t) {
 }
 const ordinal = n => n + (["th", "st", "nd", "rd"][(n % 100 - 20) % 10] || ["th", "st", "nd", "rd"][n % 100] || "th");
 const CHEV = '<svg class="chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>';
+/* Listing photos. The copy carries photo ADDRESSES only (vpa/photos.py);
+   the phone asks the site's photo server for one when that car is on
+   screen, at the size it shows it. Ones already seen are kept by the
+   offline worker (sw.js), so they show with no signal too. */
+const PH_RE = /^[a-z]{3,20}\/[a-z]{2,20}\/[a-z]{2,20}\/[a-z0-9]{10,64}\.(jpg|jpeg|png|webp)$/;
+const photoUrl = (p, w, h) => p && PH_RE.test(p) ? "https://" + p.split("/")[0] + ".pxcrush.net/" + p
+  + "?pxc_method=fitfill&pxc_bgtype=self&pxc_size=" + w + "," + h : null;
+const thumb = p => { const u = photoUrl(p, 160, 107);
+  return u ? `<img class="thumb" loading="lazy" decoding="async" referrerpolicy="no-referrer" alt="" src="${u}" onerror="this.className='thumb none'">`
+    : '<span class="thumb none"></span>'; };
+function gallery(ps, url) {
+  ps = (ps || []).filter(p => PH_RE.test(p));
+  if (!ps.length) return "";
+  const imgs = ps.map((p, i) => `<img ${i ? 'loading="lazy" ' : ""}decoding="async" referrerpolicy="no-referrer" alt="" src="${photoUrl(p, 600, 400)}" onerror="this.style.visibility='hidden'">`).join("");
+  return `<div class="gal">${url ? `<a class="gstrip" href="${esc(url)}" target="_blank" rel="noopener noreferrer">${imgs}</a>` : `<div class="gstrip">${imgs}</div>`}
+    ${ps.length > 1 ? `<span class="count">1 / ${ps.length}</span>` : ""}</div>`;
+}
 function toast(msg, ms) {
   const t = $("toast"); t.textContent = msg; t.classList.add("show");
   clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove("show"), ms || 2600);
@@ -312,7 +329,8 @@ function selLink(label, text, sub, right) {
 function carItem(v, extra) {
   const t = v.title || [v.year, v.make, v.model, v.variant].filter(Boolean).join(" ");
   const bits = [v.odometer_km != null ? kmK(v.odometer_km) : null, v.state, v.seller_type, extra].filter(Boolean);
-  return `<a class="item" href="#/car?k=${enc(v.key)}"><div class="main"><div class="t">${DB.stars.has(v.key) ? "★ " : ""}${esc(t)}</div>
+  const own = DB.byKey.get(v.key);
+  return `<a class="item car" href="#/car?k=${enc(v.key)}">${thumb(own && own.ph ? own.ph[0] : null)}<div class="main"><div class="t">${DB.stars.has(v.key) ? "★ " : ""}${esc(t)}</div>
     <div class="s">${esc(bits.join(" · "))}</div></div><div class="r"><b>${money(v.price)}</b>
     <span>${v.last_day ? "seen " + dShort(v.last_day) : ""}</span></div>${CHEV}</a>`;
 }
@@ -691,13 +709,19 @@ function historyHtml(c) {
       return `<tr><td>${dShort(s.d)}</td><td><b>${money(s.price)}</b></td><td>${s.odometer_km != null ? kmK(s.odometer_km) : "–"}</td><td>${b.rank ? `${b.rank} of ${b.of}` : "–"}</td></tr>`; }).join("")}</table></div>`;
   return h;
 }
+document.addEventListener("scroll", e => {
+  const s = e.target;
+  if (!(s && s.classList && s.classList.contains("gstrip"))) return;
+  const c = s.parentNode.querySelector(".count");
+  if (c) c.textContent = (Math.round(s.scrollLeft / s.clientWidth) + 1) + " / " + s.children.length;
+}, true);
 route("/car", { tab: "find", back: true }, q => {
   const v = DB.byKey.get(q.k);
   if (!v) return `<div class="empty"><b>Not in your data</b>That car isn't in the copy on this phone.</div>`;
   const t = v.title || [v.year, v.make, v.model, v.variant].filter(Boolean).join(" ");
   setTitle(t);
   const it = vehicleAsItem(v), star = DB.stars.get(v.k);
-  let h = `<div class="card">${star ? `<span class="tag warn">★ starred${star.note ? ": " + esc(star.note) : ""}</span>` : ""}
+  let h = `<div class="card${v.ph && v.ph.length ? " hasgal" : ""}">${gallery(v.ph, v.url)}${star ? `<span class="tag warn">★ starred${star.note ? ": " + esc(star.note) : ""}</span>` : ""}
     <h1>${esc(t)}</h1><div class="sub">${esc([v.make, v.model, v.variant].filter(Boolean).join(" · "))}</div>
     <div class="spread" style="margin-top:10px"><div class="big">${money(it.price)}</div><div style="text-align:right"><b>${km(it.odometer_km)}</b><div class="sub">${esc([v.year, v.state, v.seller].filter(Boolean).join(" · "))}</div></div></div>
     <div class="note">Last seen ${dLong(it.last_day)}${v.id ? ` · ${esc(v.id)}` : ""}</div>

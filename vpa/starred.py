@@ -77,7 +77,8 @@ def watchlist_payload(db_path: str | Path = DEFAULT_DB) -> dict:
     against the day you happened to sweep Audis would invent movements.
     """
     from . import analyze
-    from .explore import CAR_MIN_PEERS, _frame, _num, _rank_in, _select
+    from . import photos
+    from .explore import CAR_MIN_PEERS, _first_photo, _frame, _num, _rank_in, _select
 
     with Store(db_path) as store:
         stars = [dict(r) for r in store.conn.execute(
@@ -88,6 +89,7 @@ def watchlist_payload(db_path: str | Path = DEFAULT_DB) -> dict:
                           "to follow it"}
 
     df = _frame(db_path)
+    PHOTOS = photos.load(db_path)
     cars, gone = [], 0
     for s in stars:
         key = s["key"]
@@ -153,6 +155,7 @@ def watchlist_payload(db_path: str | Path = DEFAULT_DB) -> dict:
             "seller_type": (None if pd.isna(row["seller_type"])
                             else str(row["seller_type"])),
             "url": links.ad_url(row["url"], row.get("source")),
+            "ph": _first_photo(PHOTOS, row),
             "price": _num(row["price_aud"]),
             "odometer_km": _num(row["odometer_km"]),
             "first_price": _num(prices[0]) if prices else None,

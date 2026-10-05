@@ -141,8 +141,19 @@ def main(argv=None) -> int:
         dst.close()
         src.close()
         print(f"  comparing on a read-only copy of {source}")
+        ph = source.resolve().parent / "photos.json"
+        if ph.exists():                     # the photo list is read, never written
+            (WORK / "photos.json").write_bytes(ph.read_bytes())
     else:
         seed()
+        # photos for every other car that has an ad id, one to four each
+        from vpa import photos
+        with sqlite3.connect(DB) as c:
+            ads = sorted({photos.ad_id(l, u) for l, u in c.execute(
+                "SELECT listing_id, url FROM vehicles")} - {None})
+        photos.remember(DB, {ad: [f"carsales/cars/private/{ad.lower().replace('-', '')}{j}x0000.jpg"
+                                  for j in range(1 + i % 4)] for i, ad in enumerate(ads) if i % 2 == 0},
+                        "2026-08-20")
     before = hashlib.sha256(DB.read_bytes()).hexdigest()
 
     print("\n== building the phone copy (separate process) ==")
@@ -157,6 +168,14 @@ def main(argv=None) -> int:
     check("no private work copy is left behind",
           not list(OUT.glob("work-*")) and not (OUT / "build.lock").exists(), "none")
     snap = json.loads(gzip.decompress((OUT / meta["file"]).read_bytes()))
+    from vpa import photos
+    cov = photos.coverage(DB)
+    ph_i = snap["vehicles"]["cols"].index("ph")
+    with_ph = sum(1 for r in snap["vehicles"]["rows"] if r[ph_i])
+    check("the copy carries each car's photo addresses, and only valid ones",
+          with_ph == cov["with_photo"] and all(
+              photos.PATH.match(p) for r in snap["vehicles"]["rows"] for p in (r[ph_i] or [])),
+          f"{with_ph} of {len(snap['vehicles']['rows'])} cars")
     (WORK / "snapshot.json").write_text(json.dumps(snap), encoding="utf-8")
 
     print("\n== the laptop's answers ==")

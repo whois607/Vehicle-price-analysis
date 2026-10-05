@@ -101,12 +101,26 @@ def _replace(src: Path, dst: Path, tries: int = 40) -> None:
             time.sleep(0.025 * (1 + i // 8))
 
 
+def read_text_retry(path: Path, tries: int = 40) -> str:
+    """read_text, retried while Windows briefly refuses it: the moment a
+    writer's os.replace lands, or OneDrive touching the file. Treating that
+    moment as "no file" made a paired phone's sync read as unpaired."""
+    for i in range(tries):
+        try:
+            return path.read_text(encoding="utf-8")
+        except PermissionError:
+            if i == tries - 1:
+                raise
+            time.sleep(0.025 * (1 + i // 8))
+    raise OSError(path)
+
+
 def load() -> dict:
     """The settings, with defaults filled in. Unreadable means defaults:
     phone sync off and nothing paired - the safe way to fail."""
     s = dict(DEFAULTS)
     try:
-        d = json.loads(SETTINGS.read_text(encoding="utf-8"))
+        d = json.loads(read_text_retry(SETTINGS))
         if isinstance(d, dict):
             s.update({k: d[k] for k in DEFAULTS if k in d})
     except (OSError, ValueError):

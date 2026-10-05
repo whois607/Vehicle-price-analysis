@@ -106,6 +106,8 @@ vehicle-price-analysis/
     vpa.db                 the database
     backups/               vpa_backup_*.db snapshots (Store.backup())
     phone.json             phone sync switches + paired phones (token HASHES)
+    photos.json            listing photo ADDRESSES by ad id (vpa/photos.py);
+                           .bak = the version before the last save
     raw/                   the 16 saved carsales/Facebook .htm captures
   output/                  GENERATED - rebuild with `python -m vpa report --all`
     reports/<segment>/     trend/forecast .html + .png, stats/listings .csv
@@ -741,6 +743,9 @@ All of the following is built **and** verified by an automated suite (see §7).
   (advert link, browse, search a range), every make/model/trim's Explore
   view, the car card, Price check, Compare, Starred; read-only, offline,
   auto-syncing on open. Same numbers as the laptop (check_phone_app).
+* **Listing photos** (`vpa/photos.py`) — the photo addresses in saved pages,
+  shown on the laptop (car card gallery, car table, comparables, starred)
+  and the phone (car lists, swipeable gallery, kept offline once seen).
 
 ---
 
@@ -1063,6 +1068,48 @@ Keep these — each one was a bug that took a while to find.
 * The background listener restarts itself when VPA's code changes
   (phone._code_stamp: newest mtime of vpa/*.py/js/html/css): it stops
   listening first, then starts a fresh copy, so it never serves old code.
+
+**Listing photos (05/10/2026)**
+* WHERE THEY COME FROM: a saved search page's schema.org object per listing
+  carries the ad's `url` (ad id) AND its `image` list (5 photos) side by
+  side, so photos are matched by the object itself, never by position. A
+  details page: its schema.org `image` plus the gallery photos it preloads
+  (`<link rel=preload as=image>`, same seller folder as the main photo);
+  the "similar listings" further down are never read.
+* NOTHING IS FETCHED BY VPA. Only addresses are stored; the browser showing
+  a car loads that one photo from `<site>.pxcrush.net` (CORS-enabled, served
+  `immutable` for a year, sized by `pxc_size`: 160x107 ~5 KB, 480x320
+  ~30 KB, 600x400 ~45 KB). Photos of ads gone since July still loaded on
+  05/10/2026. Fetching listing PAGES to find photos would be scraping - ruled
+  out; a car with no stored photo keeps its "open the advert" link.
+* STORAGE: `data/photos.json` beside the database (`photos.store_path(db)`,
+  so a test database never touches the real one), keyed by ad id - which
+  survives merges and repairs of the database's own keys. Newer page's
+  photos first, an older page only adds, cap 12. Lock file + atomic replace
+  + `.bak`. A save that cannot read the existing file ABORTS (rewriting from
+  nothing would lose every photo); a read during a Windows file lock keeps
+  the last good list (`phonecfg.read_text_retry`, also used by phone.json -
+  a phone's sync had read "not paired" during a replace).
+* Only `^[a-z]+/[a-z]+/[a-z]+/[a-z0-9]{10,64}\.(jpg|jpeg|png|webp)$` under
+  that site's own host is stored, and both front ends re-check the shape, so
+  a page can never make the app load an image from anywhere else.
+* RECORDED BY every import path: bulk.run (Upload + watch folder), Import
+  with preview (held in memory at Preview, stored at Commit for the
+  committed rows only), `vpa ingest`. Backfill: `python -m vpa photos
+  --backfill` reads data/raw and "carsales inbox/imported"; the app runs it
+  once on start when photos.json does not exist. On 05/10/2026: 196 kept
+  pages -> 2,500 of 5,234 cars (the rest came through Upload before photos
+  were kept, whose files were not kept, or from pasted text).
+* LAPTOP: explore vehicles `ph`, car card `subject.photos` + comparables
+  `ph`, watchlist `ph`; ui.py vpaThumb / vpaGallery / hover preview.
+* PHONE: vehicles column `ph` (all addresses; +~350 KB on the 0.9 MB copy);
+  the copy's version hashes photos.json and phone._db_stat watches it, so a
+  backfill alone re-syncs phones. stats.js sends the same `ph`/`photos`
+  fields as the laptop, so check_phone_app compares them too. sw.js keeps
+  shown photos in its own "vpa-photos" cache (CORS copies, real size, newest
+  600), surviving app updates. The gallery's class is `gstrip` - `.strip` is
+  the price-position bar.
+* `tests/check_photos.py`.
 
 **Phone app (05/10/2026)**
 * `vpa/phone_app/`: index.html, app.css, app.js (screens, sync, SVG charts),

@@ -286,6 +286,8 @@ function scatter(rows, max) {
     odo: num(r.km), price: num(r.p), year: r.v.year, variant: r.v.variant, key: r.v.k, d: r.d })) };
 }
 // detail_payload's vehicle table and price movers
+// a car's first stored photo address (vpa/photos.py), as the laptop's lists send it
+const firstPhoto = v => (v && v.ph && v.ph.length ? v.ph[0] : null);
 function cars(DB, rows) {
   const collided = collidedKeys(rows), groups = new Map();
   for (const r of stableBy(rows, r => r.d)) {
@@ -303,7 +305,7 @@ function cars(DB, rows) {
       seller_type: v.seller, source: v.src, url: v.url, title: v.title, listing_id: v.id,
       detail: v.src === "quick_add" ? "brief" : "full", sightings: rs.length,
       first_day: rs[0].d, last_day: last.d, moved, clash, starred: DB.stars.has(key),
-      change: moved && fp ? pyRound((lp - fp) / fp * 100, 1) : null };
+      change: moved && fp ? pyRound((lp - fp) / fp * 100, 1) : null, ph: firstPhoto(v) };
     vehicles.push(o);
     if (moved) movers.push({ key, year: o.year, variant: o.variant, first_price: fp, price: lp,
       change: o.change, first_day: o.first_day, last_day: o.last_day, url: o.url, title: o.title,
@@ -439,6 +441,7 @@ function carCard(DB, mk, mo, va, opts, now) {
     subject = { key, stored: true, price: num(own.p), odometer_km: num(own.km), year: v.year,
       state: v.state, seller_type: v.seller, variant: v.variant, title: v.title, url: v.url,
       source: v.src, day: own.d };
+    subject.photos = (v.ph || []).slice();
     peers = pool.filter(r => r.v.k !== key);
     fitRows = prepped.filter(r => r.v.k !== key);
     fitT = K.cars[key] || [false, null, null, 0, null, "no fit"];
@@ -511,7 +514,7 @@ function carCard(DB, mk, mo, va, opts, now) {
   const dup = dupSigs(peers, DB.dismissed);
   const comparables = cand.map(([r]) => ({ key: r.v.k, year: r.v.year, price: num(r.p),
     odometer_km: num(r.km), state: r.v.state, seller_type: r.v.seller, day: r.d, url: r.v.url,
-    title: r.v.title, dup: r.km != null && dup.sigs.has(r.p + "|" + r.km) }));
+    title: r.v.title, dup: r.km != null && dup.sigs.has(r.p + "|" + r.km), ph: firstPhoto(r.v) }));
   const band = { basis, n: comparables.length, dup_in_pool: dup.extra,
     median: comparables.length ? num(median(comparables.map(c => c.price))) : null };
   if (band.median && subject.price) band.vs = pyRound(subject.price / band.median * 100 - 100, 1);

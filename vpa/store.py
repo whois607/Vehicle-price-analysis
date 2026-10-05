@@ -347,7 +347,7 @@ class Store:
         df = self.frame()
         if df.empty:
             return df
-        priced = df.dropna(subset=["price_aud"]).sort_values("capture_date")
+        priced = df.dropna(subset=["price_aud"]).sort_values("capture_date", kind="stable")
         g = priced.groupby("key")["price_aud"]
         changed = priced[g.transform("nunique") > 1]
         return changed[["key", "make", "model", "variant", "year",

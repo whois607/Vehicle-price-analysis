@@ -26,10 +26,14 @@ def prep(df: pd.DataFrame, freq: str = "MS") -> pd.DataFrame:
         return out
     out["bucket"] = out["capture_date"].dt.to_period(
         {"MS": "M", "ME": "M", "M": "M", "W": "W"}.get(freq, "M")).dt.start_time
+    # kind="stable": two sightings of one car on one day (a merged identity,
+    # see collided_keys) resolve to the one stored later, every time - the
+    # default quicksort left that to numpy's internals, and the phone copy
+    # (vpa/phone_app/stats.js) reproduces this rule exactly.
     # tail(1) keeps the whole latest row per vehicle per bucket — .last()
     # would take the last non-null value per column and could stitch fields
     # from different captures together.
-    out = (out.sort_values("capture_date")
+    out = (out.sort_values("capture_date", kind="stable")
               .groupby(["key", "bucket"], observed=True)
               .tail(1)
               .reset_index(drop=True))
@@ -49,7 +53,7 @@ def latest_per_vehicle(prepped: pd.DataFrame) -> pd.DataFrame:
     two files."""
     if prepped.empty:
         return prepped
-    return (prepped.sort_values("capture_date")
+    return (prepped.sort_values("capture_date", kind="stable")
                    .groupby("key", observed=True).tail(1)
                    .reset_index(drop=True))
 

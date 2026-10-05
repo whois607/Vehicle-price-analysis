@@ -103,11 +103,11 @@ def watchlist_payload(db_path: str | Path = DEFAULT_DB) -> dict:
                                 "another identity since you starred it"})
             continue
 
-        row = own.sort_values("capture_date").iloc[-1]
+        row = own.sort_values("capture_date", kind="stable").iloc[-1]
         make, model = str(row["make"]), str(row["model"])
         variant = None if pd.isna(row["variant"]) else str(row["variant"])
         label = " ".join(x for x in (make, model, variant) if x)
-        own_sorted = own.sort_values("capture_date")
+        own_sorted = own.sort_values("capture_date", kind="stable")
         prices = [float(p) for p in own_sorted["price_aud"].dropna()]
         days = [str(d) for d in own_sorted["day"]]
 

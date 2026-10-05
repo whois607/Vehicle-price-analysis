@@ -38,9 +38,9 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from vpa import phone, phonecfg, phonesrv, viewer_xlsx
+from vpa import phone, phonecfg, phonesrv
 from vpa.schema import make_record
-from vpa.store import Store, connect_readonly, read_frame
+from vpa.store import Store, connect_readonly, read_frame  # noqa: F401
 
 ROOT = Path(__file__).resolve().parent
 WORK = ROOT / "synthetic" / "phone_work"
@@ -178,22 +178,29 @@ def main() -> int:
     check("the meta's hash and size describe the file", m1["sha256"] ==
           hashlib.sha256(snapf.read_bytes()).hexdigest() and m1["bytes"] == snapf.stat().st_size,
           m1["sha256"][:16])
-    # the workbook's forecasts, computed independently, for the same rows
-    df = viewer_xlsx.analysis_frame(read_frame(DB))
-    wb = {name: viewer_xlsx._forecast_row(name, sub)
-          for name, sub, _ in viewer_xlsx._forecast_entries(df)}
-    cols = snap["forecasts"]["cols"]
-    same = [r for r in snap["forecasts"]["rows"]
-            if wb.get(r[0]) and r[cols.index("method")] == wb[r[0]][1]
-            and r[cols.index("level")] == round(wb[r[0]][4])
-            and (r[cols.index("f1")] or 0) == round(wb[r[0]][7] or 0)]
-    check("its forecasts are the workbook's forecasts",
-          len(same) == len(wb) == len(snap["forecasts"]["rows"]) and len(wb) >= 3,
-          f"{len(same)} of {len(wb)} agree (method, level, next month)")
-    falcon = next(r for r in snap["forecasts"]["rows"] if r[0] == "Ford Falcon XR6")
+    # the laptop's own Explore and Compare, computed here independently
+    from vpa import compare, explore
+    sel = snap["sel"]
+    agree = []
+    for label in ("Ford", "Ford Falcon", "Ford Falcon XR6", "Ford Falcon XR8"):
+        mk, mo, va = (label.split(" ") + [None, None])[:3]
+        d = explore.detail_payload(DB, mk, mo, va)
+        c = compare._one(explore._frame(DB), label, compare.selection_index(
+            explore._frame(DB))[label], 3)
+        e = sel.get(label, {})
+        agree.append(e.get("d", {}).get("head") == json.loads(json.dumps(d["head"]))
+                     and e["d"]["forecast"] == json.loads(json.dumps(d["forecast"]))
+                     and e["d"]["bymonth"] == json.loads(json.dumps(d["bymonth"]))
+                     and e["c"]["median"] == c["median"] and e["c"]["fc_next"] == c["fc_next"])
+    check("every selection carries the laptop's own Explore and Compare results",
+          all(agree) and len(sel) == len(compare.selection_index(explore._frame(DB))),
+          f"{sum(agree)} of {len(agree)} spot-checked identical; {len(sel)} selections")
+    xr6 = sel["Ford Falcon XR6"]
     check("...with a real forecast and mileage fit where the data allows",
-          falcon[cols.index("method")] != "insufficient" and falcon[cols.index("km_fit")],
-          f"XR6: {falcon[cols.index('method')]}, {falcon[cols.index('km_pct_10k')]}% per 10,000 km")
+          xr6["d"]["forecast"]["method"] != "insufficient" and xr6["d"]["mileage"]["usable"]
+          and xr6["k"]["fit"][0] and len(xr6["k"]["cars"]) == 12,
+          f"XR6: {xr6['d']['forecast']['method']}, {xr6['d']['mileage']['pct_per_10k_km']}% "
+          f"per 10,000 km, a leave-one-out fit for each of {len(xr6['k']['cars'])} cars")
 
     t = snapf.stat().st_mtime_ns
     m2 = phone.build_snapshot(DB)
@@ -316,10 +323,14 @@ def main() -> int:
               set(codes.values()) == {404} and cpost == 404 and big == 413,
               f"{codes}, POST /api/commit {cpost}, huge body {big}")
         page = http(port, "/")[2].decode()
+        app = http(port, "/app.js")[2].decode()
+        sw = http(port, "/sw.js")[2].decode()
         man = json.loads(http(port, "/manifest.webmanifest")[2])
-        check("the page shell and its manifest are served (no data in them)",
-              "/api/pair" in page and man["display"] == "standalone"
-              and http(port, "/icon-512.png")[0] == 200, f"{len(page)} chars")
+        check("the app, its offline worker and manifest are served (no data in them)",
+              "/app.js" in page and "/api/pair" in app and man["display"] == "standalone"
+              and "__BUILD__" not in sw and http(port, "/stats.js")[0] == 200
+              and http(port, "/icon-512.png")[0] == 200,
+              f"page {len(page)}, app {len(app)} chars, worker build {sw.split(chr(34))[1]}")
         ips = {"192.168.1.5": True, "10.0.0.2": True, "100.101.1.1": True,
                "127.0.0.1": True, "::1": True, "8.8.8.8": False,
                "::ffff:8.8.8.8": False, "1.1.1.1": False, "203.2.218.214": False, "garbage": False}
@@ -385,7 +396,7 @@ def main() -> int:
         with Store(DB) as st:
             st.ingest(records(10, n=2), source_file="(month 10)", adapter="test")
         check("an import is in the phone copy within seconds, untouched by hand",
-              wait(lambda: version() != v0), f"{v0} -> {version()}")
+              wait(lambda: version() != v0, 60), f"{v0} -> {version()}")
         phonecfg.set_options(background=True)
         check("'keep running when closed' hands over to a background listener",
               wait(lambda: spawned and phone.HOST.server is None
@@ -396,7 +407,7 @@ def main() -> int:
         with Store(DB) as st:
             st.ingest(records(11, n=2), source_file="(month 11)", adapter="test")
         check("...which keeps the copy current on its own",
-              wait(lambda: version() != v1, 20), f"{v1} -> {version()}")
+              wait(lambda: version() != v1, 60), f"{v1} -> {version()}")
         phonecfg.set_options(background=False)
         check("switching it off ends the background listener and the app takes over",
               wait(lambda: spawned[0].poll() is not None and phone.HOST.status == "here", 20),

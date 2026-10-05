@@ -34,8 +34,6 @@ it, so there is only ever one.
 """
 from __future__ import annotations
 
-import gzip
-import hashlib
 import json
 import os
 import socket
@@ -51,173 +49,40 @@ from pathlib import Path
 from . import phonecfg
 from .store import DEFAULT_DB
 
-KEEP_SNAPSHOTS = 2
 TICK = 4.0                     # seconds between checks for a changed database
 SETTLE = 2.5                   # ...and how long it must stay unchanged first
+BUILD_TIMEOUT = 3600           # a first build of a large database takes minutes
 STARTUP_NAME = "VPA phone sync.lnk"
-
-_COLS_V = ["k", "src", "id", "url", "make", "model", "variant", "year", "body",
-           "type", "state", "seller", "title", "first", "last"]
-_COLS_S = ["v", "d", "p", "km"]
-_COLS_F = ["name", "make", "model", "variant", "method", "n", "n_months", "level",
-           "direction", "m1", "f1", "lo1", "hi1", "m2", "f2", "lo2", "hi2",
-           "m3", "f3", "lo3", "hi3", "note", "km_fit", "km_pct_10k", "km_median",
-           "km_slope"]
-
-
-# ------------------------------------------------------------------ building
-def _starred(db_path) -> list:
-    from .store import connect_readonly
-    conn = connect_readonly(db_path)
-    try:
-        return [[r["key"], r["starred_at"], r["note"]] for r in conn.execute(
-            "SELECT key, starred_at, note FROM starred ORDER BY starred_at")]
-    finally:
-        conn.close()
-
-
-def _code_sig() -> str:
-    from .viewer_xlsx import _code_signature
-    h = hashlib.sha1(_code_signature().encode())
-    h.update(Path(__file__).read_bytes())
-    return h.hexdigest()[:12]
-
 
 read_meta = phonecfg.read_meta
 snapshot_path = phonecfg.snapshot_path
 
 
-def _num(v, nd=0):
-    try:
-        if v is None or v != v:          # None or NaN
-            return None
-        return round(float(v), nd) if nd else int(round(float(v)))
-    except (TypeError, ValueError):
-        return None
-
-
-def _txt(v):
-    return None if v is None or v != v or v == "" else str(v)
-
-
-def build_snapshot(db_path=DEFAULT_DB, force: bool = False, progress=None) -> dict:
-    """Bring the phone copy up to date. Returns its meta, with "built": True
-    if a new snapshot was written and False if the current one already
-    matched the data. Reads the database read-only; writes only under
-    output/phone/."""
-    from . import links, viewer_xlsx
-    from .store import read_frame
-
-    t0 = time.time()
-    raw = read_frame(db_path)
-    starred = _starred(db_path)
-    data_fp = viewer_xlsx._fingerprint(raw) if not raw.empty else "empty"
-    vh = hashlib.sha1(f"{phonecfg.FORMAT}|{data_fp}|{_code_sig()}|".encode())
-    vh.update(json.dumps(starred).encode())
-    version = vh.hexdigest()[:16]
-    old = read_meta()
-    if not force and old and old.get("version") == version \
-            and snapshot_path(old).is_file():
-        return dict(old, built=False)
-
-    # --- forecasts and mileage fits, reusing unchanged ones
-    fc_rows = []
-    if not raw.empty:
-        from . import analyze
-        df = viewer_xlsx.analysis_frame(raw)
-        entries = viewer_xlsx._forecast_entries(df)
-        phonecfg.OUT.mkdir(parents=True, exist_ok=True)
-        cache = viewer_xlsx._FcCache(None, path=phonecfg.OUT / "forecast_cache.json")
-        todo = [e for e in entries if not cache.has(e[2])]
-        done = 0
-        for name, sub, digest in entries:
-            if cache.has(digest):
-                pair = cache.get(digest)
-            else:
-                row = viewer_xlsx._forecast_row(name, sub)
-                fit = analyze.fit_mileage(analyze.prep(sub)) if row else {}
-                pair = [row, {k: viewer_xlsx._plain(fit.get(k)) for k in
-                              ("usable", "pct_per_10k_km", "median_odo", "slope_per_km")}]
-                cache.put(digest, pair)
-                done += 1
-                if progress:
-                    progress(done / max(1, len(todo)), f"Forecasts {done} of {len(todo)}")
-            row, fit = pair
-            if row is None:
-                continue
-            first = sub.iloc[0]
-            is_line = name == str(first["model_line"])
-            fc_rows.append(
-                [name, _txt(first["make"]), _txt(first["model"]),
-                 None if is_line else _txt(first["variant"])]
-                + [row[1], row[2], row[3], _num(row[4]), row[5]]
-                + [row[6], _num(row[7]), _num(row[8]), _num(row[9]),
-                   row[10], _num(row[11]), _num(row[12]), _num(row[13]),
-                   row[14], _num(row[15]), _num(row[16]), _num(row[17])]
-                + [row[18] or None, bool(fit.get("usable")),
-                   _num(fit.get("pct_per_10k_km"), 2), _num(fit.get("median_odo")),
-                   fit.get("slope_per_km") if fit.get("usable") else None])
-        cache.save()
-
-    # --- cars: identity from each car's latest sighting; sightings by car
-    vehicles, sightings, index = [], [], {}
-    if not raw.empty:
-        r = raw.sort_values(["key", "capture_date"], kind="stable")
-        last = r.groupby("key", sort=False).tail(1)
-        for row in last.itertuples(index=False):
-            index[row.key] = len(vehicles)
-            vehicles.append([
-                row.key, _txt(row.source), _txt(row.listing_id),
-                links.ad_url(row.url, row.source) if isinstance(row.url, str) else None,
-                _txt(row.make), _txt(row.model), _txt(row.variant), _num(row.year),
-                _txt(row.body_type), _txt(row.vehicle_type), _txt(row.state),
-                _txt(row.seller_type), _txt(row.raw_title),
-                _txt(row.first_seen), _txt(row.last_seen)])
-        for row in r.itertuples(index=False):
-            sightings.append([index[row.key], row.capture_date.strftime("%Y-%m-%d"),
-                              _num(row.price_aud), _num(row.odometer_km)])
-
-    built = datetime.now().isoformat(timespec="seconds")
-    days = sorted({s[1] for s in sightings})
-    counts = {"vehicles": len(vehicles), "sightings": len(sightings),
-              "priced": sum(1 for s in sightings if s[2] is not None),
-              "forecasts": len(fc_rows), "starred": len(starred),
-              "first_day": days[0] if days else None,
-              "last_day": days[-1] if days else None}
-    snap = {"format": phonecfg.FORMAT, "version": version, "built": built,
-            "data_fp": data_fp, "counts": counts,
-            "vehicles": {"cols": _COLS_V, "rows": vehicles},
-            "sightings": {"cols": _COLS_S, "rows": sightings},
-            "forecasts": {"cols": _COLS_F, "rows": fc_rows, "horizon_months": 3,
-                          "note": "mileage-adjusted to each line's median odometer "
-                                  "when km_fit is true"},
-            "starred": {"cols": ["k", "at", "note"], "rows": starred}}
-    body = gzip.compress(json.dumps(snap, separators=(",", ":")).encode("utf-8"),
-                         compresslevel=9, mtime=0)
-
-    out = phonecfg.OUT
-    out.mkdir(parents=True, exist_ok=True)
-    name = f"snapshot-{version}.json.gz"
-    tmp = out / f"{name}.{os.getpid()}.{threading.get_ident()}.tmp"
-    tmp.write_bytes(body)
-    os.replace(tmp, out / name)
-    meta = {"format": phonecfg.FORMAT, "version": version, "built": built,
-            "file": name, "bytes": len(body),
-            "sha256": hashlib.sha256(body).hexdigest(), "data_fp": data_fp,
-            "counts": counts, "seconds": round(time.time() - t0, 2)}
-    tmp = out / f"meta.json.{os.getpid()}.{threading.get_ident()}.tmp"
-    tmp.write_text(json.dumps(meta, indent=1), encoding="utf-8")
-    os.replace(tmp, out / "meta.json")
-    # keep the newest few, never the one just named
-    olds = sorted(out.glob("snapshot-*.json.gz"), key=lambda p: p.stat().st_mtime,
-                  reverse=True)
-    for p in olds[KEEP_SNAPSHOTS:]:
-        if p.name != name:
-            try:
-                p.unlink()
-            except OSError:
-                pass
-    return dict(meta, built_now=True, built=True)
+# ------------------------------------------------------------------ building
+def build_snapshot(db_path=DEFAULT_DB, force: bool = False) -> dict:
+    """Bring the phone copy up to date by running phonebuild in a CHILD
+    process (python -m vpa phone-copy). Separate because the build runs every
+    selection through the page code with the analysis frame cached in place -
+    a patch that must never be visible to the app's own requests - and
+    because minutes of pandas work belong outside the app's process.
+    Returns the meta, with "built" True if a new copy was written."""
+    cmd = [sys.executable, "-m", "vpa", "--db", str(db_path), "phone-copy",
+           "--out", str(phonecfg.OUT)] + (["--force"] if force else [])
+    r = subprocess.run(cmd, cwd=str(phonecfg.ROOT), capture_output=True, text=True,
+                       encoding="utf-8", errors="replace", timeout=BUILD_TIMEOUT,
+                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    for line in (r.stdout or "").splitlines():
+        print(line)
+    if r.returncode == 3:
+        return dict(read_meta() or {}, built=False, busy=True)
+    if r.returncode != 0:
+        tail = [x for x in (r.stderr or "").strip().splitlines() if x.strip()][-1:]
+        print(r.stderr or "")
+        raise RuntimeError(tail[0] if tail else f"phone-copy exited {r.returncode}")
+    m = read_meta()
+    if m is None:
+        raise RuntimeError("phone-copy finished but wrote no meta.json")
+    return dict(m, built="copy written" in (r.stdout or ""))
 
 
 # ------------------------------------------------------------------ running

@@ -17,7 +17,8 @@ watchlist), check_turnover (what left view between captures, and the four
 ways that measurement lies), check_bulk (direct upload: backup before, undo
 after), check_inbox (the watch folder: a real session, undo), check_perf (each speed-up against the code it replaced), check_quickadd,
 check_workbook (building viewer.xlsx: reused forecasts, safe save, stamp), check_phone
-(phone sync: read-only copy, pairing, the listener), check_viewer
+(phone sync: read-only copy, pairing, the listener), check_phone_app (the phone
+app's numbers against the laptop's, every screen rendered), check_viewer
 (Excel workbook via real Excel COM - needs Excel installed and viewer test
 files closed). Exit 0 = everything.
 """
@@ -35,6 +36,7 @@ SUITES = ["tests.selfcheck", "tests.check_titles", "tests.check_carsales", "test
           "tests.check_edit", "tests.check_starred",
           "tests.check_turnover", "tests.check_bulk", "tests.check_inbox", "tests.check_perf",
           "tests.check_quickadd", "tests.check_workbook", "tests.check_phone",
+          "tests.check_phone_app",
           "tests.check_viewer"]
 
 

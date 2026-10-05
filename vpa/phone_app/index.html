@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>VPA</title>
+<meta name="description" content="Vehicle price analysis - your data, offline">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#2b5fc4" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#151a22" media="(prefers-color-scheme: dark)">
+<link rel="stylesheet" href="/app.css">
+</head><body>
+<header id="top">
+ <button id="back" class="iconbtn" aria-label="Back" hidden><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></button>
+ <div id="ttl"><img src="/icon.svg" alt="" id="logo"><span id="title">VPA</span></div>
+ <button id="pill" class="pill" aria-label="Sync status"><i></i><span>&hellip;</span></button>
+</header>
+<main id="main" tabindex="-1"></main>
+<nav id="tabs" aria-label="Sections">
+ <a href="#/" data-tab="home"><svg viewBox="0 0 24 24"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg><span>Home</span></a>
+ <a href="#/find" data-tab="find"><svg viewBox="0 0 24 24"><path d="M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM20 20l-4.2-4.2"/></svg><span>Find</span></a>
+ <a href="#/check" data-tab="check"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h10M4 17h7M17 15l2 2 4-4"/></svg><span>Price check</span></a>
+ <a href="#/compare" data-tab="compare"><svg viewBox="0 0 24 24"><path d="M4 20V10m5 10V4m5 16v-7m5 7V7"/></svg><span>Compare</span></a>
+ <a href="#/starred" data-tab="starred"><svg viewBox="0 0 24 24"><path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z"/></svg><span>Starred</span></a>
+</nav>
+<div id="toast" role="status" aria-live="polite"></div>
+<script src="/stats.js"></script>
+<script src="/app.js"></script>
+</body></html>

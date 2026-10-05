@@ -60,7 +60,7 @@ That opens the app at `http://127.0.0.1:8765` — four pages, all local:
 | **Add data** | three modes: **Import with preview** (preview → edit → commit; nothing is written until you say so), **Bulk upload** (many files, no preview, backed up and undoable), **Quick add** (type a price you saw) |
 | **Explore** | what is one trim worth, where it is heading, and how one specific car compares to it |
 | **Compare** | several trims or models side by side, on identical statistics — including how fast each one clears |
-| **Phone** (nav button) | turn phone sync on, pair a phone, see the read-only copy your phone carries for offline use |
+| **Phone** (nav button) | turn phone sync on and pair a phone: it then carries a read-only copy and shows the same Explore, car card, Price check and Compare figures with no signal |
 
 On Windows, `Setup VPA.bat` puts a **VPA** shortcut (with the app's icon) on
 the Desktop and in the Start menu, so you can double-click it instead. It
@@ -159,8 +159,9 @@ The database is the point of the tool, so writing to it is deliberately hard:
 python -m tests.run_all
 ```
 
-Twenty-two suites, ~650 checks: the core pipeline, title parsing, carsales
-pages, advert links, duplicates, building the workbook, the watch folder, phone sync, the import UI
+Twenty-three suites, ~700 checks: the core pipeline, title parsing, carsales
+pages, advert links, duplicates, building the workbook, the watch folder, phone sync and the phone
+app's numbers against the laptop's (needs node), the import UI
 over live HTTP, the analysis pages, manual editing, the watchlist, turnover
 (and every case where it must refuse), bulk upload and its undo, identity
 repair and merge, and the Excel workbook driven through real Excel via COM (that last one needs Excel

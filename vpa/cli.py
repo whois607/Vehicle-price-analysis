@@ -249,6 +249,7 @@ def build_parser() -> argparse.ArgumentParser:
     q = sub.add_parser("phone-copy", help="build the phone copy now (read-only on "
                        "the database; normally automatic)")
     q.add_argument("--force", action="store_true", help="rebuild even if up to date")
+    q.add_argument("--out", default=None, help="output folder (default output/phone)")
     q.set_defaults(fn=_cmd_phone_copy)
     return p
 
@@ -342,14 +343,10 @@ def _cmd_phone_serve(args) -> int:
 
 
 def _cmd_phone_copy(args) -> int:
-    from . import phone
-    m = phone.build_snapshot(args.db, force=args.force)
-    c = m["counts"]
-    print(f"phone copy {'written' if m['built'] else 'already up to date'}: "
-          f"{c['vehicles']:,} cars, {c['sightings']:,} sightings, "
-          f"{c['forecasts']} forecasts, {m['bytes'] // 1024} KB "
-          f"(version {m['version']}, {m['seconds']}s)")
-    return 0
+    from pathlib import Path
+    from . import phonebuild, phonecfg
+    return phonebuild.main(args.db, Path(args.out) if args.out else phonecfg.OUT,
+                           force=args.force)
 
 
 def _cmd_import_ui(args) -> int:

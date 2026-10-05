@@ -214,6 +214,35 @@ class PhoneHandler(BaseHTTPRequestHandler):
 
 
 # ------------------------------------------------------------------ static
+APP = phonecfg.ROOT / "vpa" / "phone_app"
+_SHELL = ("index.html", "app.js", "stats.js", "app.css", "sw.js")
+
+
+def _build_id() -> str:
+    """A hash of the app's own files: the offline worker carries it, so a
+    changed app is a changed worker and phones pick it up on the next open."""
+    import hashlib
+    h = hashlib.sha1()
+    for f in _SHELL:
+        try:
+            h.update((APP / f).read_bytes())
+        except OSError:
+            pass
+    return h.hexdigest()[:12]
+
+
+def _app(name, ctype):
+    def f():
+        p = APP / name
+        if not p.is_file():
+            return None, ctype, "no-cache"
+        body = p.read_bytes()
+        if name == "sw.js":
+            body = body.replace(b"__BUILD__", _build_id().encode())
+        return body, ctype, "no-cache"
+    return f
+
+
 def _asset(name, ctype, cache="no-cache"):
     def f():
         p = phonecfg.ROOT / "assets" / name
@@ -221,13 +250,9 @@ def _asset(name, ctype, cache="no-cache"):
     return f
 
 
-def _page():
-    return _PHONE_PAGE.encode("utf-8"), "text/html; charset=utf-8", "no-cache"
-
-
 def _manifest():
-    m = {"name": "VPA", "short_name": "VPA", "start_url": "/", "scope": "/",
-         "display": "standalone", "background_color": "#f4f6f9",
+    m = {"name": "VPA", "short_name": "VPA", "start_url": "/", "scope": "/", "id": "/",
+         "display": "standalone", "orientation": "portrait", "background_color": "#f3f5f8",
          "theme_color": "#2b5fc4", "description": "Vehicle price analysis - your data, offline",
          "icons": [{"src": "/icon-192.png", "sizes": "192x192", "type": "image/png",
                     "purpose": "any maskable"},
@@ -236,7 +261,13 @@ def _manifest():
     return json.dumps(m).encode(), "application/manifest+json", "no-cache"
 
 
-_STATIC = {"/": _page, "/index.html": _page, "/manifest.webmanifest": _manifest,
+_PAGE = _app("index.html", "text/html; charset=utf-8")
+_STATIC = {"/": _PAGE, "/index.html": _PAGE,
+           "/app.js": _app("app.js", "text/javascript; charset=utf-8"),
+           "/stats.js": _app("stats.js", "text/javascript; charset=utf-8"),
+           "/app.css": _app("app.css", "text/css; charset=utf-8"),
+           "/sw.js": _app("sw.js", "text/javascript; charset=utf-8"),
+           "/manifest.webmanifest": _manifest,
            "/icon-192.png": _asset("vpa-192.png", "image/png"),
            "/icon-512.png": _asset("vpa-512.png", "image/png"),
            "/icon.svg": _asset("vpa.svg", "image/svg+xml"),
@@ -250,102 +281,3 @@ def start(port: int, lan: bool = False) -> ThreadingHTTPServer:
     srv.daemon_threads = True
     threading.Thread(target=srv.serve_forever, name="vpa-phone-http", daemon=True).start()
     return srv
-
-
-# A minimal page for now: pair, then fetch the copy and say what arrived. It
-# proves the whole path on the real phone; the search screens replace the
-# body of this page next.
-_PHONE_PAGE = r"""<!DOCTYPE html>
-<html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>VPA</title>
-<link rel="icon" href="/icon.svg" type="image/svg+xml">
-<link rel="manifest" href="/manifest.webmanifest">
-<meta name="theme-color" content="#2b5fc4">
-<style>
- :root{--ink:#151a24;--dim:#667083;--line:#e3e7ee;--accent:#2b5fc4;--bg:#f4f6f9;
-   --good:#1f7a4a;--bad:#b3261e;--card:#fff}
- @media (prefers-color-scheme:dark){:root{--ink:#e8ebf1;--dim:#9aa3b2;--line:#2b313c;
-   --bg:#12151b;--card:#1a1e26;--accent:#6f9bf0;--good:#5cc28c;--bad:#f08a80}}
- *{box-sizing:border-box}
- body{margin:0;background:var(--bg);color:var(--ink);
-   font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
- .wrap{max-width:520px;margin:0 auto;padding:20px 16px 40px}
- header{display:flex;align-items:center;gap:12px;margin-bottom:20px}
- header img{width:40px;height:40px;border-radius:10px}
- h1{font-size:20px;margin:0}h1 small{display:block;font-size:13px;color:var(--dim);font-weight:400}
- .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;margin-bottom:14px}
- label{font-size:13px;color:var(--dim);display:block;margin-bottom:6px}
- input{width:100%;font-size:28px;letter-spacing:.3em;text-align:center;padding:10px;
-   border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink)}
- button{width:100%;margin-top:12px;font-size:16px;padding:13px;border:0;border-radius:10px;
-   background:var(--accent);color:#fff;font-weight:600}
- button.plain{background:transparent;color:var(--dim);border:1px solid var(--line)}
- .msg{margin-top:12px;font-size:14px;min-height:1.4em}.bad{color:var(--bad)}.good{color:var(--good)}
- .big{font-size:30px;font-weight:700}.dim{color:var(--dim);font-size:14px}
- dl{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;margin:12px 0 0;font-size:14px}
- dt{color:var(--dim)}dd{margin:0;font-variant-numeric:tabular-nums}
-</style></head><body><div class="wrap">
-<header><img src="/icon-192.png" alt=""><h1>VPA<small>vehicle price analysis</small></h1></header>
-<div id="pair" class="card" hidden>
- <b>Pair this phone</b>
- <p class="dim">On the laptop, open VPA &rarr; Phone &rarr; <b>Pair a phone</b>, then type the six-digit code shown there.</p>
- <label for="code">code</label><input id="code" inputmode="numeric" maxlength="6" autocomplete="one-time-code">
- <button id="pairBtn">Pair</button><div id="pmsg" class="msg"></div>
-</div>
-<div id="sync" class="card" hidden>
- <div class="dim">Your data on this phone</div>
- <div class="big" id="cars">&ndash;</div>
- <dl><dt>As of</dt><dd id="asof">&ndash;</dd><dt>Sightings</dt><dd id="sights">&ndash;</dd>
- <dt>Forecasts</dt><dd id="fcs">&ndash;</dd><dt>Download</dt><dd id="size">&ndash;</dd>
- <dt>Paired as</dt><dd id="dev">&ndash;</dd></dl>
- <button id="syncBtn">Sync now</button><div id="smsg" class="msg"></div>
- <button class="plain" id="forget">Unpair this phone</button>
-</div>
-<p class="dim">Search screens come next; this page checks the sync works.</p>
-</div>
-<script>
-const $=id=>document.getElementById(id);
-const TK="vpa.token", VK="vpa.version", MK="vpa.meta";
-const get=k=>{try{return localStorage.getItem(k)}catch(e){return null}};
-const put=(k,v)=>{try{v==null?localStorage.removeItem(k):localStorage.setItem(k,v)}catch(e){}};
-function show(){const t=get(TK);$("pair").hidden=!!t;$("sync").hidden=!t;
-  const m=JSON.parse(get(MK)||"null");if(m)paint(m);}
-function paint(m){$("cars").textContent=m.counts.vehicles.toLocaleString()+" cars";
-  $("asof").textContent=new Date(m.built).toLocaleString();
-  $("sights").textContent=m.counts.sightings.toLocaleString();
-  $("fcs").textContent=m.counts.forecasts.toLocaleString();
-  $("size").textContent=Math.round(m.bytes/1024)+" KB";$("dev").textContent=m.device||"-";}
-$("pairBtn").onclick=async()=>{
-  $("pmsg").className="msg";$("pmsg").textContent="pairing...";
-  try{const r=await fetch("/api/pair",{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({code:$("code").value})}).then(r=>r.json());
-    if(!r.ok){$("pmsg").className="msg bad";$("pmsg").textContent=r.error;return;}
-    put(TK,r.token);show();sync();
-  }catch(e){$("pmsg").className="msg bad";$("pmsg").textContent="can't reach the laptop: "+e;}
-};
-async function sync(){
-  const t=get(TK);if(!t)return;
-  $("smsg").className="msg";$("smsg").textContent="checking...";
-  const H={Authorization:"Bearer "+t};
-  try{
-    const m=await fetch("/api/meta",{headers:H});
-    if(m.status===401){put(TK,null);put(VK,null);show();
-      $("pmsg").className="msg bad";$("pmsg").textContent="this phone was unpaired on the laptop - pair it again";return;}
-    const meta=await m.json();if(!meta.ok){$("smsg").className="msg bad";$("smsg").textContent=meta.error;return;}
-    const have=get(VK);
-    const r=await fetch("/api/snapshot",{headers:{...H,...(have?{"If-None-Match":'"'+have+'"'}:{})}});
-    if(r.status===304){$("smsg").className="msg good";$("smsg").textContent="up to date";}
-    else if(r.ok){const snap=await r.json();
-      if(snap.version!==meta.version||snap.counts.vehicles!==meta.counts.vehicles)throw new Error("copy did not match its description");
-      put(VK,snap.version);
-      $("smsg").className="msg good";$("smsg").textContent="downloaded "+snap.vehicles.rows.length.toLocaleString()+" cars";}
-    else throw new Error("HTTP "+r.status);
-    put(MK,JSON.stringify(meta));paint(meta);
-  }catch(e){$("smsg").className="msg bad";$("smsg").textContent="sync failed: "+e.message;}
-}
-$("syncBtn").onclick=sync;
-$("forget").onclick=()=>{if(confirm("Unpair this phone? You can pair it again any time.")){put(TK,null);put(VK,null);put(MK,null);show();}};
-show();if(get(TK))sync();
-</script></body></html>
-"""

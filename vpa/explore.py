@@ -734,7 +734,7 @@ def _timeline(sub: pd.DataFrame, key: str, db_path) -> dict:
 
     # one row per car per day (a re-paste on the same day is not a new price)
     one = (sub.dropna(subset=["price_aud"])
-              .sort_values("capture_date")
+              .sort_values("capture_date", kind="stable")
               .groupby(["day", "key"], observed=True).tail(1))
     mine = {str(r["day"]): float(r["price_aud"]) for _, r in
             own_days.dropna(subset=["price_aud"]).iterrows()}
@@ -1018,7 +1018,7 @@ def car_payload(db_path: str | Path = DEFAULT_DB, make: str | None = None,
     # still listed are never used anywhere on this card.
     history = None
     if key:
-        own_rows = sub[sub["key"] == key].sort_values("capture_date")
+        own_rows = sub[sub["key"] == key].sort_values("capture_date", kind="stable")
         prices = [p for p in own_rows["price_aud"].tolist() if pd.notna(p)]
         clash = key in analyze.collided_keys(sub)
         first_day, last_day = str(own_rows["day"].iloc[0]), str(own_rows["day"].iloc[-1])
@@ -1170,7 +1170,7 @@ def _stored_summary(own: pd.DataFrame) -> dict:
         "sightings": int(len(own)),
         "days": int(own["day"].nunique()),
         "first_day": str(own["day"].min()), "last_day": str(own["day"].max()),
-        "price": _num(own.sort_values("capture_date").iloc[-1]["price_aud"]),
+        "price": _num(own.sort_values("capture_date", kind="stable").iloc[-1]["price_aud"]),
     }
 
 
@@ -1247,7 +1247,7 @@ def link_payload(db_path: str | Path = DEFAULT_DB, link: str = "") -> dict:
                 "found": {"listing_id": m.group(1).upper() if m else None,
                           "url": links.ad_url(link, "carsales")}}
 
-    own = df[df["key"] == key].sort_values("capture_date")
+    own = df[df["key"] == key].sort_values("capture_date", kind="stable")
     last = own.iloc[-1]
     found = {k: (None if pd.isna(last[k]) else last[k]) for k in
              ("listing_id", "make", "model", "variant", "state", "seller_type")}

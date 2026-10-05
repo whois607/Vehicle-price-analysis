@@ -113,7 +113,8 @@ vehicle-price-analysis/
     exports/               dataset.csv and summaries
     viewer.xlsx            the Excel workbook
     phone/                 the phone copy: snapshot-<version>.json.gz (newest
-                           two), meta.json, forecast_cache.json
+                           two), meta.json, sel_cache.json (per-selection
+                           results reused between builds)
     vpa-app.log            what a console-less launch printed
 ```
 
@@ -735,8 +736,11 @@ All of the following is built **and** verified by an automated suite (see §7).
   auto-replaces a stale instance after a code change.
 * **Phone sync, laptop side** (`/phone`) — a read-only, compact copy of the
   data kept current automatically, handed to paired phones by a separate
-  listener that cannot reach the database. The phone's search screens are
-  the next step (§6).
+  listener that cannot reach the database.
+* **Phone app** (`vpa/phone_app/`, served by the listener) — Home, Find
+  (advert link, browse, search a range), every make/model/trim's Explore
+  view, the car card, Price check, Compare, Starred; read-only, offline,
+  auto-syncing on open. Same numbers as the laptop (check_phone_app).
 
 ---
 
@@ -1024,6 +1028,55 @@ Keep these — each one was a bug that took a while to find.
   "New car" entries, left blank rather than called dealer.
 * Worth a periodic check: parse the newest saved page and look at the
   per-field fill (`tests/check_carsales.py` pins both formats).
+
+**Phone app (05/10/2026)**
+* `vpa/phone_app/`: index.html, app.css, app.js (screens, sync, SVG charts),
+  stats.js (the arithmetic), sw.js (offline shell). Served by phonesrv; sw.js
+  gets a hash of the app files as its BUILD, so a changed app is a changed
+  worker and phones update on the next open.
+* SAME NUMBERS, BY CONSTRUCTION: `phonebuild.py` (format vpa-phone/2) runs
+  `explore.detail_payload` and `compare._one` for EVERY make, line and trim,
+  plus `importui.overview_payload` and `picker_payload`, and ships the
+  results (minus lists the phone rebuilds: cars, movers, scatter, standouts;
+  minus drawn curve grids, recomputed from mu/sigma). Trims also carry the
+  car card's mileage fits: the trim's own (typed cars) and one with EACH car
+  left out (stored cars), so the phone never fits a regression.
+* stats.js ports the counting: prep / latest_per_vehicle, filters, headline,
+  splits, capture days, histogram (numpy's binning), car list, movers,
+  standouts, dup_sigs, car_payload, link_payload, schema's typed-value
+  parsers, Python's round() (exact-tie detection via the float's full
+  decimal expansion). Filtered views are recomputed on the phone; forecast,
+  bell curve, mileage fit and turnover are whole-selection only and hidden
+  when filtered (the laptop recomputes those on the filtered rows).
+* Builder runs in a CHILD process (`python -m vpa phone-copy --out`): it
+  copies the DB with SQLite's backup API from a read-only connection into
+  output/phone/work-<pid>.db, then patches explore._frame / compare._frame /
+  starred.keys / dupes.dismissed_sets to a cached frame - safe only because
+  no app request can see that process. build.lock stops two builds at once.
+  Real data (4,480 cars, 831 selections): first build ~80 s, 898 KB gzip;
+  after an import, seconds (sel_cache.json, keyed by each selection's rows).
+* STABLE SORTS: analyze.prep / latest_per_vehicle and the car-card helpers
+  now sort capture_date with kind="stable". The default quicksort left
+  "which of two same-day sightings of one car wins" to numpy internals; now
+  the later-stored row wins, always, and stats.js does the same. Only keys
+  with two prices on one day (collided_keys) can change; all suites green.
+* Sync (app.js): on open, on returning to the front, on `online`, and every
+  5 min while visible; /api/meta (8 s timeout) then /api/snapshot only if
+  the version differs; the download is verified against the meta before it
+  replaces the stored copy (IndexedDB). Firefox cannot run a closed web app,
+  so there is no true background sync; Web Share Target is not supported by
+  Firefox for Android, so instead pasting a link searches instantly.
+* Offline: needs a secure origin (HTTPS via Tailscale; localhost for tests).
+  Verified in headless Chrome: worker installed, listener stopped, app
+  reopened from cache with the stored copy ("Offline · <date>" pill).
+  GOTCHA: Chrome's CacheStorage fails ("Unexpected internal error") when the
+  --user-data-dir path is long (MAX_PATH) - use a short path like
+  %LOCALAPPDATA%\Temp\vpacr for these tests.
+* `tests/check_phone_app.py` (+ phone_js_check.js, node): stats.js vs the
+  Python on a deliberately awkward fixture, and every screen of app.js
+  rendered against a stand-in page (no throw / NaN / undefined; proven to
+  fail on planted faults). `--db data/vpa.db` runs it on a read-only copy of
+  the real data: 841 views, 987 car cards, 8,590 screens, all identical.
 
 **Phone sync, laptop side (05/10/2026)**
 * Option B from the brainstorm: the phone carries its OWN copy and searches

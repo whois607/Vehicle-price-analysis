@@ -34,7 +34,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 SETTINGS = ROOT / "data" / "phone.json"
 OUT = ROOT / "output" / "phone"          # the phone copy (snapshot) lives here
-FORMAT = "vpa-phone/1"                   # snapshot layout; bump on any change
+FORMAT = "vpa-phone/2"                   # snapshot layout (phonebuild.FORMAT)
 APP_ID = "vpa-phone"
 DEFAULT_PORT = 8766
 PAIR_SECONDS = 600                       # a pairing code lasts ten minutes

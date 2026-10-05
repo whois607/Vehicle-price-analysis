@@ -51,6 +51,9 @@ __NAV__
   <li><b>Pairing</b>: press <b>Pair a phone</b>, open the address on the phone and
    type the six-digit code. The phone then holds its own key; <b>Remove</b> takes
    it away again.</li>
+  <li><b>On the phone</b>: Home, Find (paste an advert link, browse, search a range),
+   Price check, Compare and Starred - the same figures as here, read-only, and searchable with
+   no signal. It syncs by itself whenever it is opened or brought back to the front.</li>
   <li><b>Home Wi-Fi</b> lets a phone on the same Wi-Fi sync over plain http - good
    for trying it out. Opening VPA with no signal needs the HTTPS address
    (Tailscale), which is the next step.</li>
@@ -86,7 +89,10 @@ __NAV__
  <div class="tiles" id="tiles"></div>
  <div class="hint note">The copy is rebuilt automatically a few seconds after any change
   to the data &mdash; imports, the watch folder, undo, edits and merges &mdash; and only
-  when something changed. It holds cars, sightings and forecasts; no seller names or
+  when something changed. It holds every car and sighting, and this laptop's own Explore,
+  Compare and Overview results for every make, model and trim, so the phone shows the same
+  numbers. The first build takes a minute or two; after that only what an import touched is
+  recomputed. No seller names or
   contact details are ever captured, so none can be in it.</div>
 </div>
 
@@ -156,7 +162,7 @@ function paint(s){
     +(m.counts.last_day?` · latest capture ${m.counts.last_day}`:""):"";
   $("tiles").innerHTML=m?[
     [m.counts.vehicles.toLocaleString(),"cars"],[m.counts.sightings.toLocaleString(),"sightings"],
-    [m.counts.forecasts.toLocaleString(),"forecasts"],[Math.round(m.bytes/1024)+" KB","download"]].map(([v,l])=>`<div class="tile"><b>${esc(v)}</b><span>${l}</span></div>`).join("")
+    [(m.counts.selections||0).toLocaleString(),"makes, models & trims"],[Math.round(m.bytes/1024)+" KB","download"]].map(([v,l])=>`<div class="tile"><b>${esc(v)}</b><span>${l}</span></div>`).join("")
     :`<div class="flat" style="font-size:13px">${on?"Building the first copy&hellip;":"Built once phone sync is on."}</div>`;
   $("optLan").checked=s.lan;$("optBg").checked=s.background;
   $("optLan").disabled=$("optBg").disabled=!on;

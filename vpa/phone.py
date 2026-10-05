@@ -104,6 +104,7 @@ class _Host:
         self.build_lock = threading.Lock()
         self.last_build = None        # {"at", "seconds", "built", "error"}
         self.last_spawn = 0.0
+        self.stamp = None             # code version this process started on
         self.thread = None
         self.stop_evt = threading.Event()
 
@@ -175,9 +176,9 @@ def _unlisten():
     HOST.server, HOST.bound = None, None
 
 
-def _spawn_background():
+def _spawn_background(force: bool = False):
     """Start the background listener (pythonw -m vpa phone-serve)."""
-    if time.time() - HOST.last_spawn < 60:
+    if not force and time.time() - HOST.last_spawn < 60:
         return
     HOST.last_spawn = time.time()
     exe = Path(sys.executable)
@@ -222,6 +223,7 @@ def supervise(allow_build: bool = True) -> None:
                 if h.role == "app" and s["background"] and h.status == "starting":
                     _spawn_background()
         if h.server is not None and allow_build:
+            _note_https(s)
             st = _db_stat(h.db)
             if st != h.last_stat:
                 h.last_stat, h.changed_at = st, time.time()
@@ -233,6 +235,39 @@ def supervise(allow_build: bool = True) -> None:
         traceback.print_exc()
 
 
+def _note_https(s: dict) -> None:
+    """Keep settings["https_url"] = the Tailscale address while Serve points
+    at this listener (None otherwise), so the listener can tell a phone on
+    the plain-http address where the secure one is. Written only on change."""
+    from . import tailnet
+    t = tailnet.check(int(s["port"]))
+    url = t.get("https_url") if t.get("state") == "ready" else None
+    if url != s.get("https_url"):
+        try:
+            phonecfg.update(lambda st: st.__setitem__("https_url", url))
+        except TimeoutError:
+            pass
+
+
+def _code_stamp() -> int:
+    """Newest modification time across VPA's own code. The background
+    listener runs for days; when an update changes this, it hands over to a
+    fresh copy of itself, so it never keeps serving yesterday's code."""
+    pkg = Path(__file__).resolve().parent
+    try:
+        return max((p.stat().st_mtime_ns for p in pkg.rglob("*")
+                    if p.suffix in (".py", ".js", ".html", ".css")), default=0)
+    except OSError:
+        return HOST.stamp or 0
+
+
+def _respawn():
+    """Stop listening FIRST (so the new copy finds the port free and does
+    not mistake this one for "already running"), then start the new copy."""
+    _unlisten()
+    _spawn_background(force=True)
+
+
 def _loop():
     while not HOST.stop_evt.wait(TICK if HOST.server is not None else TICK * 1.5):
         supervise()
@@ -242,6 +277,10 @@ def _loop():
                 print("background phone sync switched off - exiting")
                 _unlisten()
                 return
+            if _code_stamp() != HOST.stamp:
+                print("VPA was updated - restarting the background listener on the new code")
+                _respawn()
+                return
 
 
 def start(db_path=DEFAULT_DB, role: str = "app") -> None:
@@ -250,6 +289,7 @@ def start(db_path=DEFAULT_DB, role: str = "app") -> None:
         if HOST.thread is not None and HOST.thread.is_alive():
             return
         HOST.db, HOST.role = str(db_path), role
+        HOST.stamp = _code_stamp()
         HOST.stop_evt.clear()
         supervise()
         HOST.thread = threading.Thread(target=_loop, name="vpa-phone", daemon=True)
@@ -369,7 +409,9 @@ def ui_state(db_path=DEFAULT_DB) -> dict:
     status = HOST.status
     if HOST.role is None:                       # this process is not supervising
         status = ("elsewhere" if _ping(port) else "starting") if s["enabled"] else "off"
+    from . import tailnet
     return {"ok": True, **pub, "status": status, "error": HOST.error,
+            "tailnet": tailnet.check(port),
             "here": HOST.server is not None, "role": HOST.role,
             "autostart": (startup_folder() / STARTUP_NAME).exists(),
             "meta": meta, "build": HOST.last_build, "building": HOST.building,

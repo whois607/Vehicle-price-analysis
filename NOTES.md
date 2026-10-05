@@ -1029,6 +1029,41 @@ Keep these — each one was a bug that took a while to find.
 * Worth a periodic check: parse the newest saved page and look at the
   per-field fill (`tests/check_carsales.py` pins both formats).
 
+**Tailscale route (05/10/2026)**
+* The HTTPS address the phone app needs for offline use comes from
+  `tailscale serve --bg 8766` (tailnet only) on the laptop. `vpa/tailnet.py`
+  reads `tailscale status --json` + `serve status --json` (read-only, cached
+  20 s) into a state: missing / stopped / no-https / not-served / ready /
+  funnel. FUNNEL ON IS NEVER "ready": it is shown red with the fix
+  (`tailscale funnel reset`, then serve again). The Phone page shows it as
+  one line (lock + address + Copy), the phone's Sync screen shows its
+  connection, and the supervisor stores settings["https_url"] so a phone on
+  the plain-http address is offered the secure one via /api/meta.
+* Android gotchas met on the first setup: an exit node selected, a Samsung
+  Private DNS hostname, or another VPN app each leave the phone with no
+  internet while Tailscale is on. Check those first.
+* Home-screen icon: Android launchers cannot draw an SVG favicon (blank
+  tile). index.html now links 192/512 PNGs + apple-touch-icon and the
+  manifest lists PNGs for purpose "any" and "maskable" separately. Firefox
+  keeps the icon it saw when the shortcut was made: remove and re-add.
+* Windows refuses os.replace while any reader holds the target (another
+  thread, the other process, OneDrive syncing data/): phonecfg._replace
+  retries for ~1.5 s; phonebuild uses it for meta/snapshot/cache, and a
+  failed "last seen" write can never fail a sync.
+* Tailscale need not stay on: it is only the route for the few seconds of a
+  sync (the app and its copy live on the phone). Even on the same Wi-Fi the
+  phone cannot reach the laptop without it: the ts.net name resolves (on
+  public DNS too) to a 100.x Tailscale address, and an HTTPS page may not
+  fetch the laptop's plain-http LAN address. So the app tells 'offline' (no
+  signal: quiet) from 'unreachable' (signal, no laptop: pill 'Not synced ·
+  <date>', Sync screen says turn Tailscale on, with an Open Tailscale button
+  - an Android intent: link with a Play Store fallback), and on coming back
+  to VPA after a failed try it syncs at once, and again 4 s later while the
+  VPN finishes connecting.
+* The background listener restarts itself when VPA's code changes
+  (phone._code_stamp: newest mtime of vpa/*.py/js/html/css): it stops
+  listening first, then starts a fresh copy, so it never serves old code.
+
 **Phone app (05/10/2026)**
 * `vpa/phone_app/`: index.html, app.css, app.js (screens, sync, SVG charts),
   stats.js (the arithmetic), sw.js (offline shell). Served by phonesrv; sw.js

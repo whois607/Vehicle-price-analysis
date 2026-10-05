@@ -35,6 +35,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+from . import phonecfg
 from .phonecfg import FORMAT
 KEEP_SNAPSHOTS = 2
 _CODE_FILES = ("explore.py", "compare.py", "turnover.py", "analyze.py", "forecast.py",
@@ -167,7 +168,7 @@ class _Cache:
         try:
             tmp.write_text(json.dumps({"sig": self.sig, "rows": self.rows},
                                       separators=(",", ":")), encoding="utf-8")
-            os.replace(tmp, self.path)
+            phonecfg._replace(tmp, self.path)
         except OSError:
             pass
 
@@ -362,14 +363,14 @@ def _build(db_path, out: Path, force: bool) -> dict:
     name = f"snapshot-{version}.json.gz"
     tmp = out / f"{name}.{os.getpid()}.tmp"
     tmp.write_bytes(body)
-    os.replace(tmp, out / name)
+    phonecfg._replace(tmp, out / name)
     meta = {"format": FORMAT, "version": version, "built": built, "file": name,
             "bytes": len(body), "sha256": hashlib.sha256(body).hexdigest(),
             "data_fp": data_fp, "counts": counts,
             "recomputed": done, "seconds": round(time.time() - t0, 2)}
     tmp = out / f"meta.json.{os.getpid()}.tmp"
     tmp.write_text(json.dumps(meta, indent=1), encoding="utf-8")
-    os.replace(tmp, out / "meta.json")
+    phonecfg._replace(tmp, out / "meta.json")
     olds = sorted(out.glob("snapshot-*.json.gz"), key=lambda p: p.stat().st_mtime,
                   reverse=True)
     for p in olds[KEEP_SNAPSHOTS:]:

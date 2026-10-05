@@ -32,6 +32,22 @@ __CHROME_CSS__
  .opt b{font-weight:600}.opt .d{font-size:12.5px;color:var(--dim);margin-top:2px}
  #devs td{vertical-align:middle}
  .urls code{display:inline-block;margin:4px 6px 0 0;font-size:13px}
+ /* ---- the Tailscale route: one line when it is right, a fix when not */
+ #route{display:flex;gap:12px;align-items:center;padding:12px 14px;margin-bottom:6px;
+   border:1px solid var(--line-2);border-radius:var(--r-sm);background:var(--head)}
+ #route .ri{width:34px;height:34px;border-radius:9px;display:grid;place-items:center;flex:none;
+   background:var(--line-2);color:var(--dim)}
+ #route .ri svg{width:18px;height:18px}
+ #route .rt{flex:1;min-width:0;font-size:13px;color:var(--ink-2)}
+ #route .rt b{display:block;font-size:13.5px;color:var(--ink);font-weight:600}
+ #route .rt code{font-size:12.5px;user-select:all}
+ #route.ok{background:var(--good-soft);border-color:var(--good-line)}
+ #route.ok .ri{background:var(--good);color:#fff}
+ #route.warn{background:#fdf6e7;border-color:#f0dcae}
+ #route.warn .ri{background:#b07d10;color:#fff}
+ #route.bad{background:var(--bad-soft);border-color:var(--bad-line)}
+ #route.bad .ri{background:var(--bad);color:#fff}
+ #route .copy{flex:none}
 </style></head><body><div class="wrap">
 __NAV__
 <div class="pagehead"><div>
@@ -54,9 +70,12 @@ __NAV__
   <li><b>On the phone</b>: Home, Find (paste an advert link, browse, search a range),
    Price check, Compare and Starred - the same figures as here, read-only, and searchable with
    no signal. It syncs by itself whenever it is opened or brought back to the front.</li>
-  <li><b>Home Wi-Fi</b> lets a phone on the same Wi-Fi sync over plain http - good
-   for trying it out. Opening VPA with no signal needs the HTTPS address
-   (Tailscale), which is the next step.</li>
+  <li><b>Tailscale</b> gives the phone a private HTTPS address for this laptop: it
+   syncs from anywhere the laptop is awake, and VPA opens on the phone with no
+   signal. Only your own devices can reach it (Funnel, which would publish it,
+   is checked for and flagged).</li>
+  <li><b>Home Wi-Fi</b> lets a phone on the same Wi-Fi sync over plain http - fine
+   for trying it out, not needed once Tailscale works.</li>
   <li><b>Keep running when VPA is closed</b> starts a small background listener
    with Windows, so the phone can sync whenever this laptop is awake.</li>
  </ul>
@@ -98,11 +117,13 @@ __NAV__
 
 <div class="card">
  <div class="ptitle">how the phone reaches this laptop</div>
+ <div id="route"><span class="ri"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+   stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg></span>
+  <div class="rt" id="rtext">checking Tailscale&hellip;</div><button class="mini copy" id="rcopy" hidden>Copy</button></div>
  <label class="opt"><input type="checkbox" id="optLan"><span><b>Home Wi-Fi</b>
-  <div class="d">Phones on the same Wi-Fi can sync over plain http. Windows will ask
+  <div class="d" id="lanNote">Phones on the same Wi-Fi can sync over plain http. Windows will ask
    whether to allow Python on networks &mdash; allow <b>Private networks</b> only.
-   Good for trying it out; to open VPA with no signal the phone needs the HTTPS
-   address (Tailscale), set up next.</div>
+   It cannot open VPA with no signal; the Tailscale address can.</div>
   <div class="urls" id="urls"></div></span></label>
  <label class="opt"><input type="checkbox" id="optBg"><span><b>Keep phone sync running when VPA is closed</b>
   <div class="d">Starts a small background listener with Windows (it only hands out
@@ -122,8 +143,29 @@ async function api(path,body){
   catch(e){return {ok:false,error:String(e)};}
 }
 function addr(){
+  const t=ST.tailnet||{};
+  if(t.state==="ready")return `<code>${esc(t.https_url)}</code> <span style="color:var(--dim)">(Tailscale on)</span>`;
   if(ST.lan&&ST.lan_urls.length)return ST.lan_urls.map(u=>`<code>${esc(u)}</code>`).join(" or ");
-  return `the VPA address &mdash; switch on <b>Home Wi-Fi</b> below to get one for now`;
+  return `the VPA address &mdash; set up Tailscale below, or switch on <b>Home Wi-Fi</b> for now`;
+}
+/* the Tailscale route: what is true now, and the one thing to do if not */
+let RCOPY="";
+function route(s){
+  const t=s.tailnet||{}, r=$("route"), cmd=`<code>${esc(t.command||"tailscale serve --bg 8766")}</code>`;
+  const peers=(t.peers||[]).map(p=>`${esc(p.name)}${p.online?"":" (offline)"}`).join(", ");
+  const V={
+    ready:["ok",`<b>Tailscale &middot; private HTTPS</b><code>${esc(t.https_url)}</code> &mdash; your devices only; opens with no signal${peers?` &middot; ${peers}`:""}`,t.https_url],
+    funnel:["bad",`<b>Tailscale Funnel is ON &mdash; the internet can reach VPA's listener</b>Turn it off: run <code>tailscale funnel reset</code>, then ${cmd}`,"tailscale funnel reset"],
+    "not-served":["warn",`<b>Tailscale is running &mdash; share VPA with your devices</b>Run ${cmd} once on this laptop`,t.command],
+    "no-https":["warn",`<b>Tailscale needs HTTPS turned on</b>Admin console &rarr; DNS &rarr; enable MagicDNS and HTTPS certificates`,""],
+    stopped:["",`<b>Tailscale isn't running on this laptop</b>Start it from the system tray to sync away from home and open VPA offline`,""],
+    missing:["",`<b>Tailscale not installed</b>Needed for the phone to open VPA with no signal &mdash; tailscale.com/download, on this laptop and the phone`,""]};
+  const [cls,html,copy]=V[t.state]||["","checking Tailscale&hellip;",""];
+  r.className=cls;$("rtext").innerHTML=html;RCOPY=copy||"";$("rcopy").hidden=!RCOPY;
+  $("rcopy").textContent=t.state==="ready"?"Copy address":"Copy command";
+  $("lanNote").innerHTML=t.state==="ready"&&s.lan
+    ?'Not needed now that the Tailscale address works &mdash; switch off so nothing listens on your home network.'
+    :'Phones on the same Wi-Fi can sync over plain http. Windows will ask whether to allow Python on networks &mdash; allow <b>Private networks</b> only. It cannot open VPA with no signal; the Tailscale address can.';
 }
 function paint(s){
   ST=s;
@@ -138,9 +180,11 @@ function paint(s){
   else if(b&&b.error){txt="Could not build the phone copy: "+b.error;cls="bad";}
   else{cls="on";
     const who=s.status==="elsewhere"?"Running in the background":s.status==="here"?"On":"Starting";
-    const ways=s.lan?"this laptop and your home Wi-Fi":"this laptop only (HTTPS route not set up yet)";
+    const ts=(s.tailnet||{}).state==="ready";
+    const ways=ts&&s.lan?"Tailscale (HTTPS) and your home Wi-Fi":ts?"Tailscale (HTTPS)":s.lan?"your home Wi-Fi only (Tailscale not set up)":"nothing yet &mdash; set up Tailscale below";
     txt=`${who} &mdash; paired phones can sync over ${ways}.`;}
   st.className=cls;$("ptext").innerHTML=txt;
+  route(s);
   // phones
   const tb=$("devs").querySelector("tbody");
   tb.innerHTML=(s.devices||[]).map(d=>`<tr><td><b>${esc(d.name)}</b></td><td>${esc(when(d.paired))}</td>
@@ -178,6 +222,8 @@ $("onBtn").onclick=async()=>{
   if(!r.ok){alert(r.error);return;}
   paint(r);setTimeout(load,1500);
 };
+$("rcopy").onclick=async()=>{try{await navigator.clipboard.writeText(RCOPY);$("rcopy").textContent="Copied";}
+  catch(e){$("rcopy").textContent="Select it";}setTimeout(()=>route(ST),1600);};
 $("optLan").onchange=async e=>{const r=await api("/api/phone/options",{lan:e.target.checked});
   if(!r.ok)alert(r.error);else paint(r);setTimeout(load,1500);};
 $("optBg").onchange=async e=>{const r=await api("/api/phone/options",{background:e.target.checked});

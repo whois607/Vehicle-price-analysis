@@ -155,6 +155,7 @@ class PhoneHandler(BaseHTTPRequestHandler):
                             "copy yet - give it a minute"}, 503)
                 return
             self._json({"ok": True, "device": dev.get("name"),
+                        "https_url": phonecfg.load().get("https_url"),
                         **{k: m.get(k) for k in ("format", "version", "built", "bytes",
                                                  "sha256", "counts")}})
         elif path == "/api/snapshot":
@@ -251,13 +252,15 @@ def _asset(name, ctype, cache="no-cache"):
 
 
 def _manifest():
+    # PNG icons, listed once per purpose: launchers that crop to their own
+    # shape take "maskable", the rest take "any". An SVG alone shows as a
+    # blank tile on an Android home screen.
+    icons = [{"src": f"/icon-{n}.png", "sizes": f"{n}x{n}", "type": "image/png", "purpose": p}
+             for p in ("any", "maskable") for n in (192, 512)]
     m = {"name": "VPA", "short_name": "VPA", "start_url": "/", "scope": "/", "id": "/",
-         "display": "standalone", "orientation": "portrait", "background_color": "#f3f5f8",
+         "display": "standalone", "orientation": "portrait", "background_color": "#2b5fc4",
          "theme_color": "#2b5fc4", "description": "Vehicle price analysis - your data, offline",
-         "icons": [{"src": "/icon-192.png", "sizes": "192x192", "type": "image/png",
-                    "purpose": "any maskable"},
-                   {"src": "/icon-512.png", "sizes": "512x512", "type": "image/png",
-                    "purpose": "any maskable"}]}
+         "icons": icons}
     return json.dumps(m).encode(), "application/manifest+json", "no-cache"
 
 

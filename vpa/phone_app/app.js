@@ -74,6 +74,9 @@ async function idbPut(k, v) {
 
 /* ------------------------------------------------------------ the data */
 let DB = null;
+const TS_LINK = "intent:#Intent;action=android.intent.action.MAIN;category=android.intent.category.LAUNCHER;" +
+  "package=com.tailscale.ipn;S.browser_fallback_url=" +
+  encodeURIComponent("https://play.google.com/store/apps/details?id=com.tailscale.ipn") + ";end";
 function useSnapshot(snap) { DB = VS.index(snap); }
 
 /* ------------------------------------------------------------ sync */
@@ -113,10 +116,15 @@ async function sync(manual) {
     }
     SYNC.state = "ok"; SYNC.error = null; SYNC.lastOk = new Date().toISOString(); LS.set("lastOk", SYNC.lastOk);
     LS.set("device", meta.device || "");
+    LS.set("https", meta.https_url || null);
   } catch (e) {
-    SYNC.state = navigator.onLine === false || e.name === "AbortError" || e instanceof TypeError ? "offline" : "error";
+    // no signal at all -> "offline" (normal at a yard, said quietly);
+    // signal but no laptop -> "unreachable": Tailscale off, or the laptop asleep
+    const net = navigator.onLine === false;
+    SYNC.state = net ? "offline" : (e.name === "AbortError" || e instanceof TypeError) ? "unreachable" : "error";
     SYNC.error = e.name === "AbortError" ? "the laptop did not answer in time" : String(e.message || e);
-    if (manual) toast(SYNC.state === "offline" ? "Can't reach the laptop - using the copy on this phone" : "Sync failed: " + SYNC.error, 3500);
+    if (manual) toast(SYNC.state === "error" ? "Sync failed: " + SYNC.error
+      : SYNC.state === "unreachable" ? "Can't reach the laptop - is Tailscale on?" : "No signal - using the copy on this phone", 3500);
   } finally {
     SYNC.busy = false; pill();
     if (location.hash.startsWith("#/sync")) render(true);
@@ -130,6 +138,7 @@ function pill() {
   else if (s === "removed") { cls = "warn"; txt = "Pair again"; }
   else if (s === "ok") { cls = "ok"; txt = "Synced " + ago(SYNC.lastOk); }
   else if (s === "offline") { cls = "off"; txt = "Offline · " + (data ? dShort(data.slice(0, 10)) : "no data"); }
+  else if (s === "unreachable") { cls = "off"; txt = "Not synced · " + (data ? dShort(data.slice(0, 10)) : "no data"); }
   else if (s === "error") { cls = "bad"; txt = "Sync failed"; }
   else txt = data ? "Data " + dShort(data.slice(0, 10)) : "…";
   p.className = "pill " + cls; p.querySelector("span").textContent = txt;
@@ -140,8 +149,18 @@ function autoSync() {
   clearInterval(syncTimer);
   syncTimer = setInterval(() => { if (document.visibilityState === "visible") sync(false); }, 5 * 60 * 1000);
 }
+// Back in VPA (e.g. from switching Tailscale on): sync now if the last try
+// failed - and once more a few seconds later, while the VPN finishes
+// connecting. Otherwise at most every 30 s.
+let retryT = null;
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible" && (!SYNC.lastTry || Date.now() - SYNC.lastTry > 30000)) sync(false);
+  if (document.visibilityState !== "visible") return;
+  const failed = ["unreachable", "offline", "error"].includes(SYNC.state);
+  if (failed || !SYNC.lastTry || Date.now() - SYNC.lastTry > 30000) {
+    sync(false);
+    clearTimeout(retryT);
+    if (failed) retryT = setTimeout(() => { if (SYNC.state !== "ok") sync(false); }, 4000);
+  }
 });
 window.addEventListener("online", () => sync(false));
 setInterval(pill, 30000);
@@ -795,26 +814,49 @@ route("/starred", { tab: "starred", titleText: "Starred" }, () => {
 });
 
 /* ------------------------------------------------------------ sync & pairing */
+// how this phone reaches the laptop, from the address VPA was opened at
+function connection() {
+  const secure = location.protocol === "https:", ts = /\.ts\.net$/i.test(location.hostname);
+  return secure && ts ? { cls: "good", text: "Tailscale · private HTTPS", host: location.hostname }
+    : secure ? { cls: "good", text: "HTTPS", host: location.hostname }
+    : { cls: "warn", text: "Home Wi-Fi · plain http", host: location.host };
+}
 route("/sync", { tab: null, back: true, titleText: "Sync", needsData: false }, () => {
-  const paired = !!LS.get("token"), S = DB ? DB.snap : null;
+  const paired = !!LS.get("token"), S = DB ? DB.snap : null, cn = connection(), alt = LS.get("https");
   let h = "";
+  const viaTs = /\.ts\.net$/i.test(location.hostname || "");
+  if (SYNC.state === "unreachable" && paired) h += `<div class="card" style="border-color:var(--accent)">
+    <h2>Can't reach the laptop</h2><p class="sub">${viaTs ? "Turn <b>Tailscale</b> on to sync, then come back here - it syncs by itself."
+      : "Check the laptop is on and this phone is on the same Wi-Fi."} The laptop must be awake.
+      ${S ? `Your copy is from <b>${dLong(S.built.slice(0, 10))}</b>.` : ""}</p>
+    ${viaTs ? `<a class="btn primary block" href="${TS_LINK}">Open Tailscale</a>` : ""}
+    <button class="btn block" id="syncGo2" style="margin-top:8px">Try again</button></div>`;
+  if (cn.cls === "warn" && alt) h += `<div class="card" style="border-color:var(--accent)"><h2>Use the secure address</h2>
+    <p class="sub">Your laptop has a private Tailscale address. Opened there, VPA works with no signal and syncs from anywhere the laptop is awake.</p>
+    <a class="btn primary block" href="${esc(alt)}">Open ${esc(alt.replace(/^https:\/\//, ""))}</a>
+    <div class="note">Then pair there and add it to your home screen. Tailscale must be on to sync.</div></div>`;
   if (!paired || SYNC.state === "removed") {
     h += `<div class="card"><h2>Pair this phone</h2>${SYNC.state === "removed" ? '<p class="warn">This phone was removed on the laptop. Pair it again to get updates - your copy stays until then.</p>' : ""}
       <p class="sub">On the laptop: VPA → <b>Phone</b> → <b>Pair a phone</b>. Type the six-digit code shown there.</p>
       <input type="text" id="code" class="code" inputmode="numeric" maxlength="7" autocomplete="one-time-code" placeholder="000 000">
       <button class="btn primary block" id="pairGo" style="margin-top:10px">Pair</button><div id="pairMsg" class="note"></div></div>`;
   }
-  const st = { ok: ["good", "Up to date"], offline: ["", "Can't reach the laptop"], error: ["bad", "Sync failed"],
+  const st = { ok: ["good", "Up to date"], offline: ["", "No signal"], unreachable: ["", "Can't reach the laptop"], error: ["bad", "Sync failed"],
                downloading: ["", "Downloading"], idle: ["", "Waiting"], unpaired: ["warn", "Not paired"], removed: ["warn", "Removed on the laptop"] }[SYNC.state] || ["", SYNC.state];
   h += `<div class="card"><h2>This phone's copy</h2>${S ? `<div class="big">${n0(S.counts.vehicles)} cars</div>
     <div class="sub">${n0(S.counts.sightings)} sightings · ${n0(S.counts.selections)} makes, models &amp; trims</div>
     <table class="tbl" style="margin-top:10px"><tr><td>Data as of</td><td>${dLong(S.built.slice(0, 10))} ${S.built.slice(11, 16)}</td></tr>
     <tr><td>Latest capture</td><td>${dLong(S.counts.last_day)}</td></tr><tr><td>Last checked</td><td>${ago(SYNC.lastOk)}</td></tr>
-    <tr><td>Status</td><td class="${st[0]}">${st[1]}</td></tr>${LS.get("device") ? `<tr><td>Paired as</td><td>${esc(LS.get("device"))}</td></tr>` : ""}</table>`
+    <tr><td>Status</td><td class="${st[0]}">${st[1]}</td></tr>
+    ${LS.get("device") ? `<tr><td>Paired as</td><td>${esc(LS.get("device"))}</td></tr>` : ""}</table>`
     : `<p class="sub">No copy yet.</p>`}
+    <div class="spread" style="margin-top:10px;font-size:13px"><span class="muted">Connection</span>
+      <span style="text-align:right"><span class="${cn.cls}">${esc(cn.text)}</span><br><span class="faint" style="font-size:11.5px">${esc(cn.host)}</span></span></div>
     ${SYNC.error && SYNC.state !== "ok" ? `<div class="note bad">${esc(SYNC.error)}</div>` : ""}
-    ${paired ? `<button class="btn primary block" id="syncGo" style="margin-top:12px" ${SYNC.busy ? "disabled" : ""}>${SYNC.busy ? "Syncing…" : "Sync now"}</button>` : ""}
-    <div class="note">Syncs by itself whenever VPA is opened or brought back to the front, and every few minutes while open. Only a newer copy is downloaded. With no signal, the copy on this phone is used.</div></div>`;
+    ${paired ? `<div class="row" style="margin-top:12px;gap:8px"><button class="btn primary" style="flex:1" id="syncGo" ${SYNC.busy ? "disabled" : ""}>${SYNC.busy ? "Syncing…" : "Sync now"}</button>
+      ${viaTs ? `<a class="btn" href="${TS_LINK}">Tailscale</a>` : ""}</div>` : ""}
+    <div class="note">Syncs by itself whenever VPA is opened or brought back to the front, and every few minutes while open${
+      cn.text.startsWith("Tailscale") ? ", whenever Tailscale is on and the laptop is awake" : ""}. Only a newer copy is downloaded. With no signal, the copy on this phone is used.</div></div>`;
   const secure = window.isSecureContext && "serviceWorker" in navigator;
   const ready = secure && navigator.serviceWorker.controller;
   h += `<div class="card"><h2>Offline &amp; home screen</h2>
@@ -826,6 +868,7 @@ route("/sync", { tab: null, back: true, titleText: "Sync", needsData: false }, (
   return h;
 });
 ROUTES["/sync"].after = () => {
+  if ($("syncGo2")) $("syncGo2").onclick = () => sync(true);
   if (window.isSecureContext && "serviceWorker" in navigator && !navigator.serviceWorker.controller)
     navigator.serviceWorker.getRegistration().then(r => {
       if (r && r.active && $("offl")) $("offl").innerHTML = '<span class="good">Ready to open with no signal.</span>'; });

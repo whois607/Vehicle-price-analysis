@@ -42,7 +42,8 @@ PAIR_TRIES = 5                           # ...or five wrong guesses
 MAX_DEVICES = 10
 
 DEFAULTS = {"enabled": False, "lan": False, "background": False,
-            "port": DEFAULT_PORT, "devices": [], "pair": None}
+            "port": DEFAULT_PORT, "devices": [], "pair": None,
+            "https_url": None}       # the Tailscale address, when Serve is ready
 
 
 def _now() -> str:
@@ -86,6 +87,20 @@ def _locked(timeout: float = 8.0):
             pass
 
 
+def _replace(src: Path, dst: Path, tries: int = 40) -> None:
+    """os.replace, retried: on Windows it is refused while anything has the
+    target open - a reader in another thread or process, or OneDrive syncing
+    the file (data/ lives in OneDrive). Those holds last milliseconds."""
+    for i in range(tries):
+        try:
+            os.replace(src, dst)
+            return
+        except PermissionError:
+            if i == tries - 1:
+                raise
+            time.sleep(0.025 * (1 + i // 8))
+
+
 def load() -> dict:
     """The settings, with defaults filled in. Unreadable means defaults:
     phone sync off and nothing paired - the safe way to fail."""
@@ -110,7 +125,7 @@ def update(fn) -> dict:
         s.pop("_result", None)
         tmp = SETTINGS.with_name(SETTINGS.name + ".tmp")
         tmp.write_text(json.dumps(s, indent=1), encoding="utf-8")
-        os.replace(tmp, SETTINGS)
+        _replace(tmp, SETTINGS)
     if res is not None:
         s = dict(s, _result=res)
     return s
@@ -242,8 +257,8 @@ def seen(device_id: str, version: str | None) -> None:
                     d["last_version"] = version
     try:
         update(f)
-    except TimeoutError:
-        pass                         # a missed "last seen" is not worth an error
+    except (TimeoutError, OSError):
+        pass                         # a missed "last seen" must never fail a sync
 
 
 def remove_device(device_id: str | None = None, everything: bool = False) -> dict:

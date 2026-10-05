@@ -331,6 +331,17 @@ def main() -> int:
               and "__BUILD__" not in sw and http(port, "/stats.js")[0] == 200
               and http(port, "/icon-512.png")[0] == 200,
               f"page {len(page)}, app {len(app)} chars, worker build {sw.split(chr(34))[1]}")
+        pngs = {(i["sizes"], i["purpose"]) for i in man["icons"] if i["type"] == "image/png"}
+        check("the home-screen icon is a real PNG, for launchers that crop and those that don't",
+              pngs >= {("192x192", "any"), ("512x512", "any"), ("192x192", "maskable"),
+                       ("512x512", "maskable")}
+              and 'rel="icon" href="/icon-192.png" type="image/png"' in page
+              and 'rel="apple-touch-icon"' in page, f"{len(pngs)} PNG icon entries")
+        phonecfg.update(lambda st: st.__setitem__("https_url", "https://lapop.example.ts.net"))
+        c, _, b = http(port, "/api/meta", token=token)
+        check("a phone is told the laptop's secure (Tailscale) address",
+              c == 200 and json.loads(b).get("https_url") == "https://lapop.example.ts.net",
+              json.loads(b).get("https_url"))
         ips = {"192.168.1.5": True, "10.0.0.2": True, "100.101.1.1": True,
                "127.0.0.1": True, "::1": True, "8.8.8.8": False,
                "::ffff:8.8.8.8": False, "1.1.1.1": False, "203.2.218.214": False, "garbage": False}
@@ -345,6 +356,27 @@ def main() -> int:
     finally:
         srv.shutdown()
         srv.server_close()
+
+    print("\n== Tailscale, as the Phone page reads it ==")
+    from vpa import tailnet
+    me = {"BackendState": "Running", "CertDomains": ["lapop.t.ts.net"],
+          "Self": {"DNSName": "lapop.t.ts.net.", "TailscaleIPs": ["100.71.0.1"]},
+          "Peer": {"x": {"HostName": "S25", "OS": "android", "Online": True}}}
+    web = {"Web": {"lapop.t.ts.net:443": {"Handlers": {"/": {"Proxy": "http://127.0.0.1:8766"}}}}}
+    cases = {
+        "ready": (me, web),
+        "funnel": (me, dict(web, AllowFunnel={"lapop.t.ts.net:443": True})),
+        "not-served": (me, {}),
+        "not-served ": (me, {"Web": {"lapop.t.ts.net:443": {"Handlers": {"/": {"Proxy": "http://127.0.0.1:9999"}}}}}),
+        "no-https": (dict(me, CertDomains=[]), web),
+        "stopped": (dict(me, BackendState="Stopped"), web),
+        "stopped ": (None, None),
+    }
+    got = {k: tailnet.read_status(st, sv, 8766)["state"] for k, (st, sv) in cases.items()}
+    check("every Tailscale state is read right - Funnel on is flagged, never 'ready'",
+          all(got[k] == k.strip() for k in got)
+          and tailnet.read_status(*cases["ready"], 8766)["https_url"] == "https://lapop.t.ts.net",
+          ", ".join(f"{k.strip()}={v}" for k, v in got.items()))
 
     print("\n== what the listener can reach ==")
     banned = {"store", "bulk", "inbox", "edit", "merge", "quickadd", "importui",
@@ -366,10 +398,16 @@ def main() -> int:
     port = free_port()
     phonecfg.update(lambda s: s.__setitem__("port", port))
     phone.TICK, phone.SETTLE = 0.3, 0.4
+    stamp = WORK / "code_stamp"            # stands in for "VPA's code changed"
+    stamp.write_text("1")
     wrapper = ("import sys; from pathlib import Path; from vpa import phonecfg, phone; "
                f"phonecfg.SETTINGS=Path(r'{phonecfg.SETTINGS}'); "
                f"phonecfg.OUT=Path(r'{phonecfg.OUT}'); phone.TICK=0.3; phone.SETTLE=0.4; "
+               f"phone._code_stamp=lambda: Path(r'{stamp}').read_text(); "
+               f"phone._spawn_background=lambda force=False: __import__('subprocess').Popen("
+               f"[sys.executable, '-c', open(r'{WORK / 'wrapper.py'}').read()], cwd=r'{ROOT.parent}'); "
                f"sys.exit(phone.serve_forever(r'{DB}'))")
+    (WORK / "wrapper.py").write_text(wrapper, encoding="utf-8")
     spawned = []
 
     def spawn():                          # the real one runs "-m vpa phone-serve",
@@ -408,9 +446,16 @@ def main() -> int:
             st.ingest(records(11, n=2), source_file="(month 11)", adapter="test")
         check("...which keeps the copy current on its own",
               wait(lambda: version() != v1, 60), f"{v1} -> {version()}")
+        pid0 = json.loads(urllib.request.urlopen(f"http://127.0.0.1:{port}/ping").read())
+        stamp.write_text("2")                       # "an update landed"
+        check("after an update the background listener restarts itself on the new code",
+              wait(lambda: spawned[0].poll() is not None and phone._ping(port) is not None, 30)
+              and phone.HOST.server is None,
+              f"old listener exit {spawned[0].poll()}, a new one answers {phone._ping(port) is not None}"
+              f" ({pid0['app']})")
         phonecfg.set_options(background=False)
         check("switching it off ends the background listener and the app takes over",
-              wait(lambda: spawned[0].poll() is not None and phone.HOST.status == "here", 20),
+              wait(lambda: phone._ping(port) is not None and phone.HOST.status == "here", 30),
               f"background exit code {spawned[0].poll()}, app status {phone.HOST.status}")
         phonecfg.set_options(enabled=False)
         check("turning phone sync off stops listening", wait(

@@ -752,6 +752,8 @@ All of the following is built **and** verified by an automated suite (see §7).
   system, or a choice kept in that browser.
 * **Stars from the phone** — the one change a phone can make; queued on the
   phone offline, applied by the laptop to the starred table only.
+* **Expected asking price** — Price check without a price gives the range
+  cars with those details ask (laptop and phone, identical).
 
 ---
 
@@ -1074,6 +1076,25 @@ Keep these — each one was a bug that took a while to find.
 * The background listener restarts itself when VPA's code changes
   (phone._code_stamp: newest mtime of vpa/*.py/js/html/css): it stops
   listening first, then starts a fresh copy, so it never serves old code.
+
+**Expected asking price (05/10/2026)**
+* `explore._estimate` / stats.js `estimate`, returned as `estimate` by
+  car_payload / carCard for TYPED cars (stored cars: null). car_payload no
+  longer refuses a typed car without a price: the rank parts then say
+  nothing (raw rank gated, no adjusted/expected) and the page shows the
+  estimate instead of a verdict.
+* BASIS, most specific first, always named: `mileage` - the trim's mileage
+  curve at that odometer (the SAME base, slope and anchor as the card's
+  "expected for its kilometres", so `mid` equals expected.price) times the
+  10/25/75/90th percentiles of the fit rows' residuals from the curve;
+  `nearest` - the EST_NEAREST (12) cars nearest in km, on |ln km ratio|,
+  when the curve is refused or the odometer is outside CAR_FIT_RANGE;
+  `trim` - every car of the trim, with no odometer. Fewer than
+  CAR_MIN_PEERS prices: no range. Rounded to $100.
+* Year is NOT in the range (the fit has no year term); the same-model-year
+  median sits under it as like-for-like context, as on the car card.
+* Parity: check_phone_app's typed cases now include five price-less ones;
+  a planted 0.25 -> 0.26 change in the phone's quantiles failed 48 of 70.
 
 **Stars from the phone (05/10/2026)**
 * THE FIRST PHONE WRITE, so it can reach exactly one table. The phone sends

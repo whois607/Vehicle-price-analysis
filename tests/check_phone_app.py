@@ -211,7 +211,10 @@ def main(argv=None) -> int:
                       {"price": "12.5k", "odometer": "400,000 km"},
                       {"price": "31000 drive away", "odometer": "61000", "state": "Penrith NSW 2750",
                        "seller": "dealer"},
-                      {"price": "negotiable"}):
+                      {"price": "negotiable"},
+                      # no price: the expected range on its own, on each basis
+                      {"odometer": "120000"}, {"odometer": "900,000 km"}, {"odometer": "3000"},
+                      {"year": "2013", "seller": "dealer"}, {"odometer": "75k", "state": "VIC"}):
             p = explore.car_payload(DB, mk, mo, va, **typed)
             cards.append({"mk": mk, "mo": mo, "va": va, "opts": typed, "payload": p})
     links = []

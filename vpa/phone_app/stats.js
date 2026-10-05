@@ -422,6 +422,43 @@ function normYear(v) {
 // One car against the others of its trim. `fits` is the laptop's mileage
 // fit for this trim: k.fit for a typed car, k.cars[key] (the fit with the
 // car itself left out) for a stored one.
+// explore._estimate: the asking price a car with these details would be
+// expected to list at - the middle half and the 10th-90th - on the most
+// specific basis the data supports (mileage curve, nearest in km, the trim)
+function estimate(peers, fitRows, fitT, subject, C) {
+  const odo = subject.odometer_km, qs = [0.10, 0.25, 0.75, 0.90];
+  const out = { usable: false, basis: null, reason: "", why_not_curve: null };
+  const [fUsable, slope, medOdo, , , fReason] = fitT;
+  let got = null;
+  if (odo != null && fUsable) {
+    const used = fitRows.filter(r => r.p != null && r.km != null), U = used.map(r => r.km);
+    const loQ = quantile(U, C.CAR_FIT_RANGE[0]), hiQ = quantile(U, C.CAR_FIT_RANGE[1]);
+    if (loQ <= odo && odo <= hiQ) {
+      const base = median(used.map(r => r.p)), mid = base * Math.exp(slope * (odo - medOdo));
+      const res = used.map(r => Math.log(r.p) - Math.log(base) - slope * (r.km - medOdo));
+      got = ["mileage", mid, qs.map(q => mid * Math.exp(quantile(res, q))), used.length];
+    } else out.why_not_curve = `${fmt0(odo)} km is outside the ${fmt0(loQ)}-${fmt0(hiQ)} km the mileage curve covers`;
+  } else if (odo != null) out.why_not_curve = `no mileage curve for this trim: ${fReason || "refused"}`;
+  if (!got && odo) {
+    const P = peers.filter(r => r.km != null && r.p != null && r.km > 0)
+      .map((r, i) => [Math.abs(Math.log(r.km / odo)), r.p, i])
+      .sort((a, b) => a[0] !== b[0] ? a[0] - b[0] : a[1] !== b[1] ? a[1] - b[1] : a[2] - b[2])
+      .slice(0, C.EST_NEAREST || 12).map(x => x[1]);
+    if (P.length >= C.CAR_MIN_PEERS) got = ["nearest", median(P), qs.map(q => quantile(P, q)), P.length];
+  }
+  if (!got && !odo) {
+    const P = peers.filter(r => r.p != null).map(r => r.p);
+    if (P.length >= C.CAR_MIN_PEERS) got = ["trim", median(P), qs.map(q => quantile(P, q)), P.length];
+  }
+  if (!got) {
+    const n = peers.filter(r => r.p != null).length;
+    out.reason = `only ${n} priced car(s) of this trim - ${C.CAR_MIN_PEERS} are needed before a range means anything`;
+    return out;
+  }
+  const [basis, mid, [wlo, lo, hi, whi], n] = got, r100 = v => num(pyRound(v / 100, 0) * 100);
+  return Object.assign(out, { usable: true, basis, n, mid: r100(mid), lo: r100(lo), hi: r100(hi),
+    wide_lo: r100(wlo), wide_hi: r100(whi), at_odo: num(odo) });
+}
 function carCard(DB, mk, mo, va, opts, now) {
   const C = DB.consts, label = labelOf(mk, mo, va);
   const base = { ok: true, label, gates: { min_peers: C.CAR_MIN_PEERS, percentile_min: C.CAR_PERCENTILE_MIN } };
@@ -451,7 +488,7 @@ function carCard(DB, mk, mo, va, opts, now) {
       odometer_km: num(parseOdometer(opts.odometer)), year: normYear(opts.year),
       state: normState(opts.state), seller_type: normSeller(opts.seller),
       variant: null, title: null, url: null, source: null, day: null };
-    if (subject.price == null) return { ok: false, error: "a price is needed to place a car" };
+    // no price: "what should it be asking?" - answered by `estimate`
     peers = pool; fitRows = prepped; fitT = K.fit;
   }
   subject.label = label;
@@ -469,7 +506,7 @@ function carCard(DB, mk, mo, va, opts, now) {
   const fit = { usable: !!fUsable, reason: fReason || "", n: fN || 0, pct_per_10k_km: num(fPct),
                 median_odo: num(medOdo) };
   let adjusted = null, expected = null;
-  if (fUsable && subject.odometer_km != null) {
+  if (fUsable && subject.odometer_km != null && subject.price != null) {
     const used = fitRows.filter(r => r.p != null && r.km != null);
     const U = used.map(r => r.km);
     const loQ = quantile(U, C.CAR_FIT_RANGE[0]), hiQ = quantile(U, C.CAR_FIT_RANGE[1]);
@@ -570,7 +607,7 @@ function carCard(DB, mk, mo, va, opts, now) {
   return Object.assign(base, { usable: raw.usable, level: "trim", subject,
     pool: Object.assign({ n: peerP.length, first: days.reduce((a, b) => b < a ? b : a), last,
       days_since: daysSince, stale: daysSince > C.CAR_STALE_DAYS }, poolStats(peerP)),
-    raw, adjusted, expected, fit, odo_percentile: odoPct, comparables, band, splits: sp,
+    raw, adjusted, expected, estimate: key ? null : estimate(peers, fitRows, fitT, subject, C), fit, odo_percentile: odoPct, comparables, band, splits: sp,
     line_check: lineCheck, history, caveats: K.caveats || [], unavailable, notes,
     basis: "one price per car - each car's latest sighting - so a car seen on seven capture days counts once",
     footer: "These are ASKING prices, not sale prices, and this compares numbers only. " +

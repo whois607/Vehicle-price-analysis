@@ -52,6 +52,8 @@ CAR_YEAR_MIN_N = 5          # model-year like-for-like median
 CAR_FIT_RANGE = (0.05, 0.95)   # odometer span the mileage fit may speak for
 CAR_LINE_DISAGREE = 25      # percentile points before the line rank is worth a mention
 CAR_STALE_DAYS = 21         # capture older than this is flagged on the card
+EST_NEAREST = 12            # cars nearest in km an expected range is read from
+                            # when the mileage fit cannot speak for this car
 
 
 def _frame(db_path: str | Path) -> pd.DataFrame:
@@ -673,6 +675,70 @@ def _subject_typed(price, odometer, year, seller, state) -> dict:
             "source": None, "day": None}
 
 
+def _estimate(peers: pd.DataFrame, fit_rows: pd.DataFrame, fit: dict,
+              subject: dict) -> dict:
+    """The asking price a car with these details would be EXPECTED to list
+    at: a typical range (the middle half) and a wider one (10th-90th), from
+    the most specific basis the data supports, which is always named:
+
+      mileage  the trim's own mileage curve at this odometer, widened by how
+               far real listings actually sit from that curve (the spread of
+               their residuals) - the same curve and anchor as "expected for
+               its kilometres" on the car card
+      nearest  the EST_NEAREST cars of this trim nearest in kilometres (on
+               |ln(km ratio)|, as the comparables) - when the curve is
+               refused, or this odometer is outside what it covers
+      trim     every car of the trim - when no odometer was given
+
+    Fewer than CAR_MIN_PEERS prices: no range. Asking prices, never sale
+    prices, and the trim pools model years (the year split says how much
+    that matters). Mirrored exactly by stats.js estimate()."""
+    import numpy as np
+    odo = subject.get("odometer_km")
+    out = {"usable": False, "basis": None, "reason": "", "why_not_curve": None}
+    qs = [0.10, 0.25, 0.75, 0.90]
+    got = None
+    if odo is not None and fit.get("usable"):
+        used = fit_rows.dropna(subset=["price_aud", "odometer_km"])
+        lo_q = float(used["odometer_km"].quantile(CAR_FIT_RANGE[0]))
+        hi_q = float(used["odometer_km"].quantile(CAR_FIT_RANGE[1]))
+        if lo_q <= odo <= hi_q:
+            base = float(used["price_aud"].median())
+            slope, med = float(fit["slope_per_km"]), float(fit["median_odo"])
+            mid = base * np.exp(slope * (odo - med))
+            res = (np.log(used["price_aud"].to_numpy(dtype=float)) - np.log(base)
+                   - slope * (used["odometer_km"].to_numpy(dtype=float) - med))
+            got = ("mileage", mid, [mid * np.exp(float(np.quantile(res, q))) for q in qs],
+                   int(len(used)))
+        else:
+            out["why_not_curve"] = (f"{odo:,.0f} km is outside the {lo_q:,.0f}-{hi_q:,.0f} km "
+                                    f"the mileage curve covers")
+    elif odo is not None:
+        out["why_not_curve"] = f"no mileage curve for this trim: {fit.get('reason') or 'refused'}"
+    if got is None and odo:
+        cand = peers.dropna(subset=["odometer_km", "price_aud"])
+        cand = cand[cand["odometer_km"] > 0]
+        d = np.abs(np.log(cand["odometer_km"].to_numpy(dtype=float) / odo))
+        order = sorted(range(len(cand)), key=lambda i: (d[i], float(cand["price_aud"].iloc[i]), i))
+        P = [float(cand["price_aud"].iloc[i]) for i in order[:EST_NEAREST]]
+        if len(P) >= CAR_MIN_PEERS:
+            got = ("nearest", float(np.median(P)), [float(np.quantile(P, q)) for q in qs], len(P))
+    if got is None and not odo:
+        P = [float(p) for p in peers["price_aud"].dropna()]
+        if len(P) >= CAR_MIN_PEERS:
+            got = ("trim", float(np.median(P)), [float(np.quantile(P, q)) for q in qs], len(P))
+    if got is None:
+        n = int(peers["price_aud"].notna().sum())
+        out["reason"] = (f"only {n} priced car(s) of this trim - {CAR_MIN_PEERS} are needed "
+                         f"before a range means anything")
+        return out
+    basis, mid, (wlo, lo, hi, whi), n = got
+    r100 = lambda v: _num(round(v / 100) * 100)
+    out.update(usable=True, basis=basis, n=n, mid=r100(mid), lo=r100(lo), hi=r100(hi),
+               wide_lo=r100(wlo), wide_hi=r100(whi), at_odo=_num(odo))
+    return out
+
+
 def _rank_in(peer_prices: list, value: float) -> dict:
     """Where `value` sits among the peers, and how confidently we may say so.
 
@@ -851,9 +917,9 @@ def car_payload(db_path: str | Path = DEFAULT_DB, make: str | None = None,
         peers = pool[pool["key"] != key]
         fit_rows = prepped[prepped["key"] != key]
     else:
+        # no price is a question too: "what should this car be asking?" -
+        # answered by `estimate`; the rank parts below then say nothing
         subject = _subject_typed(price, odometer, year, seller, state)
-        if subject["price"] is None:
-            return {"ok": False, "error": "a price is needed to place a car"}
         peers = pool
         fit_rows = prepped
     subject["label"] = label
@@ -890,7 +956,7 @@ def car_payload(db_path: str | Path = DEFAULT_DB, make: str | None = None,
                 "pct_per_10k_km": _num(fit.get("pct_per_10k_km")),
                 "median_odo": _num(fit.get("median_odo"))}
 
-    if fit.get("usable") and subject["odometer_km"] is not None:
+    if fit.get("usable") and subject["odometer_km"] is not None and subject["price"] is not None:
         used = fit_rows.dropna(subset=["price_aud", "odometer_km"])
         lo_q = float(used["odometer_km"].quantile(CAR_FIT_RANGE[0]))
         hi_q = float(used["odometer_km"].quantile(CAR_FIT_RANGE[1]))
@@ -1070,6 +1136,7 @@ def car_payload(db_path: str | Path = DEFAULT_DB, make: str | None = None,
                      "last": last_day, "days_since": days_since,
                      "stale": days_since > CAR_STALE_DAYS, **pool_stats},
             "raw": raw, "adjusted": adjusted, "expected": expected,
+            "estimate": None if key else _estimate(peers, fit_rows, fit, subject),
             "fit": fit_info, "odo_percentile": odo_pct,
             "comparables": comparables, "band": band, "splits": splits,
             "line_check": line_check, "history": history,
@@ -1325,6 +1392,12 @@ __CHROME_CSS__
  .subjtag.typed{background:var(--fill-warn)}
  .grid2>div{flex:1 1 300px;min-width:280px}
  .gated{color:var(--dim);font-style:italic}
+ /* the expected asking price for typed details */
+ .estbig{padding:4px 0 6px}
+ .estrng{font-family:var(--ui-d);font-size:30px;font-weight:650;letter-spacing:-.02em;line-height:1.2}
+ .estrng span{color:var(--faint);font-weight:400}
+ .estsub{font-size:13px;color:var(--ink-2);margin-top:2px}
+ .estline{font-size:13px;margin:-6px 0 14px;color:var(--ink-2)}
  .mine{color:var(--warn);font-weight:600}
  .fld{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end}
  /* the sighting-by-sighting audit table under the over-time chart */
@@ -1513,10 +1586,10 @@ __NAV__
 </div>
 
 <div class="card keep" id="seencard" style="display:none">
- <div class="ptitle">score a car you have seen
+ <div class="ptitle">price check a car you have seen
    <span>&mdash; nothing is saved; the numbers stay in the address bar</span></div>
  <div class="fld">
-  <div><label>asking price</label><input type="text" id="sPrice" class="w8" placeholder="$18,990"></div>
+  <div><label>asking price (optional)</label><input type="text" id="sPrice" class="w8" placeholder="$18,990"></div>
   <div><label>odometer</label><input type="text" id="sOdo" class="w8" placeholder="132k"></div>
   <div><label>year</label><input type="text" id="sYear" class="w6" placeholder="2013"></div>
   <div><label>seller</label><select id="sSeller" class="w6">
@@ -1527,12 +1600,17 @@ __NAV__
     class="w8" style="width:170px" placeholder="blue, Parramatta"></div>
   <div><label>your target price</label><input type="text" id="sTarget" class="w8"
     placeholder="optional"></div>
-  <div><button class="ghost" id="sGo">Score it</button></div>
+  <div><button class="ghost" id="sGo">Check</button></div>
  </div>
+ <div class="hint">Pick the trim above, fill in what you know and press <b>Enter</b>:
+  you get the <b>expected asking price range</b> for those details, and with an asking
+  price, where that price sits.</div>
  <div class="hint note">Price and odometer are read the same way the importer reads
   them, so <code>$18,990</code> and <code>98k</code> both work &mdash; the card
-  echoes back what was understood. Your note and target price never leave this
-  browser.</div>
+  echoes back what was understood. The range comes from this trim's mileage curve at
+  that odometer when it can (otherwise the cars nearest in kilometres, or the whole
+  trim with no odometer), widened by how far real ads actually sit from it. Your note
+  and target price never leave this browser.</div>
 </div>
 
 <div class="card" id="wlcard" style="display:none">
@@ -2142,6 +2220,50 @@ function rankPhrase(r,what){
     ${r.percentile.toFixed(0)}% of them`;
 }
 
+/* The expected asking price for typed details (explore._estimate). `big`:
+   it IS the answer (no price typed); otherwise one line under the verdict. */
+const EST_BASIS={mileage:"this trim's mileage curve at that odometer, widened by how far real ads sit from the curve",
+  nearest:"the cars of this trim nearest in kilometres",trim:"every car of this trim (no odometer given)"};
+function estimateHtml(e,s,big){
+  if(!e)return "";
+  if(!e.usable)return big?`<div class="warnbox">No expected range: ${esc(e.reason)}</div>`:"";
+  const what=[s.odometer_km!=null?km(s.odometer_km):null,s.year,s.seller_type,s.state].filter(Boolean).join(", ");
+  if(!big)return `<div class="estline">Expected asking price for these details:
+    <b>${money(e.lo)} &ndash; ${money(e.hi)}</b> <span class="flat">(typical ${money(e.mid)};
+    most ${money(e.wide_lo)}&ndash;${money(e.wide_hi)})</span></div>`;
+  return `<div class="estbig">
+    <div class="mini-h">expected asking price${what?" &mdash; "+esc(what):""}</div>
+    <div class="estrng">${money(e.lo)} <span>&ndash;</span> ${money(e.hi)}</div>
+    <div class="estsub">typical <b>${money(e.mid)}</b> &middot; most ads
+      ${money(e.wide_lo)}&ndash;${money(e.wide_hi)}</div>
+    <div class="hint" style="margin-top:6px">The middle half of what cars like this ask,
+      from ${esc(EST_BASIS[e.basis]||e.basis)} (${e.n} ${e.basis==="mileage"?"sightings":"cars"}).
+      ${e.why_not_curve?esc(e.why_not_curve)+". ":""}Asking prices, not sale prices; the trim
+      pools model years, so check the same-year figure below.</div></div>`;
+}
+function likeHtml(d){
+  const sp=d.splits;
+  const splitRow=(lab,o)=>`<div><span class="k">${lab}${o.value?" ("+esc(o.value)+")":""}</span>`
+    +(o.median!=null?`<b>${money(o.median)}</b><span class="flat">n=${o.n}</span>`
+      :`<span class="gated">${esc(o.reason)}</span>`)+`</div>`;
+  return `<div class="mini-h" style="margin-top:14px">like for like</div><div class="kv">
+    <div><span class="k">all ${d.pool.n} of this trim</span><b>${money(d.pool.median)}</b></div>
+    ${splitRow("same seller type",sp.seller)}${splitRow("same state",sp.state)}
+    ${splitRow("same model year",sp.year)}</div>`;
+}
+function cmpHtml(d){
+  if(!(d.comparables||[]).length)return "";
+  return `<div class="mini-h" style="margin-top:14px">nearest ads ${d.band.basis==="odometer"
+      ?"by kilometres":d.band.basis==="year"?"by year":""}</div>
+    <table class="cmp"><thead><tr><th class="ph"></th><th>year</th><th class="num">price</th>
+      <th class="num">odometer</th><th>state</th><th>seller</th><th>last seen</th><th></th></tr></thead><tbody>
+    ${d.comparables.map(c=>`<tr class="${c.dup?"dupe":""}"><td class="ph">${vpaThumb(c.ph)}</td>
+      <td>${c.year||""}</td><td class="num">${money(c.price)}</td>
+      <td class="num">${c.odometer_km!=null?km(c.odometer_km):""}</td><td>${esc(c.state||"")}</td>
+      <td>${esc(c.seller_type||"")}</td><td>${esc(c.day)}</td>
+      <td>${vpaAdLinks(c.url,false,c)}</td></tr>`).join("")}</tbody></table>`;
+}
+
 function renderCar(){
   const d=CAR,el=$("carbody");
   if(!d){$("carcard").style.display="none";return;}
@@ -2158,6 +2280,12 @@ function renderCar(){
     +" "+vpaAdLinks(s.url,false,s.stored?s:null);
   if(!d.usable&&!d.comparables.length){
     el.innerHTML=`<div class="warnbox">${esc(d.reason||d.raw&&d.raw.reason||"")}</div>`;return;}
+
+  /* --- no price typed: the question is "what should it be asking?" */
+  if(!s.stored&&s.price==null){
+    el.innerHTML=estimateHtml(d.estimate,s,true)+likeHtml(d)+cmpHtml(d);
+    return;
+  }
 
   /* --- headline: raw rank AND mileage-adjusted rank in one sentence. They
      genuinely disagree often enough that showing one alone misleads. */
@@ -2176,6 +2304,7 @@ function renderCar(){
     head+=".";
   }
   head+="</div>";
+  if(!s.stored&&d.estimate)head+=estimateHtml(d.estimate,s,false);
 
   /* --- the two strips. Gated on the SAME rule as the rank: a distribution
      drawn from three cars is a picture of nothing, and drawing it while
@@ -3467,7 +3596,7 @@ async function checkFresh(){
   await checkFresh();await load();loadWatchlist();
   // a verdict is bookmarkable: restore whichever subject the URL names
   if(p.get("car"))await openCar({car:p.get("car")});
-  else if(p.get("price")){
+  else if(p.get("price")||p.get("odo")||p.get("year")){
     ["price","odo","year","seller","state","note"].forEach(k=>{
       const f={price:"sPrice",odo:"sOdo",year:"sYear",seller:"sSeller",
                state:"sState",note:"sNote"}[k];

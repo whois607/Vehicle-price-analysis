@@ -140,6 +140,13 @@ dates is three observations sharing one identity, not three cars.
   that car, the way it would on the advert; nothing is downloaded ahead.
   Cars captured from pasted text, or from uploads made before photos were
   kept, have none.
+- **Expected asking price**: Price check (Explore → *Type one I've seen* on
+  the laptop, the Price check tab on the phone) works without a price: pick
+  the trim, enter kilometres (and year, seller, state if you know them),
+  press Enter, and get the range cars like it ask — the middle half, the
+  typical figure and the wider spread, with the basis named. With a price,
+  the same range sits under the verdict. The phone works it out offline and
+  matches the laptop exactly.
 - **Star from the phone**: tap ☆ on a car's screen on the phone, with or
   without signal. The change reaches the laptop's watchlist on the next sync
   — the only change a phone can make. Switch it off, and see what phones

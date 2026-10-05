@@ -365,7 +365,7 @@ def _build(db_path, out: Path, force: bool) -> dict:
             "consts": {k: getattr(explore, k) for k in (
                 "CAR_MIN_PEERS", "CAR_PERCENTILE_MIN", "CAR_COMPARABLES",
                 "CAR_SPLIT_MIN_N", "CAR_YEAR_MIN_N", "CAR_FIT_RANGE",
-                "CAR_LINE_DISAGREE", "CAR_STALE_DAYS", "MAX_VEHICLES", "MAX_SCATTER",
+                "CAR_LINE_DISAGREE", "CAR_STALE_DAYS", "EST_NEAREST", "MAX_VEHICLES", "MAX_SCATTER",
                 "MAX_STANDOUTS")}}
     body = gzip.compress(json.dumps(snap, separators=(",", ":")).encode("utf-8"),
                          compresslevel=9, mtime=0)

@@ -681,8 +681,24 @@ def run_checks() -> int:
           bad["ok"] is False and len(bad["error"]) > 5,
           f"{bad}")
     noprice = car_payload(DB, *W, odometer=100000)
-    check("a typed car with no price is refused",
-          noprice["ok"] is False, str(noprice))
+    # no price is a question too - "what should it ask?" - so no rank, but a
+    # range centred exactly on the card's own "expected for its kilometres"
+    withp = car_payload(DB, *W, odometer=100000, price=30000)
+    e = noprice.get("estimate") or {}
+    check("a typed car with no price gets an expected range, and no rank",
+          noprice["ok"] is True and noprice["raw"]["usable"] is False
+          and noprice["expected"] is None and e.get("usable")
+          and e["wide_lo"] <= e["lo"] <= e["mid"] <= e["hi"] <= e["wide_hi"]
+          and withp["expected"] and e["mid"] == withp["expected"]["price"]
+          and withp["estimate"] == e,
+          f"{e.get('basis')}: {e.get('lo')}-{e.get('hi')}, typical {e.get('mid')}")
+    est_far = car_payload(DB, *W, odometer=600000)["estimate"]
+    est_none = car_payload(DB, *W)["estimate"]
+    stored = car_payload(DB, *W, key=car_payload(DB, *W, odometer=100000)["comparables"][0]["key"])
+    check("off the curve it falls back to the nearest cars, and with no km to the trim",
+          est_far["basis"] == "nearest" and "outside" in (est_far["why_not_curve"] or "")
+          and est_none["basis"] == "trim" and stored["estimate"] is None,
+          f"{est_far['basis']}, {est_none['basis']}; a stored car gets none")
 
     before = hashlib.sha256(DB.read_bytes()).hexdigest()
     assert DB.stat().st_size > 0

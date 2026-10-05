@@ -136,6 +136,8 @@ input::placeholder{color:var(--faint)}
 .btn.block{display:flex;width:100%}
 .btn:disabled{opacity:.5}
 .btn.danger{color:var(--bad)}
+.btn.starbtn{flex:none;width:52px;padding:0;font-size:22px;font-weight:400;color:var(--faint)}
+.btn.starbtn.on{color:var(--warn);border-color:var(--warn);background:var(--warn-soft)}
 .paste{position:relative}
 .paste input{padding-right:84px}
 .paste button{position:absolute;right:5px;top:5px;height:34px;padding:0 12px;border:0;border-radius:8px;

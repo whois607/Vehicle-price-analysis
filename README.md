@@ -140,6 +140,10 @@ dates is three observations sharing one identity, not three cars.
   that car, the way it would on the advert; nothing is downloaded ahead.
   Cars captured from pasted text, or from uploads made before photos were
   kept, have none.
+- **Star from the phone**: tap ☆ on a car's screen on the phone, with or
+  without signal. The change reaches the laptop's watchlist on the next sync
+  — the only change a phone can make. Switch it off, and see what phones
+  changed, on the laptop's Phone page.
 - **Light and dark**: every page, laptop and phone. On the laptop, the
   screen / sun / moon button in the header (Match Windows, Light, Dark); on
   the phone, *Sync & settings* → Appearance (Auto, Light, Dark). Auto

@@ -106,6 +106,8 @@ vehicle-price-analysis/
     vpa.db                 the database
     backups/               vpa_backup_*.db snapshots (Store.backup())
     phone.json             phone sync switches + paired phones (token HASHES)
+    phone_stars.json       star requests from phones: waiting, and what became
+                           of each (vpa/phoneinbox.py)
     photos.json            listing photo ADDRESSES by ad id (vpa/photos.py);
                            .bak = the version before the last save
     raw/                   the 16 saved carsales/Facebook .htm captures
@@ -748,6 +750,8 @@ All of the following is built **and** verified by an automated suite (see §7).
   and the phone (car lists, swipeable gallery, kept offline once seen).
 * **Light and dark** — every laptop page and the phone app; follows the
   system, or a choice kept in that browser.
+* **Stars from the phone** — the one change a phone can make; queued on the
+  phone offline, applied by the laptop to the starred table only.
 
 ---
 
@@ -1070,6 +1074,40 @@ Keep these — each one was a bug that took a while to find.
 * The background listener restarts itself when VPA's code changes
   (phone._code_stamp: newest mtime of vpa/*.py/js/html/css): it stops
   listening first, then starts a fresh copy, so it never serves old code.
+
+**Stars from the phone (05/10/2026)**
+* THE FIRST PHONE WRITE, so it can reach exactly one table. The phone sends
+  STATES ("star k" / "unstar k", a random id, the tap time), never toggles:
+  a request applied twice changes nothing. Taps wait in the phone's
+  localStorage (`vpa.starq`) and show at once (DB.stars = the copy's stars
+  with the queue laid on top); every sync sends them first (POST
+  /api/stars, max 25, 4 KB) and asks what became of earlier ones.
+* THE LISTENER STILL NEVER OPENS THE DATABASE (check_phone's import walk now
+  allows phonecfg + phoneinbox only). It validates each field and appends to
+  data/phone_stars.json (lock + atomic replace; a damaged file is refused,
+  never rewritten). The supervising process (phone._apply_phone_stars, the
+  app or the background listener - whichever listens) applies the queue
+  each tick with starred.apply_phone_ops: ONE transaction, `starred` only,
+  then moves each request to `done` (kept 60 days) with its outcome:
+  applied / already / kept / gone. A crash between the two re-applies -
+  harmless, since each is a state.
+* CONFLICTS: newest action wins. An unstar tapped before the laptop's
+  starred_at leaves the star ("kept"). Phone stars take the tap time as
+  starred_at. A key merged away follows merge_log to the survivor. A car
+  gone from the data can still be unstarred, never newly starred. Known
+  limit: the laptop keeps no record of WHEN it unstarred, so a phone star
+  tapped before a laptop unstar (both since the phone's last sync) is
+  applied - a star reappears, visibly, never data lost.
+* An unstar removes the star's note, as on the laptop: the phone asks first
+  when there is one, and the note is kept in the done log.
+* The DB is backed up once, before the first change a phone ever makes
+  (`backup` in the file). "Phones can star cars" on the Phone page
+  (phone.json `phone_stars`, default on) switches it off: the listener then
+  answers 403 and the phone keeps its taps, saying why. The Phone page lists
+  recent phone changes by car name (read-only lookup).
+* The phone drops a request once answered AND its copy shows the outcome
+  (or the copy was built after the laptop decided); "kept" / "gone" are
+  dropped with a toast. `tests/check_phone_stars.py`.
 
 **Light and dark (05/10/2026)**
 * ONE SWITCH, RESOLVED BEFORE PAINT: `ui.THEME_HEAD` (laptop, injected into

@@ -391,7 +391,7 @@ def main() -> int:
         reach |= imps
         todo.extend(imps)
     check("the listener imports nothing that can open the database",
-          not (reach & banned) and reach <= {"phonecfg"},
+          not (reach & banned) and reach <= {"phonecfg", "phoneinbox"},
           f"reaches only: {sorted(reach) or 'the standard library'}")
 
     print("\n== who listens: the app, or the background listener ==")

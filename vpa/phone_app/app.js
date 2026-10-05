@@ -94,7 +94,84 @@ let DB = null;
 const TS_LINK = "intent:#Intent;action=android.intent.action.MAIN;category=android.intent.category.LAUNCHER;" +
   "package=com.tailscale.ipn;S.browser_fallback_url=" +
   encodeURIComponent("https://play.google.com/store/apps/details?id=com.tailscale.ipn") + ";end";
-function useSnapshot(snap) { DB = VS.index(snap); }
+function useSnapshot(snap) { DB = VS.index(snap); DB.snapStars = new Map(DB.stars); applyStarQ(); }
+
+/* ------------------------------------------------------------ stars from this phone
+   A tap is a request to the laptop: "star this car" / "unstar it" - a state,
+   never a toggle, so a request delivered twice changes nothing. Taps wait in
+   STARQ (this phone's storage) until the laptop has applied them, and show at
+   once: DB.stars is the copy's stars with the waiting taps laid on top.
+     {id, k, on, at, sent, res}  res = what the laptop did: applied | already
+                                 | kept (it was starred there after your tap)
+                                 | gone (the car left the data)
+   A request is let go once the laptop has answered AND the copy shows the
+   outcome (or the laptop kept its own state, which the copy already shows). */
+const STARQ = {
+  load() { try { const q = JSON.parse(LS.get("starq") || "[]"); return Array.isArray(q) ? q : []; } catch (e) { return []; } },
+  save(q) { LS.set("starq", q.length ? JSON.stringify(q) : null); },
+};
+const STAR = { off: null, pending: new Set() };
+const snapIso = () => DB ? String(DB.snap.built).replace(" ", "T") : "";
+function starSettled(o) {
+  if (!o.res) return o.sent && Date.now() - o.at > 60 * 864e5;      // never answered in 60 days
+  if (o.res.r === "kept" || o.res.r === "gone") return true;
+  return !!DB && (DB.snapStars.has(o.res.key || o.k) === o.on || snapIso() >= String(o.res.decided || "").replace(" ", "T"));
+}
+function applyStarQ() {
+  if (!DB) return;
+  let q = STARQ.load();
+  const gone = q.filter(starSettled);
+  if (gone.length) {
+    q = q.filter(o => !gone.includes(o)); STARQ.save(q);
+    const kept = gone.filter(o => o.res && o.res.r === "kept").length, lost = gone.filter(o => o.res && o.res.r === "gone").length;
+    if (kept || lost) setTimeout(() => toast([kept ? `${kept} unstar${kept > 1 ? "s" : ""} not applied - starred again on the laptop since` : "",
+      lost ? `${lost} star${lost > 1 ? "s" : ""} for a car no longer in the data` : ""].filter(Boolean).join(" · "), 5000), 300);
+  }
+  DB.stars = new Map(DB.snapStars); STAR.pending = new Set();
+  for (const o of q) {
+    STAR.pending.add(o.k);
+    if (o.on) { if (!DB.stars.has(o.k)) DB.stars.set(o.k, { at: new Date(o.at).toISOString(), note: null, mine: true }); }
+    else DB.stars.delete(o.k);
+  }
+}
+function tapStar(k) {
+  if (!DB) return;
+  const on = !DB.stars.has(k), s = DB.stars.get(k);
+  if (!on && s && s.note && !confirm(`This star has a note on the laptop:\n\n"${s.note}"\n\nUnstarring removes the note too (the laptop keeps a record of it).`)) return;
+  let q = STARQ.load();
+  // a tap not yet sent is replaced, or dropped when it would undo itself
+  const sentOnly = q.filter(o => o.k === k && o.sent);
+  const base = sentOnly.length ? sentOnly[sentOnly.length - 1].on : DB.snapStars.has(k);
+  q = q.filter(o => !(o.k === k && !o.sent));
+  if (on !== base) q.push({ id: Array.from(crypto.getRandomValues(new Uint8Array(12)), b => (b % 36).toString(36)).join(""),
+                            k, on, at: Date.now(), sent: false });
+  STARQ.save(q); applyStarQ(); render(true);
+  toast(on ? "Starred · goes to the laptop on the next sync" : "Unstarred · goes to the laptop on the next sync");
+  if (LS.get("token")) starSync().then(sent => { if (sent) setTimeout(() => sync(false), 12000); });
+}
+// send waiting taps; ask what became of sent ones. True if any were sent.
+async function starSync() {
+  const token = LS.get("token");
+  let q = STARQ.load();
+  if (!token || !q.length) return false;
+  const ops = q.filter(o => !o.sent).slice(0, 25), ask = q.filter(o => o.sent && !o.res).map(o => o.id);
+  if (!ops.length && !ask.length) { applyStarQ(); return false; }
+  try {
+    const r = await fetch("/api/stars", { method: "POST", cache: "no-store", signal: withTimeout(8000),
+      headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
+      body: JSON.stringify({ ops: ops.map(o => ({ id: o.id, k: o.k, on: o.on, at: o.at })), ask }) });
+    const d = await r.json().catch(() => ({}));
+    if (r.status === 403 && d.off) { STAR.off = d.error; return false; }
+    if (!r.ok || !d.ok) return false;
+    STAR.off = null;
+    const acc = new Set(d.accepted || []), res = d.results || {};
+    q = STARQ.load();                                   // taps made meanwhile are kept
+    for (const o of q) { if (acc.has(o.id)) o.sent = true; if (res[o.id]) o.res = res[o.id]; }
+    STARQ.save(q); applyStarQ();
+    if (location.hash.startsWith("#/starred") || location.hash.startsWith("#/car") || location.hash.startsWith("#/sync")) render(true);
+    return acc.size > 0;
+  } catch (e) { return false; }                       // no signal: they wait
+}
 
 /* ------------------------------------------------------------ sync */
 const SYNC = { busy: false, state: LS.get("token") ? "idle" : "unpaired", error: null,
@@ -112,6 +189,7 @@ async function sync(manual) {
     if (r.status === 429) { SYNC.state = "error"; SYNC.error = "the laptop is refusing for ten minutes after too many failed attempts"; return; }
     const meta = await r.json();
     if (!meta.ok) { SYNC.state = "error"; SYNC.error = meta.error; return; }
+    await starSync();
     const have = DB && DB.snap.version;
     if (meta.version !== have) {
       SYNC.state = "downloading"; pill();
@@ -126,6 +204,7 @@ async function sync(manual) {
       await idbPut("snap", snap);
       useSnapshot(snap);
       LS.set("meta", JSON.stringify(meta));
+      if (STARQ.load().some(o => o.sent && !o.res)) starSync();
       const add = before ? snap.counts.sightings - before.sightings : null;
       toast(before ? `Updated: ${n0(snap.counts.vehicles)} cars` + (add > 0 ? ` (+${n0(add)} sightings)` : "")
                    : `Downloaded ${n0(snap.counts.vehicles)} cars`);
@@ -720,12 +799,13 @@ route("/car", { tab: "find", back: true }, q => {
   if (!v) return `<div class="empty"><b>Not in your data</b>That car isn't in the copy on this phone.</div>`;
   const t = v.title || [v.year, v.make, v.model, v.variant].filter(Boolean).join(" ");
   setTitle(t);
-  const it = vehicleAsItem(v), star = DB.stars.get(v.k);
-  let h = `<div class="card${v.ph && v.ph.length ? " hasgal" : ""}">${gallery(v.ph, v.url)}${star ? `<span class="tag warn">★ starred${star.note ? ": " + esc(star.note) : ""}</span>` : ""}
+  const it = vehicleAsItem(v), star = DB.stars.get(v.k), wait = STAR.pending.has(v.k);
+  let h = `<div class="card${v.ph && v.ph.length ? " hasgal" : ""}">${gallery(v.ph, v.url)}${star ? `<span class="tag warn">★ starred${star.note ? ": " + esc(star.note) : ""}</span>` : ""}${wait ? ` <span class="tag">waiting to sync</span>` : ""}
     <h1>${esc(t)}</h1><div class="sub">${esc([v.make, v.model, v.variant].filter(Boolean).join(" · "))}</div>
     <div class="spread" style="margin-top:10px"><div class="big">${money(it.price)}</div><div style="text-align:right"><b>${km(it.odometer_km)}</b><div class="sub">${esc([v.year, v.state, v.seller].filter(Boolean).join(" · "))}</div></div></div>
     <div class="note">Last seen ${dLong(it.last_day)}${v.id ? ` · ${esc(v.id)}` : ""}</div>
-    <div class="row" style="margin-top:12px;gap:8px">${v.url ? `<a class="btn block primary" href="${esc(v.url)}" target="_blank" rel="noopener noreferrer">Open advert</a>` : ""}
+    <div class="row" style="margin-top:12px;gap:8px"><button class="btn starbtn${star ? " on" : ""}" id="starBtn" aria-pressed="${!!star}" aria-label="${star ? "Unstar" : "Star"} this car">${star ? "★" : "☆"}</button>
+    ${v.url ? `<a class="btn block primary" href="${esc(v.url)}" target="_blank" rel="noopener noreferrer">Open advert</a>` : ""}
     ${v.variant ? `<a class="btn block" href="#/sel?l=${enc(VS.labelOf(v.make, v.model, v.variant))}">The trim</a>` : `<a class="btn block" href="#/sel?l=${enc(VS.labelOf(v.make, v.model))}">The model</a>`}</div></div>`;
   if (!v.variant || !String(v.variant).trim()) {
     return h + `<div class="card"><div class="verdict">This car was captured without a trim, so it can't be ranked against one - pooling every trim would compare different cars.</div></div>`;
@@ -735,6 +815,8 @@ route("/car", { tab: "find", back: true }, q => {
 });
 
 /* ------------------------------------------------------------ price check */
+ROUTES["/car"].after = q => { if ($("starBtn")) $("starBtn").onclick = () => tapStar(q.k); };
+
 route("/check", { tab: "check", titleText: "Price check" }, q => {
   const trims = Object.entries(DB.sel).filter(([, e]) => e.lv === "trim").map(([l, e]) => [l, e.c.vehicles || 0])
     .sort((a, b) => b[1] - a[1]);
@@ -827,15 +909,21 @@ ROUTES["/compare"].after = q => {
 /* ------------------------------------------------------------ starred */
 route("/starred", { tab: "starred", titleText: "Starred" }, () => {
   const rows = [...DB.stars.entries()];
-  if (!rows.length) return `<div class="empty"><b>No starred cars</b>Star cars on the laptop's Explore page and they appear here.</div>`;
-  let h = `<div class="card"><h2>Starred on the laptop <small>${rows.length}</small></h2><div class="list">`;
+  const waiting = STARQ.load().filter(o => !o.res).length;
+  const head = waiting ? `<div class="card flat"><div class="sub">${waiting} star change${waiting > 1 ? "s" : ""} waiting to reach the laptop${
+    STAR.off ? ` - <span class="warn">${esc(STAR.off)}</span>` : " - sent on the next sync"}.</div></div>` : "";
+  if (!rows.length) return head + `<div class="empty"><b>No starred cars</b>Tap ☆ on a car to star it - here or on the laptop's Explore page.</div>`;
+  let h = head + `<div class="card"><h2>Starred <small>${rows.length}</small></h2><div class="list">`;
   for (const [k, s] of rows) {
-    const v = DB.byKey.get(k);
-    if (!v) { h += `<div class="item"><div class="main"><div class="t muted">A starred car that is no longer in the data</div><div class="s">${esc(s.note || "")}</div></div></div>`; continue; }
-    h += carItem(vehicleAsItem(v), s.note || "");
+    const v = DB.byKey.get(k), w = STAR.pending.has(k) ? "waiting to sync" : "";
+    if (!v) { h += `<div class="item"><div class="main"><div class="t muted">A starred car that is no longer in the data</div><div class="s">${esc([s.note, w].filter(Boolean).join(" · "))}</div></div>
+      <button class="btn" data-unstar="${esc(k)}" aria-label="Unstar">★</button></div>`; continue; }
+    h += carItem(vehicleAsItem(v), [s.note, w].filter(Boolean).join(" · "));
   }
-  return h + `</div></div>`;
+  return h + `</div><div class="note">Star or unstar a car from its screen. Changes made here reach the laptop's watchlist on the next sync.</div></div>`;
 });
+
+ROUTES["/starred"].after = () => document.querySelectorAll("[data-unstar]").forEach(b => b.onclick = () => tapStar(b.dataset.unstar));
 
 /* ------------------------------------------------------------ sync & pairing */
 // how this phone reaches the laptop, from the address VPA was opened at
@@ -883,6 +971,9 @@ route("/sync", { tab: null, back: true, titleText: "Sync & settings", needsData:
       cn.text.startsWith("Tailscale") ? ", whenever Tailscale is on and the laptop is awake" : ""}. Only a newer copy is downloaded. With no signal, the copy on this phone is used.</div></div>`;
   const secure = window.isSecureContext && "serviceWorker" in navigator;
   const ready = secure && navigator.serviceWorker.controller;
+  const sq = STARQ.load().filter(o => !o.res).length;
+  if (sq) h += `<div class="card"><h2>Stars</h2><p class="sub">${sq} star change${sq > 1 ? "s" : ""} made on this phone ${
+    STAR.off ? `can't be sent: <span class="warn">${esc(STAR.off)}</span>` : "waiting to reach the laptop - sent on the next sync."}</p></div>`;
   const th = window.vpaTheme ? vpaTheme() : "auto";
   h += `<div class="card"><h2>Appearance</h2><div class="seg">${[["auto", "Auto"], ["light", "Light"], ["dark", "Dark"]].map(([k, l]) =>
     `<button data-theme-set="${k}" class="${th === k ? "on" : ""}" aria-pressed="${th === k}">${l}</button>`).join("")}</div>

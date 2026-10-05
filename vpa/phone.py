@@ -31,6 +31,11 @@ Who runs the listener: the app while it is open, or - with "keep running
 when VPA is closed" - a background process started with Windows
 (python -m vpa phone-serve). supervise() decides, in whichever process calls
 it, so there is only ever one.
+
+Stars from phones: the listener queues them in phoneinbox.py without
+touching the database; the same supervising process applies them
+(starred.apply_phone_ops - the starred table only) on its next tick, and the
+database change rebuilds the copy as any other change does.
 """
 from __future__ import annotations
 
@@ -105,6 +110,7 @@ class _Host:
         self.last_build = None        # {"at", "seconds", "built", "error"}
         self.last_spawn = 0.0
         self.stamp = None             # code version this process started on
+        self.star_error = None        # the last failure applying phone stars
         self.thread = None
         self.stop_evt = threading.Event()
 
@@ -226,6 +232,7 @@ def supervise(allow_build: bool = True) -> None:
                 if h.role == "app" and s["background"] and h.status == "starting":
                     _spawn_background()
         if h.server is not None and allow_build:
+            _apply_phone_stars()
             _note_https(s)
             st = _db_stat(h.db)
             if st != h.last_stat:
@@ -235,6 +242,38 @@ def supervise(allow_build: bool = True) -> None:
                 _rebuild("data changed" if h.last_build else "start")
     except Exception as e:
         h.status, h.error = "error", f"{type(e).__name__}: {e}"
+        traceback.print_exc()
+
+
+def _apply_phone_stars() -> None:
+    """Apply what phones asked for since the last tick. Runs only where the
+    listener runs, on the supervising thread. On any failure the requests
+    stay queued and are tried again next tick - nothing is lost or
+    half-done (the database part is one transaction, and each request is a
+    state, so applying it twice is harmless)."""
+    from . import phoneinbox, starred
+    from .store import Store
+    h = HOST
+    try:
+        ops = phoneinbox.pending()
+        if not ops:
+            return
+        backup = None
+        if phoneinbox.needs_backup():
+            # the first change a phone has ever made: a new kind of write
+            with Store(h.db) as st:
+                backup = str(st.backup())
+            print(f"phone stars: backed up the database first -> {backup}")
+        res = starred.apply_phone_ops(h.db, ops)
+        phoneinbox.settle(res, backup=backup)
+        h.star_error = None
+        tally = {}
+        for r in res:
+            tally[r["r"]] = tally.get(r["r"], 0) + 1
+        print(f"{time.strftime('%H:%M:%S')} phone stars: "
+              + ", ".join(f"{n} {k}" for k, n in sorted(tally.items())))
+    except Exception as e:
+        h.star_error = f"{type(e).__name__}: {e}"
         traceback.print_exc()
 
 
@@ -386,7 +425,8 @@ def set_autostart(on: bool) -> str | None:
         return f"could not add the Startup shortcut: {e}"
 
 
-def apply_options(db_path, enabled=None, lan=None, background=None) -> dict:
+def apply_options(db_path, enabled=None, lan=None, background=None,
+                  phone_stars=None) -> dict:
     """The laptop page's switches. Background on/off also adds/removes the
     Startup shortcut; the change takes effect on the next tick (seconds)."""
     if background is not None:
@@ -394,7 +434,8 @@ def apply_options(db_path, enabled=None, lan=None, background=None) -> dict:
                             and (enabled or phonecfg.load()["enabled"]))
         if err:
             return {"ok": False, "error": err}
-    s = phonecfg.set_options(enabled=enabled, lan=lan, background=background)
+    s = phonecfg.set_options(enabled=enabled, lan=lan, background=background,
+                             phone_stars=phone_stars)
     if not s["enabled"]:
         set_autostart(False)
     if HOST.db is None:
@@ -402,6 +443,28 @@ def apply_options(db_path, enabled=None, lan=None, background=None) -> dict:
     if HOST.role is not None:
         supervise(allow_build=False)
     return {"ok": True, **ui_state(db_path)}
+
+
+def _named(db_path, rows: list[dict]) -> list[dict]:
+    """Give each logged phone star the car's name (read-only lookup)."""
+    from .store import connect_readonly
+    ks = {r.get("key") or r.get("k") for r in rows}
+    names = {}
+    if ks:
+        try:
+            con = connect_readonly(db_path)
+            try:
+                for k in ks:
+                    v = con.execute("SELECT raw_title, year, make, model, variant FROM vehicles "
+                                    "WHERE key = ?", (k,)).fetchone()
+                    if v:
+                        names[k] = v["raw_title"] or " ".join(
+                            str(x) for x in (v["year"], v["make"], v["model"], v["variant"]) if x)
+            finally:
+                con.close()
+        except Exception:
+            pass
+    return [dict(r, title=names.get(r.get("key") or r.get("k"))) for r in rows]
 
 
 def ui_state(db_path=DEFAULT_DB) -> dict:
@@ -412,7 +475,7 @@ def ui_state(db_path=DEFAULT_DB) -> dict:
     status = HOST.status
     if HOST.role is None:                       # this process is not supervising
         status = ("elsewhere" if _ping(port) else "starting") if s["enabled"] else "off"
-    from . import tailnet
+    from . import phoneinbox, tailnet
     return {"ok": True, **pub, "status": status, "error": HOST.error,
             "tailnet": tailnet.check(port),
             "here": HOST.server is not None, "role": HOST.role,
@@ -420,4 +483,6 @@ def ui_state(db_path=DEFAULT_DB) -> dict:
             "meta": meta, "build": HOST.last_build, "building": HOST.building,
             "lan_urls": [f"http://{ip}:{port}" for ip in lan_addresses()] if s["lan"] else [],
             "local_url": f"http://127.0.0.1:{port}",
+            "stars": {"recent": _named(db_path, phoneinbox.recent()),
+                      "waiting": phoneinbox.waiting_count(), "error": HOST.star_error},
             "format": phonecfg.FORMAT}

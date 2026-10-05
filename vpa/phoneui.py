@@ -118,6 +118,17 @@ __NAV__
 </div>
 
 <div class="card">
+ <div class="cardhead"><div class="ptitle">stars from phones <span id="starspan"></span></div></div>
+ <label class="opt" style="margin-top:0"><input type="checkbox" id="optStars"><span><b>Phones can star cars</b>
+  <div class="d">A paired phone can star or unstar a car, even with no signal - the change is
+   sent on its next sync and lands in the same watchlist as a star made here. It is the only
+   change a phone can make: the starred list, nothing else. If a car was starred here after
+   the phone unstarred it, the newer action wins. The database is backed up before the
+   first change a phone makes.</div></span></label>
+ <div id="starlog"></div>
+</div>
+
+<div class="card">
  <div class="ptitle">how the phone reaches this laptop</div>
  <div id="route"><span class="ri"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
    stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg></span>
@@ -212,6 +223,19 @@ function paint(s){
     :`<div class="flat" style="font-size:13px">${on?"Building the first copy&hellip;":"Built once phone sync is on."}</div>`;
   $("optLan").checked=s.lan;$("optBg").checked=s.background;
   $("optLan").disabled=$("optBg").disabled=!on;
+  // stars from phones: the switch, and what phones changed lately
+  $("optStars").checked=s.phone_stars!==false;$("optStars").disabled=!on;
+  const sr=s.stars||{},rec=sr.recent||[];
+  const RS={applied:["good","done"],already:["","no change needed"],
+    kept:["warn","kept the laptop's newer star"],gone:["warn","car no longer in the data"]};
+  $("starspan").textContent=sr.waiting?`${sr.waiting} waiting`:"";
+  $("starlog").innerHTML=(sr.error?`<div class="warnbox">Could not apply a phone's stars yet (tried again in seconds): ${esc(sr.error)}</div>`:"")
+    +(rec.length?`<table style="margin-top:10px"><thead><tr><th>change</th><th>car</th><th>from</th><th>tapped</th><th>result</th></tr></thead><tbody>${
+      rec.map(r=>{const [c,t]=RS[r.r]||["",r.r];
+        return `<tr><td>${r.on?"&#9733; star":"&#9734; unstar"}</td><td>${r.title?`<a class="ext" href="/explore?car=${encodeURIComponent(r.key||r.k)}">${esc(r.title)}</a>`:`<span class="flat">a car no longer in the data</span>`}</td>
+          <td>${esc(r.name||"a phone")}</td><td>${esc(when(r.at))}</td>
+          <td><span class="tag ${c}">${esc(t)}</span>${r.note?` <span class="flat">removed note: ${esc(r.note)}</span>`:""}</td></tr>`;}).join("")}</tbody></table>`
+      :'<div class="flat" style="font-size:12.5px;margin-top:8px">No stars from phones yet.</div>');
   $("urls").innerHTML=s.lan&&s.lan_urls.length?s.lan_urls.map(u=>`<code>${esc(u)}</code>`).join(""):"";
 }
 async function load(){const s=await api("/api/phone");if(s.ok)paint(s);}
@@ -230,6 +254,8 @@ $("optLan").onchange=async e=>{const r=await api("/api/phone/options",{lan:e.tar
   if(!r.ok)alert(r.error);else paint(r);setTimeout(load,1500);};
 $("optBg").onchange=async e=>{const r=await api("/api/phone/options",{background:e.target.checked});
   if(!r.ok){alert(r.error);e.target.checked=!e.target.checked;}else paint(r);setTimeout(load,2500);};
+$("optStars").onchange=async e=>{const r=await api("/api/phone/options",{phone_stars:e.target.checked});
+  if(!r.ok){alert(r.error);e.target.checked=!e.target.checked;}else paint(r);};
 $("pairBtn").onclick=async()=>{
   const r=await api("/api/phone/pair",{});
   if(!r.ok){alert(r.error);return;}

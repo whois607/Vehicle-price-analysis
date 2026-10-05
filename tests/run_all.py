@@ -18,7 +18,8 @@ ways that measurement lies), check_bulk (direct upload: backup before, undo
 after), check_inbox (the watch folder: a real session, undo), check_perf (each speed-up against the code it replaced), check_quickadd,
 check_workbook (building viewer.xlsx: reused forecasts, safe save, stamp), check_phone
 (phone sync: read-only copy, pairing, the listener), check_phone_app (the phone
-app's numbers against the laptop's, every screen rendered), check_photos
+app's numbers against the laptop's, every screen rendered), check_phone_stars
+(stars from phones: the starred table only, newer action wins), check_photos
 (listing photo addresses: read from pages, every import path, never the
 database), check_viewer
 (Excel workbook via real Excel COM - needs Excel installed and viewer test
@@ -38,7 +39,7 @@ SUITES = ["tests.selfcheck", "tests.check_titles", "tests.check_carsales", "test
           "tests.check_edit", "tests.check_starred",
           "tests.check_turnover", "tests.check_bulk", "tests.check_inbox", "tests.check_perf",
           "tests.check_quickadd", "tests.check_workbook", "tests.check_phone",
-          "tests.check_phone_app", "tests.check_photos",
+          "tests.check_phone_app", "tests.check_phone_stars", "tests.check_photos",
           "tests.check_viewer"]
 
 

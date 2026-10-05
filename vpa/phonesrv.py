@@ -2,15 +2,19 @@
 
 A separate, deliberately tiny HTTP server - not the laptop app's server, which
 can import, undo and shut down, and stays on 127.0.0.1. This one can do
-exactly four things, and none of them reaches the database: it only reads
-files that phone.py wrote under output/phone/, and it imports nothing that
-opens vpa.db (tests/check_phone.py enforces that):
+exactly five things, and none of them reaches the database: it reads files
+that phone.py wrote under output/phone/, writes star requests to the
+phoneinbox file, and imports nothing that opens vpa.db (tests/check_phone.py
+enforces that):
 
     GET  /ping            "a VPA laptop is here" - no data, no token needed
     POST /api/pair        a pairing code from the laptop screen -> a token
     GET  /api/meta        the current copy's version, counts and size
     GET  /api/snapshot    the copy itself (gzip); "304 not modified" if the
                           phone already holds this version
+    POST /api/stars       star / unstar requests, queued for the laptop to
+                          apply (phoneinbox.py), and what became of earlier
+                          ones - only while "phones can star" is on
     GET  /, icons, manifest   the phone page shell (no data in it)
 
 Every /api/ call but pairing needs a paired phone's token (Authorization:
@@ -28,7 +32,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import phonecfg
+from . import phonecfg, phoneinbox
 
 MAX_BODY = 4096
 DISCARD_MAX = 64 * 1024     # a refused body read (and dropped) before answering
@@ -198,7 +202,7 @@ class PhoneHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         if not self._gate():
             return
-        if self.path != "/api/pair":
+        if self.path not in ("/api/pair", "/api/stars"):
             self._discard_body()
             self._send(404, b"not found", "text/plain")
             return
@@ -217,8 +221,13 @@ class PhoneHandler(BaseHTTPRequestHandler):
             return
         try:
             d = json.loads(self.rfile.read(n).decode("utf-8") or "{}")
+            if not isinstance(d, dict):
+                raise ValueError
         except (ValueError, UnicodeDecodeError):
             self._json({"ok": False, "error": "bad request"}, 400)
+            return
+        if self.path == "/api/stars":
+            self._stars(d)
             return
         name = d.get("name") or _device_name(self.headers.get("User-Agent", ""))
         try:
@@ -229,6 +238,26 @@ class PhoneHandler(BaseHTTPRequestHandler):
         if not r["ok"]:
             _fail()
         self._json(r, 200 if r["ok"] else 403)
+
+
+    def _stars(self, d: dict):
+        """Queue a paired phone's star changes; report on earlier ones."""
+        dev = self._device()
+        if dev is None:
+            return
+        if not phonecfg.load().get("phone_stars", True):
+            self._json({"ok": False, "off": True, "error": "starring from the phone is "
+                        "switched off on the laptop (VPA > Phone)"}, 403)
+            return
+        try:
+            r = phoneinbox.receive(dev, d.get("ops"), d.get("ask"))
+        except ValueError as e:
+            self._json({"ok": False, "error": str(e)}, 400)
+            return
+        except (phoneinbox.QueueFull, TimeoutError, OSError) as e:
+            self._json({"ok": False, "error": str(e)}, 503)
+            return
+        self._json({"ok": True, **r})
 
 
 # ------------------------------------------------------------------ static

@@ -812,7 +812,8 @@ class _Handler(BaseHTTPRequestHandler):
                 from . import phone
                 self._json(phone.apply_options(
                     self.db_path, enabled=payload.get("enabled"),
-                    lan=payload.get("lan"), background=payload.get("background")))
+                    lan=payload.get("lan"), background=payload.get("background"),
+                    phone_stars=payload.get("phone_stars")))
             elif self.path == "/api/phone/pair":
                 from . import phonecfg
                 self._json(phonecfg.start_pairing())

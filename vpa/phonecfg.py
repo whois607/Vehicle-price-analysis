@@ -14,6 +14,8 @@ app is built so that nothing it can be asked to do reaches vpa.db.
                  out - offline use needs the HTTPS address, see phone.py)
     background   keep the listener running with the app closed (starts with
                  Windows)
+    phone_stars  paired phones may star and unstar cars (phoneinbox.py) -
+                 the one change a phone can ask for
     devices      paired phones: a name and the SHA-256 of their token - the
                  token itself only ever exists on the phone
     pair         the pairing code on screen right now, if any (hashed),
@@ -41,7 +43,7 @@ PAIR_SECONDS = 600                       # a pairing code lasts ten minutes
 PAIR_TRIES = 5                           # ...or five wrong guesses
 MAX_DEVICES = 10
 
-DEFAULTS = {"enabled": False, "lan": False, "background": False,
+DEFAULTS = {"enabled": False, "lan": False, "background": False, "phone_stars": True,
             "port": DEFAULT_PORT, "devices": [], "pair": None,
             "https_url": None}       # the Tailscale address, when Serve is ready
 
@@ -56,11 +58,11 @@ def _sha(text: str) -> str:
 
 # ------------------------------------------------------------------ storage
 @contextmanager
-def _locked(timeout: float = 8.0):
+def _locked(timeout: float = 8.0, lock: Path | None = None):
     """Cross-process lock: a lock file created exclusively. One left behind
     by a crashed process is taken over after 15 s (no change takes that
-    long)."""
-    lock = SETTINGS.with_name(SETTINGS.name + ".lock")
+    long). `lock` names another file's lock (phoneinbox's)."""
+    lock = lock or SETTINGS.with_name(SETTINGS.name + ".lock")
     lock.parent.mkdir(parents=True, exist_ok=True)
     t0 = time.monotonic()
     while True:
@@ -146,9 +148,10 @@ def update(fn) -> dict:
 
 
 def set_options(**opts) -> dict:
-    """enabled / lan / background. Turning sync off also ends any pairing."""
+    """enabled / lan / background / phone_stars. Turning sync off also ends
+    any pairing."""
     def f(s):
-        for k in ("enabled", "lan", "background"):
+        for k in ("enabled", "lan", "background", "phone_stars"):
             if k in opts and opts[k] is not None:
                 s[k] = bool(opts[k])
         if not s["enabled"]:
@@ -292,7 +295,7 @@ def public(s: dict | None = None) -> dict:
     p = s.get("pair")
     live = isinstance(p, dict) and time.time() < float(p.get("expires", 0))
     return {"enabled": s["enabled"], "lan": s["lan"], "background": s["background"],
-            "port": s["port"],
+            "phone_stars": s["phone_stars"], "port": s["port"],
             "devices": [{k: d.get(k) for k in ("id", "name", "paired", "last_seen",
                                                "last_version")} for d in s["devices"]],
             "pairing": {"expires": p["expires"], "tries": p.get("tries", 0)} if live else None}

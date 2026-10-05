@@ -55,6 +55,87 @@ def star(db_path: str | Path = DEFAULT_DB, key: str = "",
     return {"ok": True, "key": key, "starred": bool(on), "total": n}
 
 
+def _current_key(conn, key: str) -> str | None:
+    """The vehicle a key names now. A phone's copy can predate a merge on
+    the Duplicates page, which folds a key into another (and moves its star
+    there); follow merge_log the same way. None if it names no vehicle."""
+    for _ in range(10):
+        if conn.execute("SELECT 1 FROM vehicles WHERE key = ?", (key,)).fetchone():
+            return key
+        r = conn.execute("SELECT winner FROM merge_log WHERE absorbed = ? AND undone_at IS NULL "
+                         "ORDER BY id DESC LIMIT 1", (key,)).fetchone()
+        if not r:
+            return None
+        key = r[0]
+    return None
+
+
+def apply_phone_ops(db_path: str | Path, ops: list[dict]) -> list[dict]:
+    """Apply star / unstar requests from paired phones (phoneinbox.py), in
+    the order they were tapped, in ONE transaction. Writes the `starred`
+    table only - the same two writes as star() above - and returns what
+    became of each request:
+
+      applied  the star was added or removed
+      already  the laptop already had that state (a resend, or the same
+               change made on the laptop too) - nothing written
+      kept     an unstar of a car starred on the laptop AFTER the phone's
+               tap: the newer action wins, so the star stays
+      gone     a star for a car no longer in the database (an unstar of
+               such a car still works - it is how the phone clears one)
+
+    A phone star carries no note; an unstar removes the star's note with
+    it, as on the laptop, and returns that note so it is kept in the log."""
+    out = []
+    decided = datetime.now().isoformat(sep=" ", timespec="seconds")
+    with Store(db_path) as store:
+        c = store.conn
+        try:
+            for op in ops:
+                k, at = op["k"], op["at"]
+                res = {"id": op["id"], "k": k, "key": k, "decided": decided, "note": None,
+                       "why": None}
+                if op["on"]:
+                    key = _current_key(c, k)
+                    if key is None:
+                        res.update(r="gone", why="that car is no longer in the database")
+                    else:
+                        res["key"] = key
+                        if c.execute("SELECT 1 FROM starred WHERE key = ?", (key,)).fetchone():
+                            res["r"] = "already"
+                        else:
+                            c.execute("INSERT INTO starred (key, starred_at, note) VALUES (?,?,NULL)",
+                                      (key, at))
+                            res["r"] = "applied"
+                else:
+                    # the star itself, wherever it is now: on the key the phone
+                    # named, or on the car that key was merged into
+                    key = k
+                    row = c.execute("SELECT starred_at, note FROM starred WHERE key = ?",
+                                    (k,)).fetchone()
+                    if row is None:
+                        cur = _current_key(c, k)
+                        if cur and cur != k:
+                            key = cur
+                            row = c.execute("SELECT starred_at, note FROM starred WHERE key = ?",
+                                            (cur,)).fetchone()
+                    res["key"] = key
+                    if row is None:
+                        res["r"] = "already"
+                    elif (row[0] or "") > at:
+                        res.update(r="kept", why=f"starred on the laptop at {row[0]}, after "
+                                                 f"this was tapped ({at})")
+                    else:
+                        c.execute("DELETE FROM starred WHERE key = ?", (key,))
+                        res.update(r="applied", note=row[1])
+                out.append(res)
+            c.commit()
+        except Exception:
+            c.rollback()
+            raise
+    return out
+
+
 def keys(db_path: str | Path = DEFAULT_DB) -> set[str]:
     """Just the starred keys — for pages that only need to mark rows."""
     with Store(db_path) as store:

@@ -425,7 +425,8 @@ function normYear(v) {
 // explore._estimate: the asking price a car with these details would be
 // expected to list at - the middle half and the 10th-90th - on the most
 // specific basis the data supports (mileage curve, nearest in km, the trim)
-function estimate(peers, fitRows, fitT, subject, C) {
+function estimate(peers, fitRows, fitT, subject, C, what) {
+  what = what || "this trim";
   const odo = subject.odometer_km, qs = [0.10, 0.25, 0.75, 0.90];
   const out = { usable: false, basis: null, reason: "", why_not_curve: null };
   const [fUsable, slope, medOdo, , , fReason] = fitT;
@@ -438,7 +439,7 @@ function estimate(peers, fitRows, fitT, subject, C) {
       const res = used.map(r => Math.log(r.p) - Math.log(base) - slope * (r.km - medOdo));
       got = ["mileage", mid, qs.map(q => mid * Math.exp(quantile(res, q))), used.length];
     } else out.why_not_curve = `${fmt0(odo)} km is outside the ${fmt0(loQ)}-${fmt0(hiQ)} km the mileage curve covers`;
-  } else if (odo != null) out.why_not_curve = `no mileage curve for this trim: ${fReason || "refused"}`;
+  } else if (odo != null) out.why_not_curve = `no mileage curve for ${what}: ${fReason || "refused"}`;
   if (!got && odo) {
     const P = peers.filter(r => r.km != null && r.p != null && r.km > 0)
       .map((r, i) => [Math.abs(Math.log(r.km / odo)), r.p, i])
@@ -452,24 +453,59 @@ function estimate(peers, fitRows, fitT, subject, C) {
   }
   if (!got) {
     const n = peers.filter(r => r.p != null).length;
-    out.reason = `only ${n} priced car(s) of this trim - ${C.CAR_MIN_PEERS} are needed before a range means anything`;
+    out.reason = `only ${n} priced car(s) of ${what} - ${C.CAR_MIN_PEERS} are needed before a range means anything`;
     return out;
   }
   const [basis, mid, [wlo, lo, hi, whi], n] = got, r100 = v => num(pyRound(v / 100, 0) * 100);
   return Object.assign(out, { usable: true, basis, n, mid: r100(mid), lo: r100(lo), hi: r100(hi),
     wide_lo: r100(wlo), wide_hi: r100(whi), at_odo: num(odo) });
 }
+// explore._fallback_note, word for word
+function fallbackNote(va, trimN, mk, mo, lo, hi, n, stored) {
+  const first = va ? `Only ${trimN}${stored ? " other" : ""} priced ${va}`
+    : stored ? "No trim is recorded for this car" : "No trim was picked";
+  return `${first} - compared with all ${n} ${mk} ${mo} cars from ${lo} to ${hi} ` +
+    "instead. That pools different trims, so treat it as a rough guide.";
+}
 function carCard(DB, mk, mo, va, opts, now) {
-  const C = DB.consts, label = labelOf(mk, mo, va);
+  const C = DB.consts;
+  let label = labelOf(mk, mo, va);
   const base = { ok: true, label, gates: { min_peers: C.CAR_MIN_PEERS, percentile_min: C.CAR_PERCENTILE_MIN } };
-  if (!(mk && mo && va)) return Object.assign(base, { usable: false, level: "too broad",
-    reason: "pick a trim first - at make or model level the peer set would pool cars that are not comparable" });
-  const sub = rowsOf(DB, mk, mo, va);
-  if (!sub.length) return Object.assign(base, { usable: false, reason: "no listings match that selection" });
+  if (!(mk && mo)) return Object.assign(base, { usable: false, level: "too broad",
+    reason: "pick a trim first - at make level the peer set would pool cars that are not comparable" });
+  const key = opts.key || null;
+  // the pool: the trim, or - too few priced, or no trim - the model within
+  // CAR_NEAR_YEARS of the car's year (explore.car_payload)
+  const kv = key ? DB.byKey.get(key) : null;
+  const subjYear = key ? (kv && kv.year != null ? kv.year : null) : normYear(opts.year);
+  let sub = va ? rowsOf(DB, mk, mo, va) : [];
+  if (va && !sub.length) return Object.assign(base, { usable: false, reason: "no listings match that selection" });
+  if (key && va && !sub.some(r => r.v.k === key)) return { ok: false, error: "that car is not in this selection" };
+  const peerN = s => { const p = latestPerVehicle(prep(s)); return key ? p.filter(r => r.v.k !== key).length : p.length; };
+  let level = "trim", fallback = null, what = "this trim";
+  const trimN = va ? peerN(sub) : 0;
+  if (trimN < C.CAR_MIN_PEERS && subjYear != null) {
+    const lo = subjYear - C.CAR_NEAR_YEARS, hi = subjYear + C.CAR_NEAR_YEARS;
+    const near = rowsOf(DB, mk, mo, null).filter(r => r.v.year != null && r.v.year >= lo && r.v.year <= hi);
+    const nearN = near.length ? peerN(near) : 0;
+    if (nearN >= C.CAR_MIN_PEERS) {
+      level = "years"; sub = near; what = "these cars";
+      label = `${mk} ${mo} ${lo}-${hi}`; base.label = label;
+      fallback = { trim: va || null, trim_n: trimN, years: [lo, hi], n: nearN,
+                   note: fallbackNote(va, trimN, mk, mo, lo, hi, nearN, !!key) };
+    }
+  }
+  if (level === "trim" && !va) return Object.assign(base, { usable: false, level: "too broad",
+    reason: subjYear == null
+      ? `pick a trim first - or give the year, and it is judged against ${mk} ${mo} cars within ${C.CAR_NEAR_YEARS} years of it`
+      : `pick a trim first - fewer than ${C.CAR_MIN_PEERS} priced ${mk} ${mo} cars are within ${C.CAR_NEAR_YEARS} years of ${subjYear}` });
   const prepped = prep(sub), pool = latestPerVehicle(prepped);
   if (!pool.length) return Object.assign(base, { usable: false, reason: "no priced listings in this trim" });
-  const entry = DB.sel[label] || {}, K = entry.k || { fit: [false, null, null, 0, null, "no fit"], cars: {}, caveats: [] };
-  const key = opts.key || null;
+  // pooled trims: no mileage curve (its slope would measure the trim mix)
+  const POOLED = [false, null, null, 0, null, "several trims are pooled, so a mileage curve would measure the trim mix, not wear"];
+  const entry = level === "trim" ? (DB.sel[label] || {}) : {};
+  const K = level === "trim" ? (entry.k || { fit: [false, null, null, 0, null, "no fit"], cars: {}, caveats: [] })
+    : { fit: POOLED, cars: {}, caveats: [] };
   let subject, peers, fitRows, fitT;
   if (key) {
     const own = pool.find(r => r.v.k === key);
@@ -481,7 +517,7 @@ function carCard(DB, mk, mo, va, opts, now) {
     subject.photos = (v.ph || []).slice();
     peers = pool.filter(r => r.v.k !== key);
     fitRows = prepped.filter(r => r.v.k !== key);
-    fitT = K.cars[key] || [false, null, null, 0, null, "no fit"];
+    fitT = level === "trim" ? (K.cars[key] || [false, null, null, 0, null, "no fit"]) : POOLED;
   } else {
     const [p, note] = parsePrice(opts.price);
     subject = { key: null, stored: false, price: num(p), price_note: note,
@@ -605,10 +641,10 @@ function carCard(DB, mk, mo, va, opts, now) {
   const days = pool.map(r => r.d), last = days.reduce((a, b) => b > a ? b : a);
   const nowD = now || new Date();
   const daysSince = Math.floor((nowD.getTime() - new Date(last + "T00:00:00").getTime()) / 86400000);
-  return Object.assign(base, { usable: raw.usable, level: "trim", subject,
+  return Object.assign(base, { usable: raw.usable, level, fallback, subject,
     pool: Object.assign({ n: peerP.length, first: days.reduce((a, b) => b < a ? b : a), last,
       days_since: daysSince, stale: daysSince > C.CAR_STALE_DAYS }, poolStats(peerP)),
-    raw, adjusted, expected, estimate: key ? null : estimate(peers, fitRows, fitT, subject, C), fit, odo_percentile: odoPct, comparables, band, splits: sp,
+    raw, adjusted, expected, estimate: key ? null : estimate(peers, fitRows, fitT, subject, C, what), fit, odo_percentile: odoPct, comparables, band, splits: sp,
     line_check: lineCheck, history, caveats: K.caveats || [], unavailable, notes,
     basis: "one price per car - each car's latest sighting - so a car seen on seven capture days counts once",
     footer: "These are ASKING prices, not sale prices, and this compares numbers only. " +

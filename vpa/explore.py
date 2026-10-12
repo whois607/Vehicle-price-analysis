@@ -55,6 +55,9 @@ CAR_LINE_DISAGREE = 25      # percentile points before the line rank is worth a 
 CAR_STALE_DAYS = 21         # capture older than this is flagged on the card
 EST_NEAREST = 12            # cars nearest in km an expected range is read from
                             # when the mileage fit cannot speak for this car
+CAR_NEAR_YEARS = 2          # a trim with fewer than CAR_MIN_PEERS priced cars
+                            # (or no trim) is judged against its model within
+                            # this many years either side - said on the card
 
 
 def _frame(db_path: str | Path) -> pd.DataFrame:
@@ -679,7 +682,7 @@ def _subject_typed(price, odometer, year, seller, state) -> dict:
 
 
 def _estimate(peers: pd.DataFrame, fit_rows: pd.DataFrame, fit: dict,
-              subject: dict) -> dict:
+              subject: dict, what: str = "this trim") -> dict:
     """The asking price a car with these details would be EXPECTED to list
     at: a typical range (the middle half) and a wider one (10th-90th), from
     the most specific basis the data supports, which is always named:
@@ -717,7 +720,7 @@ def _estimate(peers: pd.DataFrame, fit_rows: pd.DataFrame, fit: dict,
             out["why_not_curve"] = (f"{odo:,.0f} km is outside the {lo_q:,.0f}-{hi_q:,.0f} km "
                                     f"the mileage curve covers")
     elif odo is not None:
-        out["why_not_curve"] = f"no mileage curve for this trim: {fit.get('reason') or 'refused'}"
+        out["why_not_curve"] = f"no mileage curve for {what}: {fit.get('reason') or 'refused'}"
     if got is None and odo:
         cand = peers.dropna(subset=["odometer_km", "price_aud"])
         cand = cand[cand["odometer_km"] > 0]
@@ -732,7 +735,7 @@ def _estimate(peers: pd.DataFrame, fit_rows: pd.DataFrame, fit: dict,
             got = ("trim", float(np.median(P)), [float(np.quantile(P, q)) for q in qs], len(P))
     if got is None:
         n = int(peers["price_aud"].notna().sum())
-        out["reason"] = (f"only {n} priced car(s) of this trim - {CAR_MIN_PEERS} are needed "
+        out["reason"] = (f"only {n} priced car(s) of {what} - {CAR_MIN_PEERS} are needed "
                          f"before a range means anything")
         return out
     basis, mid, (wlo, lo, hi, whi), n = got
@@ -740,6 +743,16 @@ def _estimate(peers: pd.DataFrame, fit_rows: pd.DataFrame, fit: dict,
     out.update(usable=True, basis=basis, n=n, mid=r100(mid), lo=r100(lo), hi=r100(hi),
                wide_lo=r100(wlo), wide_hi=r100(whi), at_odo=_num(odo))
     return out
+
+
+def _fallback_note(variant, trim_n, make, model, lo, hi, n, stored) -> str:
+    """The card's own words for the nearby-years pool (stats.js has the
+    same sentence). `stored`: the car is one of the data's own, so the
+    others are "other"."""
+    first = (f"Only {trim_n}{' other' if stored else ''} priced {variant}" if variant
+             else "No trim is recorded for this car" if stored else "No trim was picked")
+    return (f"{first} - compared with all {n} {make} {model} cars from {lo} to {hi} "
+            f"instead. That pools different trims, so treat it as a rough guide.")
 
 
 def _rank_in(peer_prices: list, value: float) -> dict:
@@ -894,17 +907,57 @@ def car_payload(db_path: str | Path = DEFAULT_DB, make: str | None = None,
     if df.empty:
         return {**base, "usable": False,
                 "reason": "the database is empty - import something first"}
-    # Refuse above trim level rather than pooling different cars: a rank
-    # against every Falcon trim at once would be confident and meaningless.
-    if not (make and model and variant):
+    if not (make and model):
         return {**base, "usable": False, "level": "too broad",
-                "reason": "pick a trim first - at make or model level the "
-                          "peer set would pool cars that are not comparable"}
+                "reason": "pick a trim first - at make level the peer set would "
+                          "pool cars that are not comparable"}
 
-    sub = _select(df, make, model, variant)
-    if sub.empty:
+    # ---- the pool. Its own trim when that has CAR_MIN_PEERS priced cars.
+    # Fewer (or no trim at all), and the car's year is known: every car of
+    # the model within CAR_NEAR_YEARS either side - most often the same
+    # generation - SAID on the card, because it pools trims. A whole model
+    # across every year (a 1966 Corvette with a 2024 one) is never used:
+    # with neither, the card refuses exactly as before.
+    from .schema import norm_year
+    if key:
+        kr = df[df["key"] == key]
+        subj_year = (None if kr.empty or pd.isna(kr.iloc[-1]["year"])
+                     else int(kr.iloc[-1]["year"]))
+    else:
+        subj_year = norm_year(year)
+    sub = _select(df, make, model, variant) if variant else df.iloc[0:0]
+    if variant and sub.empty:
         return {**base, "usable": False,
                 "reason": "no listings match that selection"}
+    if key and variant and not (sub["key"] == key).any():
+        return {"ok": False, "error": "that car is not in this selection"}
+
+    def peer_n(s):
+        p = analyze.latest_per_vehicle(analyze.prep(s, freq="MS"))
+        return int((p["key"] != key).sum()) if key else int(len(p))
+
+    level, fallback, what = "trim", None, "this trim"
+    trim_n = peer_n(sub) if variant else 0
+    if trim_n < CAR_MIN_PEERS and subj_year is not None:
+        lo, hi = subj_year - CAR_NEAR_YEARS, subj_year + CAR_NEAR_YEARS
+        line = _select(df, make, model, None)
+        near = line[(line["year"] >= lo) & (line["year"] <= hi)]
+        near_n = peer_n(near) if not near.empty else 0
+        if near_n >= CAR_MIN_PEERS:
+            level, sub, what = "years", near, "these cars"
+            label = f"{make} {model} {lo}-{hi}"
+            base["label"] = label
+            fallback = {"trim": variant or None, "trim_n": trim_n, "years": [lo, hi],
+                        "n": near_n, "note": _fallback_note(variant, trim_n, make, model,
+                                                            lo, hi, near_n, bool(key))}
+    if level == "trim" and not variant:
+        return {**base, "usable": False, "level": "too broad",
+                "reason": (f"pick a trim first - or give the year, and it is judged "
+                           f"against {make} {model} cars within {CAR_NEAR_YEARS} years of it"
+                           if subj_year is None else
+                           f"pick a trim first - fewer than {CAR_MIN_PEERS} priced "
+                           f"{make} {model} cars are within {CAR_NEAR_YEARS} years of "
+                           f"{subj_year}")}
 
     prepped = analyze.prep(sub, freq="MS")
     pool = analyze.latest_per_vehicle(prepped)
@@ -953,7 +1006,11 @@ def car_payload(db_path: str | Path = DEFAULT_DB, make: str | None = None,
     # it cannot bend the curve that judges it. The model line's fit is NEVER
     # substituted when this trim's refuses: pooling trims of different value
     # makes the slope pick up mix rather than wear.
-    fit = analyze.fit_mileage(fit_rows)
+    # Pooled trims: no curve at all - its slope would measure the mix of
+    # trims, not wear (the same reason the line's fit is never substituted)
+    fit = (analyze.fit_mileage(fit_rows) if level == "trim" else
+           {"usable": False, "n": 0, "reason": "several trims are pooled, so a "
+            "mileage curve would measure the trim mix, not wear"})
     adjusted, expected = None, None
     fit_info = {"usable": bool(fit.get("usable")), "reason": fit.get("reason", ""),
                 "n": int(fit.get("n", 0)),
@@ -1136,15 +1193,16 @@ def car_payload(db_path: str | Path = DEFAULT_DB, make: str | None = None,
     from datetime import datetime
     last_day = str(pool["day"].max())
     days_since = (datetime.now() - pd.Timestamp(last_day).to_pydatetime()).days
-    caveats = list(analyze.data_caveats(prepped, analyze.bucket_stats(prepped)))
+    caveats = (list(analyze.data_caveats(prepped, analyze.bucket_stats(prepped)))
+               if level == "trim" else [])
 
-    return {**base, "usable": raw["usable"], "level": "trim",
+    return {**base, "usable": raw["usable"], "level": level, "fallback": fallback,
             "subject": subject,
             "pool": {"n": len(peer_prices), "first": str(pool["day"].min()),
                      "last": last_day, "days_since": days_since,
                      "stale": days_since > CAR_STALE_DAYS, **pool_stats},
             "raw": raw, "adjusted": adjusted, "expected": expected,
-            "estimate": None if key else _estimate(peers, fit_rows, fit, subject),
+            "estimate": None if key else _estimate(peers, fit_rows, fit, subject, what),
             "fit": fit_info, "odo_percentile": odo_pct,
             "comparables": comparables, "band": band, "splits": splits,
             "line_check": line_check, "history": history,
@@ -1673,7 +1731,7 @@ __NAV__
 
 <div class="card" id="carcard" style="display:none">
  <div class="cardhead">
-  <div class="ptitle">this car vs the trim <span id="carspan"></span></div>
+  <div class="ptitle"><span id="carvs">this car vs the trim</span> <span id="carspan"></span></div>
   <button class="ghost mini" id="fixBtn" title="correct this listing's stored details">Fix data</button>
   <button class="ghost mini" id="carClose">Clear</button>
  </div>
@@ -2233,7 +2291,14 @@ function rankPhrase(r,what){
    it IS the answer (no price typed); otherwise one line under the verdict. */
 const EST_BASIS={mileage:"this trim's mileage curve at that odometer, widened by how far real ads sit from the curve",
   nearest:"the cars of this trim nearest in kilometres",trim:"every car of this trim (no odometer given)"};
-function estimateHtml(e,s,big){
+/* the same, when the card fell back to the model's nearby years */
+const EST_BASIS_YEARS={nearest:"these cars nearest in kilometres",trim:"all of these cars (no odometer given)"};
+/* says, above everything else, that the card is NOT against one trim */
+function fallbackHtml(d){
+  return d.fallback?`<div class="warnbox" style="margin-bottom:10px">${esc(d.fallback.note)}</div>`:"";
+}
+const ofPool=d=>d.level==="years"?"of these cars":"of this trim";
+function estimateHtml(e,s,big,d){
   if(!e)return "";
   if(!e.usable)return big?`<div class="warnbox">No expected range: ${esc(e.reason)}</div>`:"";
   const what=[s.odometer_km!=null?km(s.odometer_km):null,s.year,s.seller_type,s.state].filter(Boolean).join(", ");
@@ -2246,7 +2311,7 @@ function estimateHtml(e,s,big){
     <div class="estsub">typical <b>${money(e.mid)}</b> &middot; most ads
       ${money(e.wide_lo)}&ndash;${money(e.wide_hi)}</div>
     <div class="hint" style="margin-top:6px">The middle half of what cars like this ask,
-      from ${esc(EST_BASIS[e.basis]||e.basis)} (${e.n} ${e.basis==="mileage"?"sightings":"cars"}).
+      from ${esc((d&&d.level==="years"?EST_BASIS_YEARS:EST_BASIS)[e.basis]||e.basis)} (${e.n} ${e.basis==="mileage"?"sightings":"cars"}).
       ${e.why_not_curve?esc(e.why_not_curve)+". ":""}Asking prices, not sale prices; the trim
       pools model years, so check the same-year figure below.</div></div>`;
 }
@@ -2258,7 +2323,7 @@ function likeHtml(d){
     +(o.median!=null?`<b>${money(o.median)}</b><span class="flat">n=${o.n}</span>`
       :`<span class="gated">${esc(o.reason)}</span>`)+`</div>`;
   return `<div class="mini-h" style="margin-top:14px">like for like</div><div class="kv">
-    <div><span class="k">all ${d.pool.n} of this trim</span><b>${money(d.pool.median)}</b></div>
+    <div><span class="k">all ${d.pool.n} ${ofPool(d)}</span><b>${money(d.pool.median)}</b></div>
     ${splitRow("same seller type",sp.seller)}${splitRow("same state",sp.state)}
     ${splitRow("same model year",sp.year)}${gearRow(sp.gearbox,splitRow)}</div>`;
 }
@@ -2285,6 +2350,7 @@ function renderCar(){
   // refused before any car was looked up (e.g. "pick a trim first")
   if(!s){el.innerHTML=`<div class="warnbox">${esc(d.reason||"")}</div>`;
     $("carspan").textContent=`— ${d.label||""}`;return;}
+  $("carvs").textContent=d.level==="years"?"this car vs nearby years":"this car vs the trim";
   $("carspan").innerHTML=`&mdash; ${esc(d.label)} `
     +(s.stored?'<span class="subjtag">from your data</span>'
               :'<span class="subjtag typed">not in your data &mdash; nothing saved</span>')
@@ -2294,7 +2360,7 @@ function renderCar(){
 
   /* --- no price typed: the question is "what should it be asking?" */
   if(!s.stored&&s.price==null){
-    el.innerHTML=estimateHtml(d.estimate,s,true)+likeHtml(d)+cmpHtml(d);
+    el.innerHTML=fallbackHtml(d)+estimateHtml(d.estimate,s,true,d)+likeHtml(d)+cmpHtml(d);
     return;
   }
 
@@ -2303,7 +2369,8 @@ function renderCar(){
   let head=`<div class="verdict"><b>${money(s.price)}</b>`
     +(s.odometer_km?` at ${km(s.odometer_km)}`:"")
     +(s.year?`, ${s.year}`:"")+" &mdash; ";
-  head+=d.raw.usable?rankPhrase(d.raw,"cars of this trim")
+  head=fallbackHtml(d)+head;
+  head+=d.raw.usable?rankPhrase(d.raw,d.level==="years"?"of these cars":"cars of this trim")
        :`<span class="gated">${esc(d.raw.reason)}</span>`;
   if(d.adjusted&&d.adjusted.rank.usable){
     const rp=d.raw.percentile,ap=d.adjusted.rank.percentile;
@@ -2315,7 +2382,7 @@ function renderCar(){
     head+=".";
   }
   head+="</div>";
-  if(!s.stored&&d.estimate)head+=estimateHtml(d.estimate,s,false);
+  if(!s.stored&&d.estimate)head+=estimateHtml(d.estimate,s,false,d);
 
   /* --- the two strips. Gated on the SAME rule as the rank: a distribution
      drawn from three cars is a picture of nothing, and drawing it while
@@ -2366,7 +2433,7 @@ function renderCar(){
     +(o.median!=null?`<b>${money(o.median)}</b><span class="flat">n=${o.n}</span>`
       :`<span class="gated">${esc(o.reason)}</span>`)+`</div>`;
   const like=`<div class="kv">
-    <div><span class="k">the other ${d.pool.n} of this trim</span><b>${money(d.pool.median)}</b></div>
+    <div><span class="k">the other ${d.pool.n} ${ofPool(d)}</span><b>${money(d.pool.median)}</b></div>
     ${splitRow("same seller type",sp.seller)}
     ${splitRow("same state",sp.state)}
     ${splitRow("same model year",sp.year)}

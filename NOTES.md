@@ -1113,6 +1113,24 @@ Keep these — each one was a bug that took a while to find.
   the title. Manual and auto share a trim group, so the car check (laptop
   and phone, column "gear" in the copy) adds a "same gearbox" like-for-like
   row - only when the car's gearbox is known.
+* Stage 3 - too few of a trim (explore.car_payload, stats.js carCard, both
+  identical): a trim with fewer than CAR_MIN_PEERS (8) other priced cars,
+  or a car with no trim, is judged against EVERY car of its model within
+  CAR_NEAR_YEARS (2) years of its own year - level "years", label
+  "Lexus LS 2012-2016", a `fallback` note shown first on both cards, the
+  card heading "this car vs nearby years". Only when that window itself
+  reaches 8; never a whole model across all years (a 1966 Corvette with a
+  2024 one) - no year, or too few nearby, refuses exactly as before. No
+  mileage curve on a pooled set (it would measure the trim mix - the same
+  reason the line fit is never substituted) and no trim caveats; the
+  expected range then comes from the nearest-in-km or all of them. A trim
+  with 8+ others is untouched. The phone's price check now takes a model
+  (with the year) as well as a trim, and a no-trim car's page gets a card.
+  Real data: 1,179 of the 1,457 cars in thin trims / with no trim now get
+  a card (BMW 387, Ford 567 - those pool trims, e.g. XR8 with XT, hence
+  "rough guide"); 278 still cannot (classic Corvettes, old Mercedes, bikes
+  with no year). Planned: generation (stage 4) goes between trim and
+  nearby years, making most of these fallbacks a same-generation pool.
 
 **Saves that went wrong - the 09/10/2026 Falcon sweep (12/10/2026)**
 * WHAT HAPPENED (poor connection): the watch folder took "page 13" from a

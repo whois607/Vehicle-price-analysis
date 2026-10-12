@@ -18,6 +18,10 @@ them under a derived name, worked out on read. Checked here:
     Compare - and Compare's list of selections gains no duplicate rows;
   * the saved record notices cars that move group, and cars whose stored
     data changed (which must never happen);
+  * the car check falls back, when a trim has fewer than 8 priced cars (or
+    there is no trim), to the model's cars within 2 years - only then, only
+    with a year, never a whole model across every year, with no mileage
+    curve, and says so; a big enough trim is judged exactly as before;
   * reading writes nothing.
 
 Throwaway database only. ASCII output; exit 0 only if every check passes.
@@ -70,6 +74,13 @@ FLEET = [
     ("Toyota", "86", None, 2017, 2),
     ("Ford", "Mustang", "GT FN Auto RWD MY21.5", 2021, 9),
     ("Ford", "Mustang", "GT FN Manual RWD MY22.25", 2022, 9),
+    # the nearby-years fallback: a thin trim, a car with no trim, and cars
+    # outside the window that must NOT be pooled
+    ("Lexus", "LS", "LS460", 2013, 5),
+    ("Lexus", "LS", "LS460 Version C", 2014, 4),
+    ("Lexus", "LS", "LS460", 2016, 2),
+    ("Lexus", "LS", "Auto", 2014, 1),
+    ("Lexus", "LS", "LS460", 2009, 3),
 ]
 
 #: stored name -> the name it must be grouped under (None: no trim)
@@ -243,6 +254,54 @@ def main() -> int:
     check("...and it reports cars that moved group, and stored data that changed",
           sum(n for *_, n in d1["moved"]) == 3 and d2["data_changed"] == [k0],
           f"{sum(n for *_, n in d1['moved'])} moved; {d2['data_changed']}")
+
+    print("\n== too few of a trim: the model's nearby years ==")
+    cars = df.drop_duplicates("key").set_index("key")
+    vc = cars[cars["variant"] == "LS460 Version C"].index[0]
+    p = explore.car_payload(DB, "Lexus", "LS", "LS460 Version C", key=vc)
+    pf = p.get("fallback") or {"note": "(no fallback)", "trim_n": None, "trim": "?"}
+    want = set(cars[(cars["model"] == "LS") & cars["year"].between(2012, 2016)].index) - {vc}
+    got = {c["key"] for c in p["comparables"]} | {vc}
+    check("a thin trim (3 others) with a year: every LS 2012-2016, labelled and said",
+          p["level"] == "years" and p["label"] == "Lexus LS 2012-2016"
+          and p["pool"]["n"] == len(want) == 11 and pf["trim_n"] == 3
+          and "Only 3 other priced LS460 Version C" in pf["note"]
+          and "rough guide" in pf["note"], pf["note"])
+    check("...never the 2009 cars outside the window",
+          not (set(cars[cars["year"] == 2009].index) & {c["key"] for c in p["comparables"]})
+          and p["pool"]["n"] == 11, f"pool {p['pool']['n']} of {int((cars['model'] == 'LS').sum())} LS")
+    check("...with no mileage curve (it would measure the trim mix) and no trim caveats",
+          not p["fit"]["usable"] and "trim mix" in p["fit"]["reason"] and p["caveats"] == []
+          and p["adjusted"] is None and p["expected"] is None, p["fit"]["reason"][:50])
+    nt = cars[cars["variant_stored"] == "Auto"].index[0]
+    q = explore.car_payload(DB, "Lexus", "LS", None, key=nt)
+    qf = q.get("fallback") or {"note": q.get("reason") or "(no fallback)", "trim": "?"}
+    check("a stored car with no trim is judged the same way, not refused",
+          q.get("level") == "years" and q.get("usable") and qf["trim"] is None
+          and qf["note"].startswith("No trim is recorded"), qf["note"][:60])
+    t = explore.car_payload(DB, "Lexus", "LS", None, odometer="120000", year="2014")
+    e = t.get("estimate") or {}
+    check("a typed model + year gets an expected range from those cars",
+          t.get("level") == "years" and e.get("usable") and e.get("basis") == "nearest"
+          and "these cars" in (e.get("why_not_curve") or "")
+          and (t.get("fallback") or {}).get("note", "").startswith("No trim was picked"),
+          f"{e.get('basis')} {e.get('lo')}-{e.get('hi')}" if e else t.get("reason", ""))
+    a = explore.car_payload(DB, "Lexus", "LS", None, price="30000")
+    b = explore.car_payload(DB, "Lexus", "LS", None, price="30000", year="2003")
+    c = explore.car_payload(DB, "Lexus", "LS", "LS460 Version C", price="30000")
+    check("no year, or too few nearby: refused or trim-only, exactly as before",
+          a["level"] == "too broad" and "give the year" in a["reason"]
+          and b["level"] == "too broad" and "fewer than 8" in b["reason"]
+          and c["level"] == "trim" and not c["raw"]["usable"] and c["fallback"] is None,
+          f"{a['reason'][:40]} | {b['reason'][:40]} | trim n={c['raw']['n']}")
+    big = cars[cars["variant"] == "XR6 FG MkII"].index[0]
+    r = explore.car_payload(DB, "Ford", "Falcon", "XR6 FG MkII", key=big)
+    check("a trim with 8+ others is judged against its trim alone",
+          r["level"] == "trim" and r["fallback"] is None and r["pool"]["n"] == 9, f"pool {r['pool']['n']}")
+    other = cars[cars["variant"] == "LS460"].index[0]
+    w = explore.car_payload(DB, "Lexus", "LS", "LS460 Version C", key=other)
+    check("a car asked for under a trim it is not in is still an error",
+          w["ok"] is False, w.get("error", ""))
 
     check("reading wrote nothing", db_hash() == h0, h0)
     passed = sum(ok for ok, _ in RESULTS)

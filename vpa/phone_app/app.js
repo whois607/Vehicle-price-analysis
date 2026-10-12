@@ -733,7 +733,8 @@ ROUTES["/sel"].after = q => {
 // it IS the answer (no price typed); otherwise one line in the verdict card.
 const EST_BASIS = { mileage: "the trim's mileage curve at that odometer, widened by how far real ads sit from it",
   nearest: "the cars of this trim nearest in kilometres", trim: "every car of this trim (no kilometres given)" };
-function estHtml(e, S, big) {
+const EST_BASIS_YEARS = { nearest: "these cars nearest in kilometres", trim: "all of these cars (no kilometres given)" };
+function estHtml(e, S, big, yrs) {
   if (!e) return "";
   if (!e.usable) return big ? `<div class="card"><h2>Expected asking price</h2><p class="sub">No range: ${esc(e.reason)}</p></div>` : "";
   if (!big) return `<div class="note">Expected for these details: <b>${money(e.lo)} – ${money(e.hi)}</b> (typical ${money(e.mid)}).</div>`;
@@ -741,16 +742,18 @@ function estHtml(e, S, big) {
   return `<div class="card"><h2>Expected asking price${what ? ` <small>${esc(what)}</small>` : ""}</h2>
     <div class="estrng">${money(e.lo)} <span>–</span> ${money(e.hi)}</div>
     <div class="sub">typical <b>${money(e.mid)}</b> · most ads ${money(e.wide_lo)}–${money(e.wide_hi)}</div>
-    <div class="note">The middle half of what cars like this ask, from ${esc(EST_BASIS[e.basis] || e.basis)} (${n0(e.n)} ${e.basis === "mileage" ? "sightings" : "cars"}).
+    <div class="note">The middle half of what cars like this ask, from ${esc((yrs ? EST_BASIS_YEARS : EST_BASIS)[e.basis] || e.basis)} (${n0(e.n)} ${e.basis === "mileage" ? "sightings" : "cars"}).
       ${e.why_not_curve ? esc(e.why_not_curve) + ". " : ""}Asking prices, not sale prices; the trim pools model years - see "Year" under Like for like.</div></div>`;
 }
 function cardHtml(c, v) {
   const S = c.subject, C = DB.consts;
   if (!c.ok) return `<div class="card"><b class="bad">${esc(c.error)}</b></div>`;
   if (c.usable === false && !c.raw) return `<div class="card">${esc(c.reason)}</div>`;
-  let h = "";
+  // not against one trim: said first (explore._fallback_note)
+  let h = c.fallback ? `<div class="card"><span class="warn">${esc(c.fallback.note)}</span></div>` : "";
   const R = c.raw, A = c.adjusted, X = c.expected, est = S && !S.stored && S.price == null;
-  if (est) h += estHtml(c.estimate, S, true);
+  const yrs = c.level === "years";
+  if (est) h += estHtml(c.estimate, S, true, yrs);
   else {
   // the laptop's wording: a percentile only from 20 peers up, a plain count below
   const rankTxt = (r, what) => !r.usable ? `<span class="muted">${esc(r.reason)}</span>`
@@ -758,9 +761,9 @@ function cardHtml(c, v) {
         r.percentile < 25 ? '<span class="tag good">cheap end</span>' : r.percentile > 75 ? '<span class="tag bad">dear end</span>' : '<span class="tag">mid-pack</span>'}`
     : `<b>${ordinal(r.rank)}</b> cheapest of ${r.n + 1}`;
   h += `<div class="card"><h2>Against ${esc(c.label)}</h2>
-    <div class="verdict">${rankTxt(R, "cars of this trim")}</div>
+    <div class="verdict">${rankTxt(R, yrs ? "of these cars" : "cars of this trim")}</div>
     ${strip(c.pool.lo, c.pool.q25, c.pool.median, c.pool.q75, c.pool.hi, S.price)}
-    <div class="note">Trim median ${money(c.pool.median)} over ${n0(c.pool.n)} cars, ${dShort(c.pool.first)} to ${dShort(c.pool.last)}${c.pool.stale ? ` · <span class="warn">latest capture was ${c.pool.days_since} days ago</span>` : ""}.</div>`;
+    <div class="note">${yrs ? "Median" : "Trim median"} ${money(c.pool.median)} over ${n0(c.pool.n)} cars, ${dShort(c.pool.first)} to ${dShort(c.pool.last)}${c.pool.stale ? ` · <span class="warn">latest capture was ${c.pool.days_since} days ago</span>` : ""}.</div>`;
   if (X) {
     h += `<div class="spread" style="margin-top:14px"><div><div class="sub">expected for ${km(S.odometer_km)}</div><div class="big" style="font-size:24px">${money(X.price)}</div></div>
       <div style="text-align:right"><b class="${X.gap < 0 ? "good" : X.gap > 0 ? "bad" : ""}" style="font-size:18px">${X.gap > 0 ? "+" : ""}${money(X.gap)}</b>
@@ -772,7 +775,7 @@ function cardHtml(c, v) {
   if (c.odo_percentile != null) h += `<div class="note">Its kilometres are higher than ${pyPct(c.odo_percentile)} of the trim's cars.</div>`;
   const lc = c.line_check;
   if (lc && lc.rank && lc.rank.usable) h += `<div class="note">Across every ${esc(lc.label)}: ${lc.rank.percentile != null ? `dearer than ${pyPct(lc.rank.percentile)}` : `${ordinal(lc.rank.rank)} cheapest of ${lc.rank.n + 1}`} (median ${money(lc.median)}).</div>`;
-  if (S && !S.stored) h += estHtml(c.estimate, S, false);
+  if (S && !S.stored) h += estHtml(c.estimate, S, false, yrs);
   h += `</div>`;
   }
   if (c.comparables && c.comparables.length) {
@@ -826,10 +829,11 @@ route("/car", { tab: "find", back: true }, q => {
     <div class="row" style="margin-top:12px;gap:8px"><button class="btn starbtn${star ? " on" : ""}" id="starBtn" aria-pressed="${!!star}" aria-label="${star ? "Unstar" : "Star"} this car">${star ? "★" : "☆"}</button>
     ${v.url ? `<a class="btn block primary" href="${esc(v.url)}" target="_blank" rel="noopener noreferrer">Open advert</a>` : ""}
     ${v.variant ? `<a class="btn block" href="#/sel?l=${enc(VS.labelOf(v.make, v.model, v.variant))}">The trim</a>` : `<a class="btn block" href="#/sel?l=${enc(VS.labelOf(v.make, v.model))}">The model</a>`}</div></div>`;
-  if (!v.variant || !String(v.variant).trim()) {
-    return h + `<div class="card"><div class="verdict">This car was captured without a trim, so it can't be ranked against one - pooling every trim would compare different cars.</div></div>`;
+  const noTrim = !v.variant || !String(v.variant).trim();
+  if (noTrim && v.year == null) {
+    return h + `<div class="card"><div class="verdict">This car was captured without a trim or a year, so it can't be ranked - pooling every trim of every year would compare different cars.</div></div>`;
   }
-  const c = VS.carCard(DB, v.make, v.model, v.variant, { key: v.k });
+  const c = VS.carCard(DB, v.make, v.model, noTrim ? null : v.variant, { key: v.k });
   return h + cardHtml(c, v) + (c.ok ? historyHtml(c) : "");
 });
 
@@ -853,7 +857,9 @@ route("/check", { tab: "check", titleText: "Price check" }, q => {
 });
 ROUTES["/check"].after = q => {
   // our own suggestion list: Firefox for Android's <datalist> is unreliable
-  const trims = Object.entries(DB.sel).filter(([, e]) => e.lv === "trim")
+  // trims first; a whole model too, which is judged within a few years of
+  // the year typed (explore.CAR_NEAR_YEARS)
+  const trims = Object.entries(DB.sel).filter(([, e]) => e.lv === "trim" || e.lv === "line")
     .map(([l, e]) => ({ l, low: l.toLowerCase(), n: (e.c && e.c.vehicles) || 0, e }));
   $("cT").oninput = () => {
     const w = $("cT").value.toLowerCase().split(/\s+/).filter(Boolean);
@@ -869,10 +875,10 @@ ROUTES["/check"].after = q => {
     const l = $("cT").value.trim(), e = DB.sel[l];
     const out = $("cOut");
     if (!l) { out.innerHTML = ""; return; }
-    if (!e || e.lv !== "trim") { out.innerHTML = `<div class="card"><span class="bad">Pick a trim from the list</span> - a price is judged against cars of one trim, never a whole model.</div>`; return; }
+    if (!e || (e.lv !== "trim" && e.lv !== "line")) { out.innerHTML = `<div class="card"><span class="bad">Pick a trim from the list</span> - a price is judged against cars of one trim (or, given the year, a model's cars of nearby years).</div>`; return; }
     const opts = { price: $("cP").value, odometer: $("cK").value, year: $("cY").value, state: $("cS").value, seller: $("cW").value };
     if (push) history.replaceState(null, "", "#/check?" + new URLSearchParams(Object.entries({ l, p: opts.price, k: opts.odometer, y: opts.year, s: opts.state, w: opts.seller }).filter(x => x[1])).toString());
-    const c = VS.carCard(DB, e.mk, e.mo, e.va, opts);
+    const c = VS.carCard(DB, e.mk, e.mo, e.lv === "trim" ? e.va : null, opts);
     const S = c.subject;
     out.innerHTML = c.ok && S ? `<div class="card"><div class="sub">You entered</div><b>${S.price != null ? money(S.price) : "no price"}</b>${S.price_note ? ` <span class="tag">${esc(S.price_note.replace(/_/g, " "))}</span>` : ""} · ${S.odometer_km != null ? km(S.odometer_km) : "no km"}${S.year ? " · " + S.year : ""}${S.state ? " · " + S.state : ""}${S.seller_type ? " · " + S.seller_type : ""}</div>` + cardHtml(c)
       : cardHtml(c);
@@ -880,7 +886,8 @@ ROUTES["/check"].after = q => {
   $("cGo").onclick = () => run(true);
   // Enter in any field checks (the trim field only once a trim is picked)
   ["cP", "cK", "cY"].forEach(id => $(id).onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); $(id).blur(); run(true); } });
-  $("cT").onkeydown = e => { if (e.key === "Enter" && DB.sel[$("cT").value.trim()]) { e.preventDefault(); $("cT").blur(); run(true); } };
+  $("cT").onkeydown = e => { const x = DB.sel[$("cT").value.trim()];
+    if (e.key === "Enter" && x && (x.lv === "trim" || x.lv === "line")) { e.preventDefault(); $("cT").blur(); run(true); } };
   if (q.l && (q.p || q.k || q.y)) run(false);
 };
 

@@ -96,6 +96,14 @@ def seed() -> None:
                         "title": (f"{year or ''} {mk} {mo} {va or ''}".strip()
                                   + ("", " Manual", " Auto")[i % 3]),
                         "capture_date": d}, source="carsales"))
+    # a thin trim (5 cars): its cards fall back to the model's nearby years
+    for i in range(5):
+        recs.append(make_record({"listing_id": f"SSE-AD-99800{i}", "make": "Ford", "model": "Falcon",
+                                 "variant": "XR6 Sprint", "year": 2012 + (i % 3),
+                                 "price": 52000 + i * 1500, "odometer": 30000 + i * 7000,
+                                 "url": f"/cars/details/z/SSE-AD-99800{i}/",
+                                 "title": f"{2012 + (i % 3)} Ford Falcon XR6 Sprint Manual",
+                                 "capture_date": DAYS[i % len(DAYS)]}, source="carsales"))
     # a car with two prices on one day (two cars merged into one identity)
     for p in (21000, 23500):
         recs.append(make_record({"listing_id": "SSE-AD-999001", "make": "Ford", "model": "Falcon",
@@ -220,6 +228,19 @@ def main(argv=None) -> int:
                       {"year": "2013", "seller": "dealer"}, {"odometer": "75k", "state": "VIC"}):
             p = explore.car_payload(DB, mk, mo, va, **typed)
             cards.append({"mk": mk, "mo": mo, "va": va, "opts": typed, "payload": p})
+    # a model with no trim picked: stored cars captured without a trim, and
+    # typed cars with and without a year (explore.CAR_NEAR_YEARS fallback)
+    for label, (mk, mo, va, lv) in index.items():
+        if lv != "line":
+            continue
+        line = df[(df["make"] == mk) & (df["model"] == mo)]
+        for key in sorted(line[line["variant"].isna()]["key"].unique())[:12 if source else None]:
+            cards.append({"mk": mk, "mo": mo, "va": None, "opts": {"key": key},
+                          "payload": explore.car_payload(DB, mk, mo, None, key=key)})
+        for typed in ({"price": "20000", "year": "2012"}, {"odometer": "100000", "year": "2014"},
+                      {"price": "20000"}, {"year": "1990", "price": "5000"}):
+            cards.append({"mk": mk, "mo": mo, "va": None, "opts": typed,
+                          "payload": explore.car_payload(DB, mk, mo, None, **typed)})
     links = []
     with sqlite3.connect(DB) as c:
         ids = [r[0] for r in c.execute("SELECT listing_id FROM vehicles WHERE listing_id IS NOT NULL LIMIT 6")]

@@ -147,6 +147,11 @@ dates is three observations sharing one identity, not three cars.
   typical figure and the wider spread, with the basis named. With a price,
   the same range sits under the verdict. The phone works it out offline and
   matches the laptop exactly.
+- **Trim names grouped consistently**: stored trims stay exactly as imported,
+  but are grouped on read so "Auto quattro MY18" and "quattro", or "Mk II"
+  and "MkII", count as one trim (`python -m vpa trims` shows how). Gearbox
+  is its own column, and a car in a trim too small to judge is compared with
+  its model's cars of nearby years instead - said plainly on the card.
 - **Bad saves are caught**: a page cut off by a stalled download is
   refused, and a page saved twice (so the next one was probably skipped) is
   skipped with a warning - on every import path. Neither counts as a page in

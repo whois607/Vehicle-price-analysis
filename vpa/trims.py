@@ -514,8 +514,7 @@ def cli(db_path, save=None, against=None, unmatched_list=False) -> int:
             print(f"  {mk}: {len(st)} -> {len(gr)} ({int((gr >= 8).sum())})")
     if unmatched_list:
         um = unmatched(df)
-        print(f"
-no generation found ({sum(u['cars'] for u in um)} cars, makes with rules):")
+        print(f"\nno generation found ({sum(u['cars'] for u in um)} cars, makes with rules):")
         for u in um[:40]:
             yrs = f"{u['years'][0]}-{u['years'][1]}" if u["years"] else "?"
             print(f"  {u['cars']:4d}  {u['make']} {u['model']} {u['variant'] or '(no trim)'}  [{yrs}]")

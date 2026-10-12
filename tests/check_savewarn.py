@@ -178,7 +178,8 @@ def main() -> int:
     save("carsales.htm", big)
     wait(lambda: S.done == 2)
     save("carsales.csv", page_csv(3))
-    wait(lambda: S.done == 3)
+    # the count reaches 3 a moment before the session marks itself complete
+    wait(lambda: S.done == 3 and S.status == "complete")
     check("...so the session waits for, and takes, the real pages",
           S.done == 3 and S.status == "complete", f"{S.done} of 3, {S.status}")
     inbox.stop()

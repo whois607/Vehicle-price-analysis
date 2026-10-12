@@ -74,37 +74,46 @@ def stat_changes(now: dict | None, baseline: dict | None) -> dict | None:
 
 
 # ---------------------------------------------------------------- database
+def _frame(db_path):
+    with Store(db_path) as store:
+        return store.frame()
+
+
 def _stored_prices(db_path: str | Path, make: str, model: str,
                    variant: str | None = None,
                    before: str | None = None) -> list[float]:
     """Every priced observation for the model line, any source.
-    With a variant: only that trim's rows (a plain model line pools all)."""
-    sql = """SELECT o.price_aud FROM observations o
-             JOIN vehicles v ON v.key = o.key
-             WHERE v.make = ? AND v.model = ? AND o.price_aud IS NOT NULL"""
-    args: list = [make, model]
+    With a variant: only that trim's rows (a plain model line pools all) -
+    the trim as the analysis GROUPS it (trims.py), the same set Explore
+    shows, and an old stored name finds every group its cars went to."""
+    from . import trims
+    df = _frame(db_path)
+    if df.empty:
+        return []
+    sub = df[(df["make"] == make) & (df["model"] == model) & df["price_aud"].notna()]
     if variant:
-        sql += " AND v.variant = ?"
-        args.append(variant)
+        sub = sub[sub["variant"].isin(trims.resolve_all(df, make, model, variant))]
     if before:
-        sql += " AND o.capture_date < ?"
-        args.append(before)
-    with Store(db_path) as store:
-        return [r[0] for r in store.conn.execute(sql, args)]
+        sub = sub[sub["capture_date"] < before]
+    return [float(p) for p in sub["price_aud"]]
 
 
 def models_payload(db_path: str | Path) -> dict:
     """Pickable identities: every model line (pools all trims) PLUS every
     make+model+variant combination in the store - pick the specific trim
     ('Ford Falcon FGX XR6 T') when you're jotting prices for one."""
-    with Store(db_path) as store:
-        rows = store.conn.execute("""
-            SELECT v.make, v.model, v.variant, v.vehicle_type,
-                   COUNT(o.id) AS n, MAX(o.capture_date) AS last_seen
-            FROM vehicles v JOIN observations o ON o.key = v.key
-            WHERE o.price_aud IS NOT NULL
-            GROUP BY v.make, v.model, v.variant, v.vehicle_type
-            ORDER BY n DESC""").fetchall()
+    # the trims as the analysis groups them (trims.py): "quattro B9", not
+    # each stored spelling of it - so the list matches Explore's
+    df = _frame(db_path)
+    rows = []
+    if not df.empty:
+        p = df[df["price_aud"].notna()].assign(_v=lambda d: d["variant"].fillna(""))
+        g = p.groupby(["make", "model", "_v", "vehicle_type"])
+        for (mk, mo, va, vt), sub in g:
+            rows.append({"make": mk, "model": mo, "variant": va or None, "vehicle_type": vt,
+                         "n": int(len(sub)),
+                         "last_seen": sub["capture_date"].max().strftime("%Y-%m-%d")})
+        rows.sort(key=lambda r: -r["n"])
     plain: dict[tuple, dict] = {}
     variants = []
     for r in rows:

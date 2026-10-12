@@ -771,6 +771,17 @@ class _Handler(BaseHTTPRequestHandler):
                 self._json(parse_payload(payload, self.db_path))
             elif self.path == "/api/commit":
                 self._json(commit_payload(payload, self.db_path))
+            elif self.path in ("/api/trims/approve", "/api/trims/remove"):
+                # the only writes the Trims page makes: trim_rules.json,
+                # backed up first - never the database
+                from . import trims, trimspage
+                fn = trims.approve_shorthand if self.path.endswith("approve") \
+                    else trims.remove_shorthand
+                self._json(fn(payload, trimspage.backup_dir(self.db_path)))
+            elif self.path == "/api/trims/dismiss":
+                from . import trimspage
+                self._json(trimspage.dismiss(self.db_path, payload.get("id") or "",
+                                             bool(payload.get("on", True))))
             elif self.path == "/api/explore/identify":
                 from . import explore
                 self._json(explore.identify_payload(

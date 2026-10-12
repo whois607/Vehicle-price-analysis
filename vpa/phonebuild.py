@@ -130,6 +130,33 @@ def _fit_tuple(f: dict) -> list:
             int(f.get("n", 0)), f.get("pct_per_10k_km"), f.get("reason", "")]
 
 
+def _aliases(frame, sels: dict) -> dict:
+    """Old trim labels -> the label they are grouped under now, for links
+    saved on the phone before a regrouping (trims.resolve: most cars wins).
+    Both the stored names and their cleaned forms ("Audi S5 Auto quattro
+    MY18", "Audi S5 quattro")."""
+    from . import trims
+    out: dict[str, str] = {}
+    if frame.empty:
+        return out
+    one = frame.drop_duplicates("key")
+    for (mk, mo), line in one.groupby(["make", "model"]):
+        names = set()
+        for v in line["variant_stored"].dropna():
+            names.add(str(v))
+            c = trims.clean(trims.expand(mk, mo, v))
+            if c:
+                names.add(c)
+        for n in names:
+            label = f"{mk} {mo} {n}"
+            if label in sels:
+                continue
+            to = f"{mk} {mo} {trims.resolve(frame, mk, mo, n)}"
+            if to in sels and to != label:
+                out[label] = to
+    return out
+
+
 def _card(sub) -> dict:
     """What the phone's car card needs that is not counting: the trim's
     mileage fit (for a car you type in), the fit with EACH stored car left
@@ -362,6 +389,7 @@ def _build(db_path, out: Path, force: bool) -> dict:
             "starred": {"cols": ["k", "at", "note"], "rows": starred_rows},
             "dismissed": [k.split(",") for k in dismissed_raw],
             "picker": picker, "overview": overview, "sel": sels,
+            "alias": _aliases(frame, sels),
             "cmp": {"rows": _jsonable(compare._row_meta()), "basis": compare._BASIS,
                     "max": compare.MAX_SELECTIONS},
             "consts": {k: getattr(explore, k) for k in (

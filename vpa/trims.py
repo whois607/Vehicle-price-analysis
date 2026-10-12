@@ -36,6 +36,7 @@ reads and writes the stored name through SQL, never through this frame.
 from __future__ import annotations
 
 import json
+import os
 import re
 from datetime import datetime
 from pathlib import Path
@@ -99,7 +100,10 @@ def clean(variant) -> str | None:
 
 
 # ------------------------------------------------------------ brand rules
-RULES_PATH = Path(__file__).resolve().parent / "trim_rules.json"
+#: VPA_TRIM_RULES points a test or a scratch copy of the app at a copy of the
+#: rules, so approving a suggestion there can never touch the real file
+RULES_PATH = (Path(os.environ["VPA_TRIM_RULES"]) if os.environ.get("VPA_TRIM_RULES")
+              else Path(__file__).resolve().parent / "trim_rules.json")
 _RULES: dict = {"sig": None, "rules": {}}
 
 
@@ -155,7 +159,10 @@ def generation_of(make, model, name, year) -> tuple:
         if R.get("series"):
             for code, span in sorted(R["series"].items(), key=lambda kv: -len(kv[0].split())):
                 n = len(code.split())
-                if " ".join(toks[i:i + n]) == code and _fits(span, year):
+                # a two-word code ("FG X") is never a trim word, so its
+                # words decide; the year only arbitrates one-word codes
+                # that are trims too (XT, XL)
+                if " ".join(toks[i:i + n]) == code and (n > 1 or _fits(span, year)):
                     hit = (i, i + n)
                     break
         if hit is None and R.get("codes") and re.fullmatch(R["codes"], toks[i]):
@@ -217,6 +224,10 @@ def place(make, model, name, year) -> tuple:
     if not isinstance(name, str) or not name:
         name = None                                    # pandas hands over NaN
     gen, tb = generation_of(make, model, name, year)
+    if gen is not None and tb:
+        # one order for every source - trim, then generation - so a page
+        # writing "FG MkII XR6 Turbo" joins "XR6 Turbo FG MkII"
+        name = f"{tb} {gen}"
     if gen is None:
         g = generation_by_year(make, model, name, year)
         if g:
@@ -234,6 +245,28 @@ def body_of(make, generation) -> str | None:
     if not isinstance(generation, str) or not generation:
         return None
     return (make_rules(make).get("body") or {}).get(generation.split()[0])
+
+
+def shorthand_for(make, model) -> list:
+    """The approved shorthand that applies to one make + model: entries for
+    the make with no model apply to all its models."""
+    return [e for e in rules().get("shorthand", [])
+            if e.get("make") == make and e.get("model") in (None, "", model)]
+
+
+def expand(make, model, name, extra: list | None = None) -> str | None:
+    """A stored trim with its shorthand written out ("FG2 XR6 T" ->
+    "FG MkII XR6 Turbo") - whole words only, matched without regard to
+    capitals. `extra`: entries not yet approved, to preview them."""
+    if not isinstance(name, str) or not name.strip():
+        return name if isinstance(name, str) else None
+    entries = shorthand_for(make, model) + [e for e in (extra or [])
+                                           if e.get("make") == make
+                                           and e.get("model") in (None, "", model)]
+    if not entries:
+        return name
+    table = {e["from"].casefold(): e["to"] for e in entries if e.get("from") and e.get("to")}
+    return " ".join(table.get(t.casefold(), t) for t in name.split())
 
 
 def fold(name: str) -> str:
@@ -288,7 +321,7 @@ def add_trim_cols(df: pd.DataFrame) -> pd.DataFrame:
     spelt: dict[tuple, dict[str, int]] = {}
     cleaned: dict[tuple, str | None] = {}
     for (mk, mo, v), n in combos.items():
-        c = clean(v)
+        c = clean(expand(mk, mo, v))
         cleaned[(mk, mo, v)] = c
         if c:
             d = spelt.setdefault((mk, mo, fold(c)), {})
@@ -342,9 +375,12 @@ def resolve_all(df: pd.DataFrame, make, model, variant) -> list:
     one = line.drop_duplicates("key")
     # cars STORED under the name - exactly, or once cleaned the same way
     # ("Sting Ray Manual MY66" was the "Sting Ray" group before generations)
-    c = clean(variant)
+    c = clean(expand(make, model, variant))
     f = fold(c) if c else None
-    cf = {v: fold(clean(v)) if clean(v) else None for v in one["variant_stored"].dropna().unique()}
+    cf = {}
+    for v in one["variant_stored"].dropna().unique():
+        cv = clean(expand(make, model, v))
+        cf[v] = fold(cv) if cv else None
     # a raw stored-style name ("Auto quattro MY24") means exactly the cars
     # stored under it; a clean one ("Sting Ray", from a later link) means
     # every car that cleans to it
@@ -355,9 +391,10 @@ def resolve_all(df: pd.DataFrame, make, model, variant) -> list:
         for v in one["variant_stored"]]
     hit = one.loc[mask, "variant"].dropna()
     if (line["variant"] == variant).any():
-        # a group by that name - plus wherever else cars stored under it went
-        others = [n for n in hit.astype(str).value_counts().index if n != variant]
-        return [variant] + others
+        # a CURRENT group name is exactly that group - picking "GT" must not
+        # pool the GT Gen 1 / SN95 / S197 its stored name also went to (the
+        # phone, which knows only current labels, checks this)
+        return [variant]
     if hit.empty and f is not None:
         # a name never stored: its clean form, with or without a generation
         mask = [(isinstance(b, str) and fold(b) == f) or (isinstance(n, str) and fold(n) == f)
@@ -386,7 +423,7 @@ def spellings(df: pd.DataFrame, make, model) -> dict:
     line = df[(df["make"] == make) & (df["model"] == model)].drop_duplicates("key")
     counts: dict[str, dict[str, int]] = {}
     for v in line["variant_stored"].dropna():
-        c = clean(v)
+        c = clean(expand(make, model, v))
         if c:
             d = counts.setdefault(fold(c), {})
             d[c] = d.get(c, 0) + 1
@@ -398,7 +435,7 @@ def derive_one(df: pd.DataFrame, make, model, variant, year=None, title=None,
     """How ONE car - typically just read from a page, not stored - would be
     grouped: the same steps as add_trim_cols. `spelt`: spellings() for its
     make + model, when checking many cars of one model."""
-    c = clean(variant)
+    c = clean(expand(make, model, variant))
     if c:
         sp = spelt if spelt is not None else spellings(df, make, model)
         c = sp.get(fold(c), c)
@@ -513,6 +550,157 @@ def unmatched(df: pd.DataFrame, limit: int = 200) -> list[dict]:
                     "stored": sorted({str(s) for s in miss["variant_stored"].dropna()})[:4],
                     "titles": [str(t) for t in miss["raw_title"].dropna().unique()[:2]]})
     return sorted(out, key=lambda r: (-r["cars"], r["make"], r["model"]))[:limit]
+
+
+# ------------------------------------------------------------ suggestions
+_ROMAN = {"2": "II", "3": "III", "4": "IV"}
+
+
+def _suggest_line(mk, mo, line: pd.DataFrame) -> list[dict]:
+    """Shorthand a page used for one make + model, from three strict
+    patterns - each only where the data already holds the long form:
+      run together   "FGX" when "FG X" is written in other names
+      code + digit   "FG2" when the generation "FG MkII" exists
+      abbreviation   "T" after "XR6" when "XR6 Turbo" exists - not where
+                     the letter is a word of its own in 3+ cars (BMW's "M")."""
+    one = line.drop_duplicates("key")
+    names = one["variant"].dropna().astype(str)
+    if names.empty:
+        return []
+    word_cars: dict[str, int] = {}
+    for n in names:
+        for w in set(n.split()):
+            word_cars[w.casefold()] = word_cars.get(w.casefold(), 0) + 1
+    pairs = set()
+    follows: dict[str, set] = {}
+    for n in set(names):
+        t = n.split()
+        for a, b in zip(t, t[1:]):
+            pairs.add((a, b))
+            follows.setdefault(a.casefold(), set()).add(b)
+    gens = {str(g) for g in one["generation"].dropna()}
+    out = {}
+    for n in set(names):
+        t = n.split()
+        for i, w in enumerate(t):
+            to = None
+            # run together: FGX = FG + X, written apart elsewhere
+            if len(w) >= 3 and w.isalnum():
+                for k in range(1, len(w)):
+                    if (w[:k], w[k:]) in pairs:
+                        to, why = f"{w[:k]} {w[k:]}", f'"{w[:k]} {w[k:]}" is how other names write it'
+                        break
+            # code + digit: FG2 = FG MkII
+            if to is None and len(w) >= 3 and w[-1] in _ROMAN and w[:-1].isalpha() and w[:-1].isupper():
+                for g in (f"{w[:-1]} Mk{_ROMAN[w[-1]]}", f"{w[:-1]} {_ROMAN[w[-1]]}"):
+                    if g in gens:
+                        to, why = g, f'the generation "{g}" is in your data'
+                        break
+            # abbreviation: XR6 T = XR6 Turbo
+            if (to is None and i > 0 and len(w) <= 2 and w.isalpha()
+                    and word_cars.get(w.casefold(), 0) < 3):
+                cands = {x for x in follows.get(t[i - 1].casefold(), set())
+                         if len(x) > len(w) and x.casefold().startswith(w.casefold())}
+                if len(cands) == 1:
+                    x = cands.pop()
+                    to, why = x, f'"{t[i - 1]} {x}" is in your data'
+            if to and to.casefold() != w.casefold():
+                key = (mk, mo, w.casefold(), to)
+                s = out.setdefault(key, {"kind": "shorthand", "make": mk, "model": mo,
+                                         "from": w, "to": to, "why": why})
+    return list(out.values())
+
+
+def suggestions(df: pd.DataFrame, dismissed=()) -> list[dict]:
+    """Shorthand worth approving, with what each would change: the cars it
+    touches and their names now -> then. Nothing is applied until approved."""
+    if df.empty:
+        return []
+    have = {(e.get("make"), e.get("model") or None, e["from"].casefold())
+            for e in rules().get("shorthand", [])}
+    gone = set(dismissed)
+    out = []
+    for (mk, mo), line in df.groupby(["make", "model"]):
+        for s in _suggest_line(mk, mo, line):
+            sid = f"{mk}|{mo}|{s['from']}|{s['to']}"
+            if (mk, mo, s["from"].casefold()) in have or (mk, None, s["from"].casefold()) in have \
+                    or sid in gone:
+                continue
+            one = line.drop_duplicates("key")
+            changes: dict[tuple, int] = {}
+            for v, y, m in zip(one["variant_stored"], one["year"], one["model_year"]):
+                if not isinstance(v, str):
+                    continue
+                yy = int(m) if m == m and m is not None else (int(y) if y == y and y is not None else None)
+                # the GROUP each car would join, generation and order included
+                before = place(mk, mo, clean(expand(mk, mo, v)), yy)[0]
+                after = place(mk, mo, clean(expand(mk, mo, v, [s])), yy)[0]
+                if before != after:
+                    changes[(before, after)] = changes.get((before, after), 0) + 1
+            if not changes:
+                continue
+            out.append({**s, "id": sid, "cars": sum(changes.values()),
+                        "examples": [{"now": a, "then": b, "cars": n} for (a, b), n in
+                                     sorted(changes.items(), key=lambda x: -x[1])[:4]]})
+    return sorted(out, key=lambda x: (-x["cars"], x["make"], x["model"], x["from"]))
+
+
+def approve_shorthand(entry: dict, backup_dir: Path) -> dict:
+    """Add one shorthand entry to trim_rules.json - the ONLY thing the Trims
+    page ever writes, and never the database. The rules file is copied to
+    `backup_dir` first, written to a temporary file and swapped in, and
+    read back before success is reported."""
+    mk, mo = str(entry.get("make") or "").strip(), (str(entry.get("model") or "").strip() or None)
+    frm, to = str(entry.get("from") or "").strip(), str(entry.get("to") or "").strip()
+    if not mk or not frm or not to or " " in frm:
+        return {"ok": False, "error": "a shorthand needs a make, one word and what it stands for"}
+    if frm.casefold() == to.casefold():
+        return {"ok": False, "error": "that would change nothing"}
+    return _write_rules(lambda R: R.setdefault("shorthand", []).append(
+        {"make": mk, "model": mo, "from": frm, "to": to,
+         "approved": datetime.now().strftime("%Y-%m-%d %H:%M")}), backup_dir,
+        check=lambda R: any(e.get("make") == mk and e.get("from") == frm for e in R["shorthand"]))
+
+
+def remove_shorthand(entry: dict, backup_dir: Path) -> dict:
+    """Take one approved shorthand back out (same care as approving)."""
+    mk, mo, frm = entry.get("make"), entry.get("model") or None, entry.get("from")
+    def drop(R):
+        R["shorthand"] = [e for e in R.get("shorthand", [])
+                          if not (e.get("make") == mk and (e.get("model") or None) == mo
+                                  and e.get("from") == frm)]
+    return _write_rules(drop, backup_dir, check=lambda R: not any(
+        e.get("make") == mk and (e.get("model") or None) == mo and e.get("from") == frm
+        for e in R.get("shorthand", [])))
+
+
+def _write_rules(change, backup_dir: Path, check) -> dict:
+    import shutil
+    from .phonecfg import _replace
+    try:
+        R = json.loads(RULES_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        return {"ok": False, "error": f"could not read the rules file: {exc}"}
+    Path(backup_dir).mkdir(parents=True, exist_ok=True)
+    # Windows' clock ticks in ~15 ms steps, so two quick approvals can share
+    # a timestamp: never let one backup overwrite another
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup = Path(backup_dir) / f"trim_rules_{stamp}.json"
+    n = 1
+    while backup.exists():
+        n += 1
+        backup = Path(backup_dir) / f"trim_rules_{stamp}_{n}.json"
+    shutil.copy2(RULES_PATH, backup)
+    change(R)
+    tmp = RULES_PATH.with_name(RULES_PATH.name + ".tmp")
+    tmp.write_text(json.dumps(R, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    json.loads(tmp.read_text(encoding="utf-8"))          # it must parse before it goes in
+    _replace(tmp, RULES_PATH)
+    back = json.loads(RULES_PATH.read_text(encoding="utf-8"))
+    if not check(back):
+        shutil.copy2(backup, RULES_PATH)
+        return {"ok": False, "error": "the change did not hold, so the rules file was put back"}
+    return {"ok": True, "backup": str(backup)}
 
 
 # ------------------------------------------------------------ the record

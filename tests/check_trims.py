@@ -28,6 +28,12 @@ them under a derived name, worked out on read. Checked here:
     too little data, or familiar names, raise nothing;
   * the Trims page: coverage per make, the names the rules leave without a
     generation, and every stored name with its group;
+  * suggested shorthand (FG2 = FG MkII, FGX = FG X, XR6 T = XR6 Turbo) only
+    where the data holds the long form - never BMW's "M"; approving writes
+    ONLY the rules file (a copy here - the real one is checked unchanged),
+    backed up first, and the cars join their group; removing undoes it;
+  * every search finds the grouped names: Explore's keyword, Compare and
+    old links, quick add's list and prices, the phone's old labels;
   * the car check falls back, when a trim has fewer than 8 priced cars (or
     there is no trim), to the model's cars within 2 years - only then, only
     with a year, never a whole model across every year, with no mileage
@@ -39,12 +45,13 @@ Throwaway database only. ASCII output; exit 0 only if every check passes.
 from __future__ import annotations
 
 import hashlib
+import json
 import shutil
 import sqlite3
 import sys
 from pathlib import Path
 
-from vpa import bulk, compare, explore, importui, trims, trimspage
+from vpa import bulk, compare, explore, importui, phonebuild, quickadd, trims, trimspage
 from vpa.schema import make_record
 from vpa.store import Store, read_frame
 
@@ -458,6 +465,88 @@ def main() -> int:
     check("the page is complete (every placeholder filled)",
           "__" not in trimspage.PAGE.replace("__proto__", "") and 'id="trimsBtn"' in trimspage.PAGE,
           f"{len(trimspage.PAGE):,} bytes")
+
+    print("\n== suggested shorthand ==")
+    real_rules = trims.RULES_PATH
+    real_hash = hashlib.sha256(real_rules.read_bytes()).hexdigest()
+    copy = WORK / "rules.json"
+    shutil.copy(real_rules, copy)
+    trims.RULES_PATH, trims._RULES["sig"] = copy, None
+    try:
+        updf = read_frame(up)
+        sg = {(x["from"], x["to"]): x for x in trims.suggestions(updf)}
+        check("FG2 = FG MkII, FGX = FG X and T = Turbo are suggested, each with what changes",
+              {("FG2", "FG MkII"), ("FGX", "FG X"), ("T", "Turbo")} <= set(sg)
+              and sg[("FG2", "FG MkII")]["cars"] == 3
+              and any(e["then"] == "XR6 FG MkII" for e in sg[("FG2", "FG MkII")]["examples"]),
+              "; ".join(f"{a}={b} ({x['cars']})" for (a, b), x in sg.items()))
+        check("nothing is suggested where the data has no long form (BMW 'M', every other trim)",
+              trims.suggestions(df) == [], f"{len(trims.suggestions(df))} on the main data")
+        bad1 = trims.approve_shorthand({"make": "Ford", "model": "Falcon", "from": "FG 2", "to": "x"}, WORK / "bk")
+        bad2 = trims.approve_shorthand({"make": "Ford", "model": "Falcon", "from": "XR6", "to": "xr6"}, WORK / "bk")
+        check("a malformed or empty shorthand is refused", not bad1["ok"] and not bad2["ok"],
+              f"{bad1['error']} | {bad2['error']}")
+        for frm, to in (("FG2", "FG MkII"), ("FGX", "FG X"), ("T", "Turbo")):
+            r = trims.approve_shorthand({"make": "Ford", "model": "Falcon", "from": frm, "to": to}, WORK / "bk")
+            assert r["ok"], r
+        after = read_frame(up).drop_duplicates("key")
+        moved = dict(zip(after["variant_stored"], after["variant"]))
+        check("approved: the shorthand cars join their groups, in the usual word order",
+              moved["FG2 XR6"] == "XR6 FG MkII" and moved["FGX G6E T"] == "G6E Turbo FG X"
+              and moved["FG2 XR6 T"] == "XR6 Turbo FG MkII" and moved["FGX XR8"] == "XR8 FG X",
+              f"FG2 XR6 T -> {moved['FG2 XR6 T']}; FGX G6E T -> {moved['FGX G6E T']}")
+        bks = sorted((WORK / "bk").glob("trim_rules_*.json"))
+        check("the rules file was backed up before each change, and still parses",
+              len(bks) == 3 and json.loads(copy.read_text(encoding="utf-8"))["shorthand"][-1]["from"] == "T",
+              f"{len(bks)} backups")
+        w = trims.wording_check(read_frame(DB), [{"make": "Ford", "model": "Falcon", "variant": v, "year": 2012}
+                                                 for v in odd])
+        # (judged against the main data, which simply has no XR6 Turbo FG
+        # MkII: those stay new TRIMS - but no longer new WORDS)
+        check("...and the same page's shorthand no longer reads as new words",
+              w["recognised"] == 3 and not {"FG2", "FGX", "T"} & set(w["new_words"]),
+              f"{w['recognised']}/{w['checked']} recognised; new words {w['new_words']}")
+        r = trims.remove_shorthand({"make": "Ford", "model": "Falcon", "from": "T"}, WORK / "bk")
+        again = dict(zip(*[read_frame(up).drop_duplicates("key")[c] for c in ("variant_stored", "variant")]))
+        check("removing one takes it straight back out", r["ok"] and again["FG2 XR6 T"] == "XR6 T FG MkII"
+              and ("T", "Turbo") in {(x["from"], x["to"]) for x in trims.suggestions(read_frame(up))},
+              f"FG2 XR6 T -> {again['FG2 XR6 T']}")
+        trimspage.dismiss(up, "Ford|Falcon|T|Turbo", True)
+        check("'Not this' hides a suggestion (kept beside the database, not in the rules)",
+              ("T", "Turbo") not in {(x["from"], x["to"]) for x in trims.suggestions(
+                  read_frame(up), trimspage.dismissed(up))}
+              and (WORK / "trim_dismissed.json").exists(), "dismissed")
+    finally:
+        trims.RULES_PATH, trims._RULES["sig"] = real_rules, None
+    check("the real trim_rules.json was never touched",
+          hashlib.sha256(real_rules.read_bytes()).hexdigest() == real_hash, real_hash[:12])
+
+    print("\n== searching with the new names ==")
+    kw = explore.detail_payload(DB, "Audi", "S5", None, keyword="B9")
+    kw2 = explore.detail_payload(DB, "Audi", "S5", None, keyword="MY18")
+    check("Explore's keyword finds a generation (B9) and a stored word (MY18, from the title)",
+          # 11 = the 10 B9s and the 2016 car that may be one ("B8/B9")
+          kw["head"]["vehicles"] == 11 and kw2["head"]["vehicles"] == 4,
+          f"B9: {kw['head']['vehicles']} cars, MY18: {kw2['head']['vehicles']}")
+    qm = {m["line"] for m in quickadd.models_payload(DB)["models"]}
+    check("quick add lists the grouped trims, not each stored spelling",
+          "Audi S5 quattro B9" in qm and "Audi S5 Auto quattro MY18" not in qm
+          and "Ford Falcon XR6 Turbo BA MkII" in qm, f"{len(qm)} lines")
+    check("...and its stored prices for an old name are every group it went to",
+          len(quickadd._stored_prices(DB, "Audi", "S5", "quattro"))
+          == int(df[(df["model"] == "S5") & df["variant"].isin(["quattro B9", "quattro B8/B9"])]["price_aud"].notna().sum()),
+          f"{len(quickadd._stored_prices(DB, 'Audi', 'S5', 'quattro'))} prices")
+    sels = {lab: {} for lab in compare.selection_index(df)}
+    al = phonebuild._aliases(df, sels)
+    check("the phone copy carries old labels -> new ones (links saved on the phone)",
+          al.get("Audi S5 Auto quattro MY18") == "Audi S5 quattro B9"
+          and al.get("Ford Falcon XR6 Turbo BA Mk II") == "Ford Falcon XR6 Turbo BA MkII"
+          and all(v in sels for v in al.values()) and not (set(al) & set(sels)),
+          f"{len(al)} old labels")
+    cp = compare.compare_payload(DB, ["Audi S5 Auto quattro MY18", "Chevrolet Corvette Auto MY86"])
+    check("Compare finds old labels too", not cp["unknown"]
+          and [c["label"] for c in cp["columns"]] == ["Audi S5 quattro B9", "Chevrolet Corvette C4"],
+          f"{[c['label'] for c in cp['columns']]}")
 
     check("reading wrote nothing", db_hash() == h0, h0)
     passed = sum(ok for ok, _ in RESULTS)

@@ -104,7 +104,10 @@ def seed() -> None:
             ("Ford", "Falcon", "XR8 FG X", 2015, 5), ("BMW", "4 Series", "428i Sport Line F36", 2015, 3),
             ("BMW", "4 Series", "428i Sport Line F32", 2016, 7), ("Ford", "Falcon", "XR6 Sprint", 2013, 5),
             # classics: ranked, but no mileage curve and no expected price
-            ("Ford", "Falcon", "GT XY", 1971, 9)]
+            ("Ford", "Falcon", "GT XY", 1971, 9),
+            # stored the old way: grouped as "XR8 FG X", so the copy carries
+            # "Ford Falcon XR8 FG X Auto" as an old label
+            ("Ford", "Falcon", "XR8 FG X Auto", 2015, 2)]
     m = 0
     for mk, mo, va, yr, count in thin:
         for i in range(count):

@@ -546,8 +546,11 @@ route("/make", { tab: "find", back: true }, q => {
 });
 
 /* ------------------------------------------------------------ a selection */
+// a label saved before trims were regrouped -> the label it is now
+// (phonebuild._aliases); a current label is itself
+const selLabel = l => DB.sel[l] ? l : (DB.snap.alias && DB.snap.alias[l] && DB.sel[DB.snap.alias[l]] ? DB.snap.alias[l] : l);
 route("/sel", { tab: "find", back: true }, q => {
-  const label = q.l, e = DB.sel[label];
+  const label = selLabel(q.l), e = DB.sel[label];
   if (!e) return `<div class="empty"><b>${esc(label)}</b>isn't in your data.</div>`;
   setTitle(label);
   const f = { year_min: q.y0, year_max: q.y1, price_min: q.p0, price_max: q.p1, keyword: q.kw };
@@ -872,7 +875,7 @@ ROUTES["/check"].after = q => {
       $("cT").value = b.dataset.pick; $("cTs").innerHTML = ""; $("cP").focus(); });
   };
   const run = (push) => {
-    const l = $("cT").value.trim(), e = DB.sel[l];
+    const l = selLabel($("cT").value.trim()), e = DB.sel[l];
     const out = $("cOut");
     if (!l) { out.innerHTML = ""; return; }
     if (!e || (e.lv !== "trim" && e.lv !== "line")) { out.innerHTML = `<div class="card"><span class="bad">Pick a trim from the list</span> - a price is judged against cars of one trim (or, given the year, a model's cars of nearby years).</div>`; return; }
@@ -893,7 +896,7 @@ ROUTES["/check"].after = q => {
 
 /* ------------------------------------------------------------ compare */
 route("/compare", { tab: "compare", titleText: "Compare" }, q => {
-  const labels = (q.l || "").split("|").filter(l => DB.sel[l]).slice(0, 4);
+  const labels = (q.l || "").split("|").map(selLabel).filter(l => DB.sel[l]).slice(0, 4);
   let h = `<div class="card"><h2>Side by side <small>up to 4</small></h2><div class="chips">${labels.map(l =>
     `<span class="chip on">${esc(l)}<button data-rm="${esc(l)}" aria-label="Remove">×</button></span>`).join("")}</div>
     ${labels.length < 4 ? `<input type="search" id="cq" placeholder="Add a make, model or trim" autocomplete="off" style="margin-top:10px"><div class="list" id="cres"></div>` : ""}</div>`;
@@ -922,7 +925,7 @@ route("/compare", { tab: "compare", titleText: "Compare" }, q => {
   return h;
 });
 ROUTES["/compare"].after = q => {
-  const cur = (q.l || "").split("|").filter(l => DB.sel[l]);
+  const cur = (q.l || "").split("|").map(selLabel).filter(l => DB.sel[l]);
   const setL = arr => go("#/compare?l=" + enc(arr.join("|")), true);
   document.querySelectorAll("[data-rm]").forEach(b => b.onclick = () => setL(cur.filter(l => l !== b.dataset.rm)));
   if (!$("cq")) return;

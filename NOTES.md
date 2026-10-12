@@ -1177,8 +1177,10 @@ Keep these — each one was a bug that took a while to find.
   "C2", a 1973 "Stingray" "C3"). Real data: 602 -> 637 groups, 1,182 cars
   moved (Audi quattro split by generation; Corvette base cars C1-C6;
   Lexus XE20/XE30, XF40/XF50; Mustang Gen 1), every move reviewed.
-* Old names after a split: trims.resolve_all - a grouped name is itself
-  (plus wherever cars stored under it went); a RAW stored name ("Auto
+* Old names after a split: trims.resolve_all - a CURRENT grouped name is
+  exactly itself (picking Mustang "GT" must not pool the GT Gen 1/SN95/S197
+  its stored name also went to - the real-data phone check caught that);
+  a RAW stored name ("Auto
   quattro MY24") is exactly its cars' groups; a CLEAN name from a later
   link ("Sting Ray", "quattro") is every car that cleans to it. Explore
   pools all of them (an old "Audi S5 quattro" link opens every generation);
@@ -1191,6 +1193,36 @@ Keep these — each one was a bug that took a while to find.
   Laptop = phone (subject.classic).
 * WRITING trim_rules.json: use the Write tool or json.dump from a file -
   a shell heredoc turned "\b" into a backspace and broke every badge once.
+* Stage 7 - shorthand and suggestions. `shorthand` in trim_rules.json:
+  [{make, model (empty = every model), from (one word), to}] - applied
+  first (trims.expand), whole words, any capitals. Suggestions
+  (trims.suggestions, on the Trims page) come from three strict patterns,
+  each only where the data already holds the long form: run together
+  ("FGX" where "FG X" is written apart), code + digit ("FG2" where the
+  generation "FG MkII" exists), and a 1-2 letter abbreviation ("T" after
+  "XR6" where "XR6 Turbo" exists - never a letter that is a word in 3+
+  cars, so BMW's "M" is safe). Each shows the cars it would move and the
+  group they'd join. Real data: none (every trim word is known).
+  APPROVE writes ONLY trim_rules.json: copied to data/backups/
+  trim_rules_<stamp>.json first (a counter when two land in one clock tick
+  - Windows' ~15 ms clock had one overwrite another), written to .tmp,
+  parsed, swapped in, read back and checked - put back if it did not hold.
+  Remove = the same care. "Not this" -> data/trim_dismissed.json (private).
+  VPA_TRIM_RULES points tests / a scratch app at a copy of the rules.
+* A name with a generation code is written trim-then-generation whatever
+  order it came in ("FG MkII XR6 Turbo" -> "XR6 Turbo FG MkII"); real data:
+  one rename (Fairmont "XC GXL" -> "GXL XC"). A two-word code ("FG X") is
+  taken from the words regardless of the year (one 2012 car is stored as
+  "XR6 Turbo FG X": its generation was "FG", now "FG X" - the name decides).
+* Search with the new names: Explore's keyword matches the grouped name
+  (so "B9" finds the generation; "B8/B9" cars too - they may be) and the
+  title (so a stored word like "MY18" still finds); quick add lists and
+  prices by GROUPED trim (it read stored names through SQL); the phone copy
+  carries `alias` (phonebuild._aliases: old label -> current, stored names
+  and their cleaned forms) and app.js selLabel uses it on Find, Compare and
+  Check, so a link saved on the phone before a regrouping still opens.
+* tests/check_savewarn: also waits for the session to say "complete" (it
+  read "3 of 3, watching" once - the count lands a moment first).
 * tests/check_savewarn: the watch-folder checks now wait for the RESULT
   (inbox._take archives the file a moment before recording it - reading
   on "file gone" raced and failed once in a full run).

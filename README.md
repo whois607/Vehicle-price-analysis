@@ -152,6 +152,15 @@ dates is three observations sharing one identity, not three cars.
   and "MkII", count as one trim (`python -m vpa trims` shows how). Gearbox
   is its own column, and a car in a trim too small to judge is compared with
   its model's cars of nearby years instead - said plainly on the card.
+- **Generations and the Trims page**: BMW chassis codes, Ford series codes and
+  year tables (Audi, Lexus, Corvette, early Mustangs) place each car in its
+  generation ("quattro B9"), and a thin trim is compared with the same trim of
+  any generation, then its generation, before nearby years. Classics (35+
+  years) get no expected price. The Trims page (nav: Trims) shows what is
+  placed, lays the year tables out to be checked, lists names the rules miss,
+  and suggests shorthand (FG2 = FG MkII) to approve - which writes only
+  `vpa/trim_rules.json`, backed up first. Uploads worded unlike your data are
+  flagged, never refused.
 - **Bad saves are caught**: a page cut off by a stalled download is
   refused, and a page saved twice (so the next one was probably skipped) is
   skipped with a warning - on every import path. Neither counts as a page in

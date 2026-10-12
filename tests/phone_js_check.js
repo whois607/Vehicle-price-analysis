@@ -144,6 +144,14 @@ for (const x of E.compare) {
   for (const m of snap.picker.makes) run("make " + m.name, "/make", { m: m.name });
   for (let i = 0; i < labels.length; i++)
     run("compare", "/compare", { l: [labels[i], labels[(i * 7 + 3) % labels.length], labels[(i * 5 + 1) % labels.length]].join("|") });
+  // a label saved before trims were regrouped opens the group it is now
+  // (phonebuild._aliases -> app.js selLabel), on Find, Compare and Check
+  for (const [old, now] of Object.entries(snap.alias || {})) {
+    const show = p => { try { return String(R[p.r].fn(p.q)); } catch (e) { return "threw " + e.message; } };
+    const sel = show({ r: "/sel", q: { l: old } }), cmp = show({ r: "/compare", q: { l: old } });
+    tally("old labels", old, sel.includes("isn't in your data") || sel.startsWith("threw")
+      ? `selection: ${sel.slice(0, 80)}` : !cmp.includes(now) ? "compare did not open " + now : null);
+  }
   for (const [p, q] of [["/", {}], ["/", { lv: "trim" }], ["/find", {}], ["/find", { y0: "2010", p1: "30000" }],
                         ["/starred", {}], ["/sync", {}], ["/sel", { l: "No Such Car" }], ["/car", { k: "nope" }],
                         ["/check", {}], ["/check", { l: "Ford Falcon", p: "1" }], ["/compare", {}]])

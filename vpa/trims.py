@@ -178,6 +178,14 @@ def generation_of(make, model, name, year) -> tuple:
     return " ".join(toks[s:e]), rest or None
 
 
+def place(make, model, name, year) -> tuple:
+    """(grouped name, generation, trim without it) for one cleaned name and
+    the car's year - the one place the brand rules are applied, for the
+    frame and for a single car alike."""
+    gen, tb = generation_of(make, model, name, year)
+    return name, gen, tb
+
+
 def body_of(make, generation) -> str | None:
     """The body a generation code decides, if the make's rules say."""
     if not isinstance(generation, str) or not generation:
@@ -262,10 +270,11 @@ def add_trim_cols(df: pd.DataFrame) -> pd.DataFrame:
     gens: dict = {}
     for k in zip(df["make"], df["model"], df["variant"], yr):
         if k not in gens:
-            gens[k] = generation_of(*k)
-    pair = [gens[k] for k in zip(df["make"], df["model"], df["variant"], yr)]
-    df["generation"] = [p[0] for p in pair]
-    df["trim_base"] = [p[1] for p in pair]
+            gens[k] = place(*k)
+    trio = [gens[k] for k in zip(df["make"], df["model"], df["variant"], yr)]
+    df["variant"] = [t[0] for t in trio]
+    df["generation"] = [t[1] for t in trio]
+    df["trim_base"] = [t[2] for t in trio]
     if "body_type" in df:
         df["body_type_stored"] = df["body_type"]
         df["body_type"] = [b if not nan(b) else body_of(mk, g)
@@ -296,6 +305,145 @@ def resolve(df: pd.DataFrame, make, model, variant):
         if hit:
             return str(hit[0])
     return variant
+
+
+# ------------------------------------------------------------ one car
+def spellings(df: pd.DataFrame, make, model) -> dict:
+    """fold(name) -> the spelling the frame shows (capitals/hyphens) for one
+    make + model, so a car not yet stored lands in the group it would join.
+    Same choice as add_trim_cols: most cars, ties alphabetical."""
+    if df.empty or "variant_stored" not in df:
+        return {}
+    line = df[(df["make"] == make) & (df["model"] == model)].drop_duplicates("key")
+    counts: dict[str, dict[str, int]] = {}
+    for v in line["variant_stored"].dropna():
+        c = clean(v)
+        if c:
+            d = counts.setdefault(fold(c), {})
+            d[c] = d.get(c, 0) + 1
+    return {f: sorted(d.items(), key=lambda x: (-x[1], x[0]))[0][0] for f, d in counts.items()}
+
+
+def derive_one(df: pd.DataFrame, make, model, variant, year=None, title=None,
+               spelt: dict | None = None) -> dict:
+    """How ONE car - typically just read from a page, not stored - would be
+    grouped: the same steps as add_trim_cols. `spelt`: spellings() for its
+    make + model, when checking many cars of one model."""
+    c = clean(variant)
+    if c:
+        sp = spelt if spelt is not None else spellings(df, make, model)
+        c = sp.get(fold(c), c)
+    gear, drive, my = details(variant, title)
+    y = int(my) if my else (int(year) if year not in (None, "") and year == year else None)
+    name, gen, tb = place(make, model, c, y)
+    return {"variant": name, "generation": gen, "trim_base": tb,
+            "gearbox": gear, "drive": drive, "model_year": my}
+
+
+# ------------------------------------------------------------ coverage
+#: An upload is checked against a model only once that model holds this many
+#: cars - a new brand or model has no wording to disagree with yet.
+WORDING_MIN_MODEL = 20
+#: ...and warned about when fewer than this share of its cars land on a trim
+#: name already in the data (at least WORDING_MIN_CARS of them checked).
+WORDING_SHARE = 0.70
+WORDING_MIN_CARS = 5
+
+
+def _rec(r) -> dict:
+    get = (lambda k: r.get(k)) if isinstance(r, dict) else (lambda k: getattr(r, k, None))
+    return {"make": get("make"), "model": get("model"), "variant": get("variant"),
+            "year": get("year"), "title": get("raw_title") or get("title")}
+
+
+def wording_check(df: pd.DataFrame, records) -> dict:
+    """Do the cars in one upload use trim names the data already knows?
+    A new site that words trims differently would otherwise quietly start
+    new, one-car groups. Never blocks an import - the names are stored as
+    they come and can be grouped later - it only says so."""
+    one = df.drop_duplicates("key") if not df.empty else df
+    size = one.groupby(["make", "model"]).size() if not one.empty else pd.Series(dtype=int)
+    known: dict[tuple, set] = {}
+    vocab: dict[tuple, set] = {}
+    spelt: dict[tuple, dict] = {}
+    checked = recognised = 0
+    new_words: dict[str, int] = {}
+    unknown: list[str] = []
+    for r in map(_rec, records):
+        mk, mo = r["make"], r["model"]
+        if not mk or not mo or int(size.get((mk, mo), 0)) < WORDING_MIN_MODEL:
+            continue
+        if (mk, mo) not in known:
+            line = one[(one["make"] == mk) & (one["model"] == mo)]
+            known[(mk, mo)] = set(line["variant"].dropna())
+            vocab[(mk, mo)] = {w.casefold() for v in known[(mk, mo)] for w in str(v).split()}
+            spelt[(mk, mo)] = spellings(df, mk, mo)
+        d = derive_one(df, mk, mo, r["variant"], r["year"], r["title"], spelt[(mk, mo)])
+        if not d["variant"]:
+            continue                       # a car with no trim says nothing here
+        checked += 1
+        if d["variant"] in known[(mk, mo)]:
+            recognised += 1
+            continue
+        unknown.append(f"{mk} {mo} {d['variant']}")
+        for w in d["variant"].split():
+            if w.casefold() not in vocab[(mk, mo)]:
+                new_words[w] = new_words.get(w, 0) + 1
+    share = recognised / checked if checked else None
+    warn = bool(checked >= WORDING_MIN_CARS and share is not None and share < WORDING_SHARE)
+    words = [w for w, _ in sorted(new_words.items(), key=lambda x: (-x[1], x[0]))][:8]
+    msg = ""
+    if warn:
+        msg = (f"only {recognised} of {checked} cars here have a trim name already in "
+               f"your data - this page may word trims differently from the pages before"
+               + (f" (new words: {', '.join(words)})" if words else "")
+               + ". They were stored as they are; the Trims page lists them.")
+    return {"checked": checked, "recognised": recognised,
+            "share": None if share is None else round(share, 3), "warn": warn,
+            "new_words": words, "unknown": unknown[:12], "message": msg}
+
+
+def coverage(df: pd.DataFrame) -> list[dict]:
+    """Per make: cars, trim groups, and - for a make with generation rules -
+    how many cars the rules place in a generation."""
+    out = []
+    if df.empty:
+        return out
+    one = df.drop_duplicates("key")
+    for mk, g in one.groupby("make"):
+        R = make_rules(mk)
+        has_gen = bool(R.get("codes") or R.get("series") or R.get("years"))
+        sizes = g.dropna(subset=["variant"]).groupby(["model", "variant"])["key"].nunique()
+        out.append({"make": str(mk), "cars": int(len(g)),
+                    "with_trim": int(g["variant"].notna().sum()),
+                    "groups": int(len(sizes)), "groups_8": int((sizes >= 8).sum()),
+                    "rules": bool(R), "generation_rules": has_gen,
+                    "with_generation": int(g["generation"].notna().sum()) if has_gen else None})
+    return sorted(out, key=lambda r: -r["cars"])
+
+
+def unmatched(df: pd.DataFrame, limit: int = 200) -> list[dict]:
+    """Trim names the rules leave without a generation, for makes that have
+    generation rules - most cars first, with how they were stored and a
+    title or two, so a rule can be written for them."""
+    out = []
+    if df.empty:
+        return out
+    one = df.drop_duplicates("key", keep="last")
+    for (mk, mo, va), g in one.groupby(["make", "model", one["variant"].fillna("")]):
+        R = make_rules(mk)
+        if not (R.get("codes") or R.get("series") or R.get("years")):
+            continue
+        miss = g[g["generation"].isna()]
+        if miss.empty:
+            continue
+        ys = miss["year"].dropna()
+        out.append({"make": str(mk), "model": str(mo), "variant": va or None,
+                    "cars": int(len(miss)),
+                    "years": [int(ys.min()), int(ys.max())] if not ys.empty else None,
+                    "stored": sorted({str(s) for s in miss["variant_stored"].dropna()})[:4],
+                    "titles": [str(t) for t in miss["raw_title"].dropna().unique()[:2]]})
+    return sorted(out, key=lambda r: (-r["cars"], r["make"], r["model"]))[:limit]
 
 
 # ------------------------------------------------------------ the record
@@ -351,7 +499,7 @@ def compare_records(old: dict, new: dict) -> dict:
             "groups_old": len(og), "groups_now": len(ng)}
 
 
-def cli(db_path, save=None, against=None) -> int:
+def cli(db_path, save=None, against=None, unmatched_list=False) -> int:
     """`python -m vpa trims`: how stored trims are grouped, per make; save a
     record, or compare the current grouping with a saved one. Read-only on
     the database."""
@@ -364,6 +512,13 @@ def cli(db_path, save=None, against=None) -> int:
             st = g.dropna(subset=["variant_stored"])[["model", "variant_stored"]].drop_duplicates()
             gr = g.dropna(subset=["variant"]).groupby(["model", "variant"])["key"].nunique()
             print(f"  {mk}: {len(st)} -> {len(gr)} ({int((gr >= 8).sum())})")
+    if unmatched_list:
+        um = unmatched(df)
+        print(f"
+no generation found ({sum(u['cars'] for u in um)} cars, makes with rules):")
+        for u in um[:40]:
+            yrs = f"{u['years'][0]}-{u['years'][1]}" if u["years"] else "?"
+            print(f"  {u['cars']:4d}  {u['make']} {u['model']} {u['variant'] or '(no trim)'}  [{yrs}]")
     if save:
         Path(save).write_text(json.dumps(rec, indent=0, sort_keys=True), encoding="utf-8")
         print(f"\nrecord of {len(rec['cars'])} cars in {len(rec['groups'])} groups saved to {save}")

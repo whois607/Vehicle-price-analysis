@@ -1151,6 +1151,18 @@ Keep these — each one was a bug that took a while to find.
   `generation` (every trim of it: a thin FPV GT Cobra -> every GT BF MkII)
   -> `years` (the model within 2 years). Each only at 8; the note and the
   heading say which.
+* Stage 5 - what the rules don't cover. `trims.wording_check` (every upload:
+  bulk.run per file -> report "wording", so the watch folder too; Import
+  with preview -> its note): of the cars whose make + model already holds
+  WORDING_MIN_MODEL (20) cars, how many land on a trim name the data already
+  has; under WORDING_SHARE (70%) of at least 5 -> flagged with the new words
+  ("FG2", "FGX", "T"). NEVER blocks: the names are stored as they come and
+  regroup when a rule is added. Read before anything is written, so a page
+  is judged against the pages before it. `trims.derive_one` groups one
+  unstored car exactly as the frame would (same spellings, same rules).
+  The Trims page (/trims, nav button "Trims", vpa/trimspage.py, read-only):
+  coverage per make, names left without a generation, and every stored
+  name -> its group, searchable. `python -m vpa trims --unmatched`.
 * tests/check_savewarn: the watch-folder checks now wait for the RESULT
   (inbox._take archives the file a moment before recording it - reading
   on "file gone" raced and failed once in a full run).

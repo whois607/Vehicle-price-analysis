@@ -22,6 +22,12 @@ them under a derived name, worked out on read. Checked here:
     codes (a series code only where the year fits: "XT" is a 1968 Falcon
     and a 2006 trim), the trim without its generation, and a missing body
     filled from the chassis code - never over a stored one;
+  * an upload whose trim names are unlike the data's (a site writing
+    "FG2 XR6 T") is imported and FLAGGED - on Bulk upload, the watch
+    folder's runs and Import with preview - never refused; a model with
+    too little data, or familiar names, raise nothing;
+  * the Trims page: coverage per make, the names the rules leave without a
+    generation, and every stored name with its group;
   * the car check falls back, when a trim has fewer than 8 priced cars (or
     there is no trim), to the model's cars within 2 years - only then, only
     with a year, never a whole model across every year, with no mileage
@@ -38,7 +44,7 @@ import sqlite3
 import sys
 from pathlib import Path
 
-from vpa import compare, explore, trims
+from vpa import bulk, compare, explore, importui, trims, trimspage
 from vpa.schema import make_record
 from vpa.store import Store, read_frame
 
@@ -356,6 +362,56 @@ def main() -> int:
     w = explore.car_payload(DB, "Lexus", "LS", "LS460 Version C", key=other)
     check("a car asked for under a trim it is not in is still an error",
           w["ok"] is False, w.get("error", ""))
+
+    print("\n== uploads worded differently ==")
+    odd = ["FG2 XR6", "FG2 XR6 T", "FGX G6E T", "FGX XR8", "FG2 XR8", "XR6 FG MkII"]
+    recs = [{"make": "Ford", "model": "Falcon", "variant": v, "year": 2012} for v in odd]
+    w = trims.wording_check(df, recs)
+    check("a page in shorthand is flagged, naming the new words",
+          w["warn"] and w["checked"] == 6 and w["recognised"] == 1
+          and {"FG2", "FGX", "T"} <= set(w["new_words"]), w["message"][:90])
+    fam = [{"make": "Ford", "model": "Falcon", "variant": v, "year": 2012}
+           for v in ["XR6 FG MkII", "XR6 Turbo BA Mk II", "XR8 FG X Auto", "XT BF MkII", "XR6 FG MkII"]]
+    new = [{"make": "Holden", "model": "Commodore", "variant": f"SS VE{i}"} for i in range(9)]
+    w2, w3 = trims.wording_check(df, fam), trims.wording_check(df, new)
+    check("familiar names (in any spelling) and a model with too little data raise nothing",
+          not w2["warn"] and w2["recognised"] == 5 and not w3["warn"] and w3["checked"] == 0,
+          f"familiar {w2['recognised']}/{w2['checked']}, new model checked {w3['checked']}")
+    shutil.copy(DB, WORK / "upload.db")
+    up = WORK / "upload.db"
+    csv = "listing_id,make,model,variant,year,price,odometer\n" + "\n".join(
+        f"U-{i},Ford,Falcon,{v},2012,{15000 + i * 500},{120000 + i * 1000}" for i, v in enumerate(odd))
+    r = bulk.run([{"name": "other-site.csv", "text": csv, "capture_date": "2026-09-20"}], up)
+    f = r["files"][0]
+    check("Bulk upload (and so the watch folder): imported, and flagged",
+          r["wrote"] and f["ok"] and f["obs_new"] == 6 and f["wording"]["warn"],
+          f"{f['obs_new']} written; {f['wording']['message'][:60]}")
+    pv = importui.parse_payload({"name": "other-site.csv", "text": csv.replace("U-", "V-"),
+                                 "capture_date": "2026-09-21"}, DB)
+    check("Import with preview says so in its note, every row still ticked",
+          pv["ok"] and "Trim names:" in (pv["note"] or "") and all(x["checked"] for x in pv["rows"]),
+          (pv["note"] or "")[:70])
+
+    print("\n== the Trims page ==")
+    tp = trimspage.payload(DB)
+    cov = {c["make"]: c for c in tp["coverage"]}
+    um = {(u["make"], u["model"], u["variant"]) for u in tp["unmatched"]}
+    nm = {(n["make"], n["stored"]): n for n in tp["names"]}
+    check("coverage per make: BMW cars placed in a generation, Audi none (no rules yet)",
+          cov["BMW"]["generation_rules"] and cov["BMW"]["with_generation"]
+          == int(df.drop_duplicates("key").query("make == 'BMW'")["generation"].notna().sum())
+          and not cov["Audi"]["generation_rules"], f"BMW {cov['BMW']['with_generation']}/{cov['BMW']['cars']}")
+    check("the names left without a generation are listed (BMW 420i M Sport: no code)",
+          ("BMW", "4 Series", "420i M Sport") in um and ("Ford", "Falcon", "XR6 FG MkII") not in um,
+          f"{len(um)} listed")
+    check("every stored name, with the group it lands in",
+          nm[("Audi", "Auto quattro MY18")]["variant"] == "quattro"
+          and nm[("Ford", "XT BF MkII")]["generation"] == "BF MkII"
+          and sum(n["cars"] for n in tp["names"]) == df["key"].nunique(),
+          f"{len(tp['names'])} names, {sum(n['cars'] for n in tp['names'])} cars")
+    check("the page is complete (every placeholder filled)",
+          "__" not in trimspage.PAGE.replace("__proto__", "") and 'id="trimsBtn"' in trimspage.PAGE,
+          f"{len(trimspage.PAGE):,} bytes")
 
     check("reading wrote nothing", db_hash() == h0, h0)
     passed = sum(ok for ok, _ in RESULTS)

@@ -132,6 +132,13 @@ def parse_payload(payload: dict, db_path: str | Path) -> dict:
     elif rows and all(r["status"] == "duplicate" for r in rows):
         # every car already recorded for its day: a page saved twice
         note = repeat_message(", ".join(sorted({str(r["capture_date"]) for r in rows})))
+    if rows and note is None:
+        # trim names unlike the data's (a new site's wording): said, never refused
+        from . import trims as _trims
+        from .store import read_frame
+        w = _trims.wording_check(read_frame(db_path), rows)
+        if w["warn"]:
+            note = "Trim names: " + w["message"]
     return {"ok": True, "note": note,
             "format": used_fmt, "raw_count": raw_count,
             "dropped": raw_count - len(rows), "rows": rows,
@@ -644,6 +651,12 @@ class _Handler(BaseHTTPRequestHandler):
         elif bare == "/duplicates":
             from . import dupes
             self._send(200, dupes.PAGE.encode("utf-8"), "text/html; charset=utf-8")
+        elif bare == "/trims":
+            from . import trimspage
+            self._send(200, trimspage.PAGE.encode("utf-8"), "text/html; charset=utf-8")
+        elif self.path == "/api/trims":
+            from . import trimspage
+            self._json(trimspage.payload(self.db_path))
         elif self.path == "/api/dupes":
             from . import dupes
             self._json(dupes.payload(self.db_path))

@@ -209,8 +209,10 @@ def build_parser() -> argparse.ArgumentParser:
                                      "compare a record of it (read-only)")
     q.add_argument("--save", default=None, help="write a record of every car's group")
     q.add_argument("--against", default=None, help="compare with a saved record")
+    q.add_argument("--unmatched", action="store_true",
+                   help="list trims the brand rules place in no generation")
     q.set_defaults(fn=lambda a: __import__("vpa.trims", fromlist=["cli"]).cli(
-        a.db, a.save, a.against))
+        a.db, a.save, a.against, a.unmatched))
 
     q = sub.add_parser("backup", help="snapshot the database to data/backups/")
     q.add_argument("--out", default=None, help="destination directory")

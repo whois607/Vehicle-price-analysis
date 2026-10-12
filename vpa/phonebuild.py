@@ -40,7 +40,7 @@ from .phonecfg import FORMAT
 KEEP_SNAPSHOTS = 2
 _CODE_FILES = ("explore.py", "compare.py", "turnover.py", "analyze.py", "forecast.py",
                "dupes.py", "importui.py", "segments.py", "links.py", "phonebuild.py",
-               "photos.py", "trims.py", "store.py")
+               "photos.py", "trims.py", "store.py", "trim_rules.json")
 _COLS_V = ["k", "src", "id", "url", "make", "model", "variant", "year", "body",
            "type", "state", "seller", "title", "first", "last", "u0", "ph", "gear",
            "gen", "tb"]

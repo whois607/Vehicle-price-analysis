@@ -258,6 +258,13 @@ def run(files: list[dict], db_path: str | Path = DEFAULT_DB,
         # Returned to the page only; never stored in bulk_runs.
         cars, seen = [], set()
         written = 0
+        # do these pages word trims the way the data already does? Read
+        # BEFORE anything is written, so a page is judged against the pages
+        # before it (trims.wording_check - it never blocks an import)
+        from . import trims as _trims
+        before_df = store.frame()
+        for p in parsed:
+            p["wording"] = _trims.wording_check(before_df, p["records"])
         for p in parsed:
             # A page whose EVERY car is already recorded for its day (the
             # same rule ingest() and the preview use) is a page saved twice -
@@ -312,6 +319,7 @@ def run(files: list[dict], db_path: str | Path = DEFAULT_DB,
                 "duplicates": counts["obs_duplicate"],
                 "incomplete": flagged,
                 "days": sorted({r.capture_date for r in p["records"]}),
+                "wording": p.get("wording"),
             })
 
         if not written:
@@ -891,6 +899,8 @@ function render(res){
   res.files.forEach(f=>{
     if(!f.ok){SESSION.push({run,refused:true,file:f.name,error:f.error,html:f.html,warn:f.warn});return;}
     (res.cars||[]).filter(c=>c.file===f.name).forEach(c=>SESSION.push({...c,run}));
+    // imported, but its trim names are unlike the data's: said, not refused
+    if(f.wording&&f.wording.warn)SESSION.push({run,wording:true,file:f.name,error:f.wording.message});
   });
   RUNTOTALS.push({run,t:res.totals,undone:false});
   renderSession();
@@ -923,6 +933,9 @@ function renderSession(){
   // compared with the live, priced car before it.
   let prev=null,prevN=0,n=0;const drops=[];
   const rows=SESSION.map(c=>{
+    if(c.wording)return `<tr class="savewarn"><td class="num">—</td><td colspan="6">
+      <b>${esc(c.file)}</b> imported<div class="why">${esc(c.error)} <a href="/trims">Trims page</a></div></td>
+      <td><span class="tag warn">new wording</span></td></tr>`;
     if(c.refused)return `<tr class="${c.warn?"savewarn":"bad"}"><td class="num">—</td><td colspan="6">
       <b>${esc(c.file)}</b> ${c.warn?"not imported":"refused"}<div class="why">${c.html?c.error:esc(c.error)}</div></td>
       <td><span class="tag warn">${{repeat:"saved twice",cutoff:"cut off"}[c.warn]||"refused"}</span></td></tr>`;
@@ -1063,6 +1076,10 @@ function wtake(evs){
       if(w){$("wnote").innerHTML=`<b style="color:var(--warn)">${w.warn==="repeat"
           ?"Page saved twice - the next page may have been skipped":"Cut-off page - save it again"}:</b> ${esc(w.error)}`;
         $("wnote").title=w.error;WHOLD=Date.now()+30000;}}
+    const ww=ev.result&&(ev.result.files||[]).find(f=>f.wording&&f.wording.warn);
+    if(ww&&!(ev.result.files||[]).some(f=>f.warn)){
+      $("wnote").innerHTML=`<b style="color:var(--warn)">New trim wording:</b> ${esc(ww.wording.message)}`;
+      $("wnote").title=ww.wording.message;WHOLD=Date.now()+30000;}
     if(ev.run&&!WRUNS.includes(ev.run))WRUNS.push(ev.run);
     if(ev.archive_error){$("wnote").innerHTML=`<b style="color:var(--warn)">${esc(ev.name)}</b>: ${esc(ev.archive_error)}`;
       WHOLD=Date.now()+15000;}

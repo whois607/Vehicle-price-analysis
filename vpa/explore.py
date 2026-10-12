@@ -745,14 +745,21 @@ def _estimate(peers: pd.DataFrame, fit_rows: pd.DataFrame, fit: dict,
     return out
 
 
-def _fallback_note(variant, trim_n, make, model, lo, hi, n, stored) -> str:
-    """The card's own words for the nearby-years pool (stats.js has the
-    same sentence). `stored`: the car is one of the data's own, so the
-    others are "other"."""
+def _fallback_note(level, variant, trim_n, make, model, yrs, n, stored, gen, tb) -> str:
+    """The card's own words for a wider pool (stats.js has the same
+    sentences). `stored`: the car is one of the data's own, so the others
+    are "other"."""
     first = (f"Only {trim_n}{' other' if stored else ''} priced {variant}" if variant
              else "No trim is recorded for this car" if stored else "No trim was picked")
-    return (f"{first} - compared with all {n} {make} {model} cars from {lo} to {hi} "
-            f"instead. That pools different trims, so treat it as a rough guide.")
+    if level == "trim_years":
+        return (f"{first} - compared with all {n} {make} {model} {tb} cars from "
+                f"{yrs[0]} to {yrs[1]}, of any generation, instead. Treat it as a rough guide.")
+    if level == "generation":
+        return (f"{first} - compared with all {n} {make} {model} {gen} cars, every trim "
+                f"of that generation, instead. That pools different trims, so treat "
+                f"it as a rough guide.")
+    return (f"{first} - compared with all {n} {make} {model} cars from {yrs[0]} to "
+            f"{yrs[1]} instead. That pools different trims, so treat it as a rough guide.")
 
 
 def _rank_in(peer_prices: list, value: float) -> dict:
@@ -936,20 +943,42 @@ def car_payload(db_path: str | Path = DEFAULT_DB, make: str | None = None,
         p = analyze.latest_per_vehicle(analyze.prep(s, freq="MS"))
         return int((p["key"] != key).sum()) if key else int(len(p))
 
+    # The ladder, most specific first, each step only at CAR_MIN_PEERS:
+    #   trim        the trim, its generation included ("XR6 FG MkII")
+    #   trim_years  the same trim of ANY generation, within the years
+    #   generation  every trim of the car's generation ("FG MkII")
+    #   years       every car of the model within the years
     level, fallback, what = "trim", None, "this trim"
     trim_n = peer_n(sub) if variant else 0
-    if trim_n < CAR_MIN_PEERS and subj_year is not None:
-        lo, hi = subj_year - CAR_NEAR_YEARS, subj_year + CAR_NEAR_YEARS
+    if trim_n < CAR_MIN_PEERS:
         line = _select(df, make, model, None)
-        near = line[(line["year"] >= lo) & (line["year"] <= hi)]
-        near_n = peer_n(near) if not near.empty else 0
-        if near_n >= CAR_MIN_PEERS:
-            level, sub, what = "years", near, "these cars"
-            label = f"{make} {model} {lo}-{hi}"
-            base["label"] = label
-            fallback = {"trim": variant or None, "trim_n": trim_n, "years": [lo, hi],
-                        "n": near_n, "note": _fallback_note(variant, trim_n, make, model,
-                                                            lo, hi, near_n, bool(key))}
+        ref = kr if key else sub
+        first = lambda c: next((str(v) for v in ref[c] if isinstance(v, str) and v), None) \
+            if c in ref and not ref.empty else None
+        gen, tb = first("generation"), first("trim_base")
+        steps = []
+        if subj_year is not None:
+            lo, hi = subj_year - CAR_NEAR_YEARS, subj_year + CAR_NEAR_YEARS
+            inyears = (line["year"] >= lo) & (line["year"] <= hi)
+            if variant and gen and tb:
+                steps.append(("trim_years", line[inyears & (line["trim_base"] == tb)],
+                              f"{make} {model} {tb} {lo}-{hi}", (lo, hi)))
+        if gen:
+            steps.append(("generation", line[line["generation"] == gen],
+                          f"{make} {model} {gen}", None))
+        if subj_year is not None:
+            steps.append(("years", line[inyears], f"{make} {model} {lo}-{hi}", (lo, hi)))
+        for lv, rows, lab, yrs in steps:
+            n = peer_n(rows) if not rows.empty else 0
+            if n >= CAR_MIN_PEERS:
+                level, sub, what, label = lv, rows, "these cars", lab
+                base["label"] = label
+                fallback = {"trim": variant or None, "trim_n": trim_n, "level": lv,
+                            "years": list(yrs) if yrs else None, "generation": gen,
+                            "trim_base": tb, "n": n,
+                            "note": _fallback_note(lv, variant, trim_n, make, model, yrs,
+                                                   n, bool(key), gen, tb)}
+                break
     if level == "trim" and not variant:
         return {**base, "usable": False, "level": "too broad",
                 "reason": (f"pick a trim first - or give the year, and it is judged "
@@ -1009,8 +1038,8 @@ def car_payload(db_path: str | Path = DEFAULT_DB, make: str | None = None,
     # Pooled trims: no curve at all - its slope would measure the mix of
     # trims, not wear (the same reason the line's fit is never substituted)
     fit = (analyze.fit_mileage(fit_rows) if level == "trim" else
-           {"usable": False, "n": 0, "reason": "several trims are pooled, so a "
-            "mileage curve would measure the trim mix, not wear"})
+           {"usable": False, "n": 0, "reason": "several trims or generations are "
+            "pooled, so a mileage curve would measure the mix, not wear"})
     adjusted, expected = None, None
     fit_info = {"usable": bool(fit.get("usable")), "reason": fit.get("reason", ""),
                 "n": int(fit.get("n", 0)),
@@ -2297,7 +2326,10 @@ const EST_BASIS_YEARS={nearest:"these cars nearest in kilometres",trim:"all of t
 function fallbackHtml(d){
   return d.fallback?`<div class="warnbox" style="margin-bottom:10px">${esc(d.fallback.note)}</div>`:"";
 }
-const ofPool=d=>d.level==="years"?"of these cars":"of this trim";
+const pooled=d=>!!(d&&d.fallback);
+const ofPool=d=>pooled(d)?"of these cars":"of this trim";
+const VS_HEAD={years:"this car vs nearby years",generation:"this car vs its generation",
+  trim_years:"this car vs its trim, any generation"};
 function estimateHtml(e,s,big,d){
   if(!e)return "";
   if(!e.usable)return big?`<div class="warnbox">No expected range: ${esc(e.reason)}</div>`:"";
@@ -2311,7 +2343,7 @@ function estimateHtml(e,s,big,d){
     <div class="estsub">typical <b>${money(e.mid)}</b> &middot; most ads
       ${money(e.wide_lo)}&ndash;${money(e.wide_hi)}</div>
     <div class="hint" style="margin-top:6px">The middle half of what cars like this ask,
-      from ${esc((d&&d.level==="years"?EST_BASIS_YEARS:EST_BASIS)[e.basis]||e.basis)} (${e.n} ${e.basis==="mileage"?"sightings":"cars"}).
+      from ${esc((pooled(d)?EST_BASIS_YEARS:EST_BASIS)[e.basis]||e.basis)} (${e.n} ${e.basis==="mileage"?"sightings":"cars"}).
       ${e.why_not_curve?esc(e.why_not_curve)+". ":""}Asking prices, not sale prices; the trim
       pools model years, so check the same-year figure below.</div></div>`;
 }
@@ -2350,7 +2382,7 @@ function renderCar(){
   // refused before any car was looked up (e.g. "pick a trim first")
   if(!s){el.innerHTML=`<div class="warnbox">${esc(d.reason||"")}</div>`;
     $("carspan").textContent=`— ${d.label||""}`;return;}
-  $("carvs").textContent=d.level==="years"?"this car vs nearby years":"this car vs the trim";
+  $("carvs").textContent=VS_HEAD[d.level]||"this car vs the trim";
   $("carspan").innerHTML=`&mdash; ${esc(d.label)} `
     +(s.stored?'<span class="subjtag">from your data</span>'
               :'<span class="subjtag typed">not in your data &mdash; nothing saved</span>')
@@ -2370,7 +2402,7 @@ function renderCar(){
     +(s.odometer_km?` at ${km(s.odometer_km)}`:"")
     +(s.year?`, ${s.year}`:"")+" &mdash; ";
   head=fallbackHtml(d)+head;
-  head+=d.raw.usable?rankPhrase(d.raw,d.level==="years"?"of these cars":"cars of this trim")
+  head+=d.raw.usable?rankPhrase(d.raw,pooled(d)?"of these cars":"cars of this trim")
        :`<span class="gated">${esc(d.raw.reason)}</span>`;
   if(d.adjusted&&d.adjusted.rank.usable){
     const rp=d.raw.percentile,ap=d.adjusted.rank.percentile;

@@ -461,10 +461,16 @@ function estimate(peers, fitRows, fitT, subject, C, what) {
     wide_lo: r100(wlo), wide_hi: r100(whi), at_odo: num(odo) });
 }
 // explore._fallback_note, word for word
-function fallbackNote(va, trimN, mk, mo, lo, hi, n, stored) {
+function fallbackNote(level, va, trimN, mk, mo, yrs, n, stored, gen, tb) {
   const first = va ? `Only ${trimN}${stored ? " other" : ""} priced ${va}`
     : stored ? "No trim is recorded for this car" : "No trim was picked";
-  return `${first} - compared with all ${n} ${mk} ${mo} cars from ${lo} to ${hi} ` +
+  if (level === "trim_years")
+    return `${first} - compared with all ${n} ${mk} ${mo} ${tb} cars from ${yrs[0]} to ${yrs[1]}, ` +
+      "of any generation, instead. Treat it as a rough guide.";
+  if (level === "generation")
+    return `${first} - compared with all ${n} ${mk} ${mo} ${gen} cars, every trim of that generation, ` +
+      "instead. That pools different trims, so treat it as a rough guide.";
+  return `${first} - compared with all ${n} ${mk} ${mo} cars from ${yrs[0]} to ${yrs[1]} ` +
     "instead. That pools different trims, so treat it as a rough guide.";
 }
 function carCard(DB, mk, mo, va, opts, now) {
@@ -482,17 +488,31 @@ function carCard(DB, mk, mo, va, opts, now) {
   if (va && !sub.length) return Object.assign(base, { usable: false, reason: "no listings match that selection" });
   if (key && va && !sub.some(r => r.v.k === key)) return { ok: false, error: "that car is not in this selection" };
   const peerN = s => { const p = latestPerVehicle(prep(s)); return key ? p.filter(r => r.v.k !== key).length : p.length; };
+  // the ladder (explore.car_payload): trim, the same trim of any generation
+  // within the years, every trim of the generation, the model within the years
   let level = "trim", fallback = null, what = "this trim";
   const trimN = va ? peerN(sub) : 0;
-  if (trimN < C.CAR_MIN_PEERS && subjYear != null) {
-    const lo = subjYear - C.CAR_NEAR_YEARS, hi = subjYear + C.CAR_NEAR_YEARS;
-    const near = rowsOf(DB, mk, mo, null).filter(r => r.v.year != null && r.v.year >= lo && r.v.year <= hi);
-    const nearN = near.length ? peerN(near) : 0;
-    if (nearN >= C.CAR_MIN_PEERS) {
-      level = "years"; sub = near; what = "these cars";
-      label = `${mk} ${mo} ${lo}-${hi}`; base.label = label;
-      fallback = { trim: va || null, trim_n: trimN, years: [lo, hi], n: nearN,
-                   note: fallbackNote(va, trimN, mk, mo, lo, hi, nearN, !!key) };
+  if (trimN < C.CAR_MIN_PEERS) {
+    const line = rowsOf(DB, mk, mo, null);
+    const ref = key ? (DB.byCar.get(key) || []) : sub;
+    const firstOf = c => { for (const r of ref) { const x = r.v[c]; if (typeof x === "string" && x) return x; } return null; };
+    const gen = firstOf("gen"), tb = firstOf("tb"), steps = [];
+    let lo = null, hi = null;
+    const inYears = r => r.v.year != null && r.v.year >= lo && r.v.year <= hi;
+    if (subjYear != null) {
+      lo = subjYear - C.CAR_NEAR_YEARS; hi = subjYear + C.CAR_NEAR_YEARS;
+      if (va && gen && tb) steps.push(["trim_years", line.filter(r => inYears(r) && r.v.tb === tb), `${mk} ${mo} ${tb} ${lo}-${hi}`, [lo, hi]]);
+    }
+    if (gen) steps.push(["generation", line.filter(r => r.v.gen === gen), `${mk} ${mo} ${gen}`, null]);
+    if (subjYear != null) steps.push(["years", line.filter(inYears), `${mk} ${mo} ${lo}-${hi}`, [lo, hi]]);
+    for (const [lv, rows, lab, yrs] of steps) {
+      const n = rows.length ? peerN(rows) : 0;
+      if (n >= C.CAR_MIN_PEERS) {
+        level = lv; sub = rows; what = "these cars"; label = lab; base.label = label;
+        fallback = { trim: va || null, trim_n: trimN, level: lv, years: yrs, generation: gen,
+                     trim_base: tb, n, note: fallbackNote(lv, va, trimN, mk, mo, yrs, n, !!key, gen, tb) };
+        break;
+      }
     }
   }
   if (level === "trim" && !va) return Object.assign(base, { usable: false, level: "too broad",
@@ -502,7 +522,7 @@ function carCard(DB, mk, mo, va, opts, now) {
   const prepped = prep(sub), pool = latestPerVehicle(prepped);
   if (!pool.length) return Object.assign(base, { usable: false, reason: "no priced listings in this trim" });
   // pooled trims: no mileage curve (its slope would measure the trim mix)
-  const POOLED = [false, null, null, 0, null, "several trims are pooled, so a mileage curve would measure the trim mix, not wear"];
+  const POOLED = [false, null, null, 0, null, "several trims or generations are pooled, so a mileage curve would measure the mix, not wear"];
   const entry = level === "trim" ? (DB.sel[label] || {}) : {};
   const K = level === "trim" ? (entry.k || { fit: [false, null, null, 0, null, "no fit"], cars: {}, caveats: [] })
     : { fit: POOLED, cars: {}, caveats: [] };

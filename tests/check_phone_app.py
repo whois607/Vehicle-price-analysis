@@ -96,14 +96,23 @@ def seed() -> None:
                         "title": (f"{year or ''} {mk} {mo} {va or ''}".strip()
                                   + ("", " Manual", " Auto")[i % 3]),
                         "capture_date": d}, source="carsales"))
-    # a thin trim (5 cars): its cards fall back to the model's nearby years
-    for i in range(5):
-        recs.append(make_record({"listing_id": f"SSE-AD-99800{i}", "make": "Ford", "model": "Falcon",
-                                 "variant": "XR6 Sprint", "year": 2012 + (i % 3),
-                                 "price": 52000 + i * 1500, "odometer": 30000 + i * 7000,
-                                 "url": f"/cars/details/z/SSE-AD-99800{i}/",
-                                 "title": f"{2012 + (i % 3)} Ford Falcon XR6 Sprint Manual",
-                                 "capture_date": DAYS[i % len(DAYS)]}, source="carsales"))
+    # thin trims: their cards walk the ladder - a 5-car Sprint to every FG X
+    # Falcon (generation), a 3-car 428i F36 to every 428i of 2013-2017
+    # (trim, any generation) - and a 5-car XR6 Sprint with no code to the
+    # model's nearby years
+    thin = [("Ford", "Falcon", "XR6 Sprint FG X", 2016, 5), ("Ford", "Falcon", "XR6 FG X", 2015, 6),
+            ("Ford", "Falcon", "XR8 FG X", 2015, 5), ("BMW", "4 Series", "428i Sport Line F36", 2015, 3),
+            ("BMW", "4 Series", "428i Sport Line F32", 2016, 7), ("Ford", "Falcon", "XR6 Sprint", 2013, 5)]
+    m = 0
+    for mk, mo, va, yr, count in thin:
+        for i in range(count):
+            m += 1
+            recs.append(make_record({"listing_id": f"SSE-AD-998{m:03d}", "make": mk, "model": mo,
+                                     "variant": va, "year": yr - (i % 2),
+                                     "price": 32000 + m * 900, "odometer": 30000 + m * 4100,
+                                     "url": f"/cars/details/z/SSE-AD-998{m:03d}/",
+                                     "title": f"{yr} {mk} {mo} {va} Manual",
+                                     "capture_date": DAYS[m % len(DAYS)]}, source="carsales"))
     # a car with two prices on one day (two cars merged into one identity)
     for p in (21000, 23500):
         recs.append(make_record({"listing_id": "SSE-AD-999001", "make": "Ford", "model": "Falcon",

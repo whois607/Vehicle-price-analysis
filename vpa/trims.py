@@ -15,6 +15,12 @@ phone copy all see one set of names and cannot disagree. Columns:
     gearbox         'manual' / 'auto', from the stored trim or the title
     drive           'awd' / '4wd' / '2wd' / 'rwd' / 'fwd', likewise
     model_year      the MY code as a year (MY13.5 -> 2013.5), likewise
+    generation      the generation code (G20 LCI II, FG MkII), from the brand
+                    rules in trim_rules.json; None where they cannot tell
+    trim_base       the trim with the generation taken out ("330i M Sport")
+    body_type       the stored body, or - where none was stored - the body
+                    the generation code decides (BMW F36 = hatch); the
+                    stored value stays in body_type_stored
 
 The wording fixes (`clean`) only ever remove or respell words that do not
 name a different car: gearbox, model-year and trailing drive/body words,
@@ -92,6 +98,93 @@ def clean(variant) -> str | None:
     return s or None
 
 
+# ------------------------------------------------------------ brand rules
+RULES_PATH = Path(__file__).resolve().parent / "trim_rules.json"
+_RULES: dict = {"sig": None, "rules": {}}
+
+
+def rules() -> dict:
+    """trim_rules.json, re-read whenever the file changes."""
+    try:
+        st = RULES_PATH.stat()
+        sig = (st.st_mtime_ns, st.st_size)
+    except OSError:
+        return {"makes": {}, "shorthand": []}
+    if _RULES["sig"] != sig:
+        _RULES["rules"] = json.loads(RULES_PATH.read_text(encoding="utf-8"))
+        _RULES["sig"] = sig
+    return _RULES["rules"]
+
+
+def make_rules(make) -> dict:
+    """One make's rules, following 'same_as'."""
+    makes = rules().get("makes", {})
+    r, seen = makes.get(make) or {}, set()
+    while r.get("same_as") and r["same_as"] not in seen:
+        seen.add(r["same_as"])
+        r = {**(makes.get(r["same_as"]) or {}), **{k: v for k, v in r.items() if k != "same_as"}}
+    return r
+
+
+def _fits(span, year, slack=1) -> bool:
+    """A car with no year cannot rule a code out (the LAST code in a name
+    is taken, which is how carsales writes them)."""
+    if year is None:
+        return True
+    lo, hi = span[0], span[1] if span[1] is not None else 9999
+    return lo - slack <= year <= hi + slack
+
+
+def generation_of(make, model, name, year) -> tuple:
+    """(generation, trim_base) for one grouped trim name. The generation is
+    the LAST code in the name the make's rules recognise - carsales writes
+    the trim first ("XT BF MkII") - with its qualifier; a series code
+    counts only when the car's year fits its years (Ford's XT and XL are
+    trims too) or the car has no year. Nothing recognised: (None, name)."""
+    if not isinstance(name, str) or not name:
+        return None, None
+    R = make_rules(make)
+    if not R:
+        return None, name
+    toks = name.split()
+    quals = sorted(R.get("qualifiers", []), key=lambda q: -len(q.split()))
+    found = None                                    # (start, end) token span
+    i = 0
+    while i < len(toks):
+        hit = None
+        if R.get("series"):
+            for code, span in sorted(R["series"].items(), key=lambda kv: -len(kv[0].split())):
+                n = len(code.split())
+                if " ".join(toks[i:i + n]) == code and _fits(span, year):
+                    hit = (i, i + n)
+                    break
+        if hit is None and R.get("codes") and re.fullmatch(R["codes"], toks[i]):
+            hit = (i, i + 1)
+        if hit:
+            s, e = hit
+            for q in quals:
+                n = len(q.split())
+                if " ".join(toks[e:e + n]) == q:
+                    e += n
+                    break
+            found = (s, e)
+            i = e
+        else:
+            i += 1
+    if not found:
+        return None, name
+    s, e = found
+    rest = " ".join(toks[:s] + toks[e:]).strip()
+    return " ".join(toks[s:e]), rest or None
+
+
+def body_of(make, generation) -> str | None:
+    """The body a generation code decides, if the make's rules say."""
+    if not isinstance(generation, str) or not generation:
+        return None
+    return (make_rules(make).get("body") or {}).get(generation.split()[0])
+
+
 def fold(name: str) -> str:
     """Names that differ only in capitals or a hyphen are one trim."""
     return " ".join(name.casefold().replace("-", "").split())
@@ -128,8 +221,10 @@ def add_trim_cols(df: pd.DataFrame) -> pd.DataFrame:
     plus gearbox / drive / model_year. Rows, keys, prices and every other
     column are untouched."""
     df["variant_stored"] = df["variant"] if "variant" in df else None
-    for c in ("gearbox", "drive", "model_year"):
+    for c in ("gearbox", "drive", "model_year", "generation", "trim_base"):
         df[c] = None
+    if "body_type" in df:
+        df["body_type_stored"] = df["body_type"]
     if df.empty:
         return df
     stored = df["variant"].astype(object)
@@ -152,12 +247,29 @@ def add_trim_cols(df: pd.DataFrame) -> pd.DataFrame:
                      else shown[(mk, mo, fold(cleaned[(mk, mo, str(v))]))]
                      for mk, mo, v in zip(df["make"], df["model"], stored)]
     titles = df["raw_title"] if "raw_title" in df else pd.Series([None] * len(df))
-    got = {}
-    trip = [got.setdefault((v, t), details(None if nan(v) else v, None if nan(t) else t))
-            for v, t in zip(stored, titles)]
+    got: dict = {}
+    for k in zip(stored, titles):
+        if k not in got:
+            got[k] = details(None if nan(k[0]) else k[0], None if nan(k[1]) else k[1])
+    trip = [got[k] for k in zip(stored, titles)]
     df["gearbox"] = [x[0] for x in trip]
     df["drive"] = [x[1] for x in trip]
     df["model_year"] = [x[2] for x in trip]
+    # generation and the trim without it, from the GROUPED name; the model
+    # year (MY code) before the listing year, when the car has one
+    yr = [None if nan(m) and nan(y) else int(m) if not nan(m) else int(y)
+          for m, y in zip(df["model_year"], df["year"] if "year" in df else [None] * len(df))]
+    gens: dict = {}
+    for k in zip(df["make"], df["model"], df["variant"], yr):
+        if k not in gens:
+            gens[k] = generation_of(*k)
+    pair = [gens[k] for k in zip(df["make"], df["model"], df["variant"], yr)]
+    df["generation"] = [p[0] for p in pair]
+    df["trim_base"] = [p[1] for p in pair]
+    if "body_type" in df:
+        df["body_type_stored"] = df["body_type"]
+        df["body_type"] = [b if not nan(b) else body_of(mk, g)
+                           for b, mk, g in zip(df["body_type"], df["make"], df["generation"])]
     return df
 
 

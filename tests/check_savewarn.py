@@ -158,15 +158,19 @@ def main() -> int:
     wait(lambda: S.done == 1 and not (FOLDER / "carsales.csv").exists())
     # the same cars, saved again - different bytes (so not caught as an
     # identical file), same listings
+    # the file leaves the folder a moment BEFORE its result is recorded
+    # (inbox._take archives, then appends), so wait for the result itself
+    n = len(S.events)
     save("carsales.csv", page_csv(1).replace("\n", "\r\n"))
-    wait(lambda: not (FOLDER / "carsales.csv").exists())
+    wait(lambda: len(S.events) > n)
     ev = S.events[-1]
     check("a page saved twice is not counted, and the page says the next may be missing",
           S.done == 1 and ev["kind"] == "refused" and ev["result"]["files"][0]["warn"] == "repeat",
           f"done {S.done}, {ev['kind']}: {ev['error'][:50]}")
     big = html([{"id": "SSE-AD-777", "price": 20000, "km": 90000}], pad=40000)
+    n = len(S.events)
     save("carsales.htm", big[:len(big) // 2])
-    wait(lambda: not (FOLDER / "carsales.htm").exists())
+    wait(lambda: len(S.events) > n)
     ev = S.events[-1]
     check("a cut-off page is refused and not counted",
           S.done == 1 and ev["kind"] == "refused" and ev["result"]["files"][0]["warn"] == "cutoff",

@@ -752,7 +752,7 @@ function cardHtml(c, v) {
   // not against one trim: said first (explore._fallback_note)
   let h = c.fallback ? `<div class="card"><span class="warn">${esc(c.fallback.note)}</span></div>` : "";
   const R = c.raw, A = c.adjusted, X = c.expected, est = S && !S.stored && S.price == null;
-  const yrs = c.level === "years";
+  const yrs = !!c.fallback;        // a wider pool than the trim
   if (est) h += estHtml(c.estimate, S, true, yrs);
   else {
   // the laptop's wording: a percentile only from 20 peers up, a plain count below

@@ -1131,6 +1131,29 @@ Keep these — each one was a bug that took a while to find.
   "rough guide"); 278 still cannot (classic Corvettes, old Mercedes, bikes
   with no year). Planned: generation (stage 4) goes between trim and
   nearby years, making most of these fallbacks a same-generation pool.
+* Stage 4 - generations (`vpa/trim_rules.json`, `trims.generation_of`):
+  per make, `codes` (a pattern: BMW chassis E90/F30/G20, with qualifiers
+  "LCI"/"LCI II") or `series` (codes with the years they were sold, one
+  year's slack: every Falcon/Fairlane/LTD/Territory/Mustang series XK..FG X,
+  ZA..NL, P5..DL, SX..SZ, FM..FO; FPV `same_as` Ford). The LAST code in a
+  name counts (carsales writes trim then series: "XT BF MkII"), and a series
+  code only where the car's year fits - or the car has no year - because
+  XT/XL are 1968/1962 Falcons AND later trims. New columns `generation`,
+  `trim_base` (the name without it); `body_type` filled from a BMW chassis
+  code (E9x/F3x/G2x - checked against every stored body: no disagreement)
+  only where none was stored; `body_type_stored` keeps the original. Real
+  data: BMW 908/935 (26 "420i M Sport" carry no code), Ford family all but
+  59 (older Mustangs, Territory "Turbo AWD"), 114 bodies filled. Grouping
+  unchanged (same 1,101 moves as stage 2).
+* The car check's ladder (laptop = phone, columns "gen"/"tb" in the copy):
+  trim -> `trim_years` (the same trim of any generation within 2 years:
+  a thin 428i Sport Line F36 -> every 428i Sport Line 2014-2018) ->
+  `generation` (every trim of it: a thin FPV GT Cobra -> every GT BF MkII)
+  -> `years` (the model within 2 years). Each only at 8; the note and the
+  heading say which.
+* tests/check_savewarn: the watch-folder checks now wait for the RESULT
+  (inbox._take archives the file a moment before recording it - reading
+  on "file gone" raced and failed once in a full run).
 
 **Saves that went wrong - the 09/10/2026 Falcon sweep (12/10/2026)**
 * WHAT HAPPENED (poor connection): the watch folder took "page 13" from a

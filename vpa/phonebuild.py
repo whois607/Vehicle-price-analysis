@@ -42,7 +42,8 @@ _CODE_FILES = ("explore.py", "compare.py", "turnover.py", "analyze.py", "forecas
                "dupes.py", "importui.py", "segments.py", "links.py", "phonebuild.py",
                "photos.py", "trims.py", "store.py")
 _COLS_V = ["k", "src", "id", "url", "make", "model", "variant", "year", "body",
-           "type", "state", "seller", "title", "first", "last", "u0", "ph", "gear"]
+           "type", "state", "seller", "title", "first", "last", "u0", "ph", "gear",
+           "gen", "tb"]
 _COLS_S = ["v", "d", "p", "km"]
 
 
@@ -340,7 +341,7 @@ def _build(db_path, out: Path, force: bool) -> dict:
                 # for one only when that car is on screen
                 PH.get(photos.ad_id(row.listing_id if isinstance(row.listing_id, str) else None,
                                     row.url if isinstance(row.url, str) else None) or ""),
-                txt(row.gearbox)])
+                txt(row.gearbox), txt(row.generation), txt(row.trim_base)])
         # sightings in the frame's own order (capture_date, key): the phone's
         # "last sighting wins" must break ties exactly as the laptop does
         for row in raw.itertuples(index=False):

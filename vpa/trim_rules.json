@@ -1,0 +1,41 @@
+{
+  "_about": [
+    "Brand rules for grouping trims (vpa/trims.py). Read when the data is read; nothing here changes the database.",
+    "Per make: 'codes' finds generation codes written in the trim by pattern (BMW chassis codes); 'series' lists codes with the years they were sold, and a code only counts when the car's year fits (Ford's XT and XL are trims too); 'qualifiers' follow a code and belong to it (FG MkII, G20 LCI II); 'body' fills a missing body type from the generation code; 'same_as' borrows another make's rules.",
+    "Years are model years, inclusive, with one year's slack either side for series codes. null = still on sale."
+  ],
+  "makes": {
+    "BMW": {
+      "codes": "[EFG]\\d\\d",
+      "qualifiers": ["LCI II", "LCI"],
+      "body": {
+        "E90": "sedan", "E91": "wagon", "E92": "coupe", "E93": "convertible",
+        "F30": "sedan", "F31": "wagon", "F34": "hatch", "F32": "coupe", "F33": "convertible", "F36": "hatch",
+        "G20": "sedan", "G21": "wagon", "G22": "coupe", "G23": "convertible", "G26": "hatch"
+      }
+    },
+    "Ford": {
+      "qualifiers": ["MkIII", "MkII", "III", "II"],
+      "series": {
+        "XK": [1960, 1962], "XL": [1962, 1964], "XM": [1964, 1965], "XP": [1965, 1966],
+        "XR": [1966, 1968], "XT": [1968, 1969], "XW": [1969, 1970], "XY": [1970, 1972],
+        "XA": [1972, 1973], "XB": [1973, 1976], "XC": [1976, 1979], "XD": [1979, 1982],
+        "XE": [1982, 1984], "XF": [1984, 1993], "XG": [1993, 1996], "XH": [1996, 1999],
+        "EA": [1988, 1991], "EB": [1991, 1993], "ED": [1993, 1994], "EF": [1994, 1996],
+        "EL": [1996, 1998], "AU": [1998, 2002], "BA": [2002, 2005], "BF": [2005, 2010],
+        "FG X": [2014, 2016], "FG": [2008, 2016],
+        "ZA": [1967, 1968], "ZB": [1968, 1969], "ZC": [1969, 1970], "ZD": [1970, 1972],
+        "ZF": [1972, 1973], "ZG": [1973, 1976], "ZH": [1976, 1979], "ZJ": [1979, 1982],
+        "ZK": [1982, 1984], "ZL": [1984, 1988], "NA": [1988, 1991], "NC": [1991, 1994],
+        "NF": [1994, 1996], "NL": [1996, 1998],
+        "P5": [1973, 1976], "P6": [1976, 1979], "FC": [1979, 1982], "FD": [1982, 1984],
+        "FE": [1984, 1988], "DA": [1988, 1991], "DC": [1991, 1994], "DF": [1994, 1996],
+        "DL": [1996, 1998],
+        "SX": [2004, 2005], "SY": [2005, 2011], "SZ": [2011, 2016],
+        "FM": [2015, 2017], "FN": [2017, 2023], "FO": [2023, null]
+      }
+    },
+    "Ford Performance Vehicles": {"same_as": "Ford"}
+  },
+  "shorthand": []
+}

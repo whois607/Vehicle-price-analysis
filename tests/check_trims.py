@@ -18,6 +18,10 @@ them under a derived name, worked out on read. Checked here:
     Compare - and Compare's list of selections gains no duplicate rows;
   * the saved record notices cars that move group, and cars whose stored
     data changed (which must never happen);
+  * generations from trim_rules.json: BMW chassis codes and Ford series
+    codes (a series code only where the year fits: "XT" is a 1968 Falcon
+    and a 2006 trim), the trim without its generation, and a missing body
+    filled from the chassis code - never over a stored one;
   * the car check falls back, when a trim has fewer than 8 priced cars (or
     there is no trim), to the model's cars within 2 years - only then, only
     with a year, never a whole model across every year, with no mileage
@@ -81,6 +85,14 @@ FLEET = [
     ("Lexus", "LS", "LS460", 2016, 2),
     ("Lexus", "LS", "Auto", 2014, 1),
     ("Lexus", "LS", "LS460", 2009, 3),
+    # generations
+    ("Ford", "Falcon", "XT BF MkII", 2006, 2),
+    ("Ford", "Falcon", "XT", 1968, 1),
+    ("BMW", "3 Series", "330i M Sport G20 LCI II", 2024, 2),
+    ("BMW", "4 Series", "428i Sport Line F36", 2015, 3),
+    ("BMW", "4 Series", "428i Sport Line F32", 2016, 6),
+    ("Ford Performance Vehicles", "GT", "Cobra BF MkII", 2007, 3),
+    ("Ford Performance Vehicles", "GT", "BF MkII", 2007, 6),
 ]
 
 #: stored name -> the name it must be grouped under (None: no trim)
@@ -123,6 +135,10 @@ def seed() -> None:
         st.ingest([r for r in (make_record(x, "carsales") for x in raw) if r])
         st.conn.executemany("UPDATE vehicles SET variant = ? WHERE listing_id = ?",
                             [(va, lid) for lid, va in stored])
+        # one F36 stored with a body that disagrees with its chassis code:
+        # the stored body must win
+        st.conn.execute("""UPDATE vehicles SET body_type = 'coupe' WHERE key = (
+            SELECT key FROM vehicles WHERE variant = '428i Sport Line F36' ORDER BY key LIMIT 1)""")
         st.conn.commit()
 
 
@@ -255,6 +271,44 @@ def main() -> int:
           sum(n for *_, n in d1["moved"]) == 3 and d2["data_changed"] == [k0],
           f"{sum(n for *_, n in d1['moved'])} moved; {d2['data_changed']}")
 
+    print("\n== generations ==")
+    one2 = df.drop_duplicates("key")
+    def gt(stored, year=None):
+        r = one2[(one2["variant_stored"] == stored) & ((one2["year"] == year) if year else True)].iloc[0]
+        un = lambda v: None if not isinstance(v, str) else v
+        return (un(r["generation"]), un(r["trim_base"]))
+    want = {("XT BF MkII", 2006): ("BF MkII", "XT"), ("XT", 1968): ("XT", None),
+            ("XR6 FG MkII", None): ("FG MkII", "XR6"), ("XR8 FG X", None): ("FG X", "XR8"),
+            ("XR6 Turbo BA Mk II", None): ("BA MkII", "XR6 Turbo"),
+            ("330i M Sport G20 LCI II", None): ("G20 LCI II", "330i M Sport"),
+            ("320i F30 Auto MY13.5", None): ("F30", "320i"),
+            ("BF MkII", None): ("BF MkII", None), ("quattro", None): (None, "quattro")}
+    got = {k: gt(*k) for k in want}
+    bad = {k: v for k, v in got.items() if v != want[k]}
+    check("generation and the trim without it, per brand rule",
+          not bad, "; ".join(f"{k[0]} -> {v}" for k, v in list(got.items())[:4]) + (f" WRONG {bad}" if bad else ""))
+    g20 = one2[one2["variant_stored"] == "330i M Sport G20 LCI II"]
+    f36 = one2[one2["variant_stored"] == "428i Sport Line F36"]
+    check("a missing body is filled from the chassis code; a stored one is kept",
+          (g20["body_type"] == "sedan").all() and g20["body_type_stored"].isna().all()
+          and sorted(f36["body_type"]) == ["coupe", "hatch", "hatch"]
+          and int(f36["body_type_stored"].notna().sum()) == 1,
+          f"G20 {set(g20['body_type'])}, F36 {sorted(f36['body_type'])}")
+
+    print("\n== too few of a trim: the ladder ==")
+    k36 = f36[f36["body_type_stored"].isna()]["key"].iloc[0]
+    p36 = explore.car_payload(DB, "BMW", "4 Series", "428i Sport Line F36", key=k36)
+    check("a thin trim first widens to the same trim of any generation, within the years",
+          p36["level"] == "trim_years" and p36["label"] == "BMW 4 Series 428i Sport Line 2013-2017"
+          and p36["pool"]["n"] == 8 and "of any generation" in (p36["fallback"] or {}).get("note", ""),
+          f"{p36['label']}, {p36['pool']['n']} others")
+    kc = one2[one2["variant_stored"] == "Cobra BF MkII"]["key"].iloc[0]
+    pc = explore.car_payload(DB, "Ford Performance Vehicles", "GT", "Cobra BF MkII", key=kc)
+    check("...and when that is thin too, to every trim of its generation",
+          pc["level"] == "generation" and pc["label"] == "Ford Performance Vehicles GT BF MkII"
+          and pc["pool"]["n"] == 8 and "every trim of that generation" in (pc["fallback"] or {}).get("note", ""),
+          f"{pc['label']}, {pc['pool']['n']} others")
+
     print("\n== too few of a trim: the model's nearby years ==")
     cars = df.drop_duplicates("key").set_index("key")
     vc = cars[cars["variant"] == "LS460 Version C"].index[0]
@@ -271,7 +325,7 @@ def main() -> int:
           not (set(cars[cars["year"] == 2009].index) & {c["key"] for c in p["comparables"]})
           and p["pool"]["n"] == 11, f"pool {p['pool']['n']} of {int((cars['model'] == 'LS').sum())} LS")
     check("...with no mileage curve (it would measure the trim mix) and no trim caveats",
-          not p["fit"]["usable"] and "trim mix" in p["fit"]["reason"] and p["caveats"] == []
+          not p["fit"]["usable"] and "the mix" in p["fit"]["reason"] and p["caveats"] == []
           and p["adjusted"] is None and p["expected"] is None, p["fit"]["reason"][:50])
     nt = cars[cars["variant_stored"] == "Auto"].index[0]
     q = explore.car_payload(DB, "Lexus", "LS", None, key=nt)

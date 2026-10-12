@@ -102,7 +102,9 @@ def seed() -> None:
     # model's nearby years
     thin = [("Ford", "Falcon", "XR6 Sprint FG X", 2016, 5), ("Ford", "Falcon", "XR6 FG X", 2015, 6),
             ("Ford", "Falcon", "XR8 FG X", 2015, 5), ("BMW", "4 Series", "428i Sport Line F36", 2015, 3),
-            ("BMW", "4 Series", "428i Sport Line F32", 2016, 7), ("Ford", "Falcon", "XR6 Sprint", 2013, 5)]
+            ("BMW", "4 Series", "428i Sport Line F32", 2016, 7), ("Ford", "Falcon", "XR6 Sprint", 2013, 5),
+            # classics: ranked, but no mileage curve and no expected price
+            ("Ford", "Falcon", "GT XY", 1971, 9)]
     m = 0
     for mk, mo, va, yr, count in thin:
         for i in range(count):
@@ -247,7 +249,8 @@ def main(argv=None) -> int:
             cards.append({"mk": mk, "mo": mo, "va": None, "opts": {"key": key},
                           "payload": explore.car_payload(DB, mk, mo, None, key=key)})
         for typed in ({"price": "20000", "year": "2012"}, {"odometer": "100000", "year": "2014"},
-                      {"price": "20000"}, {"year": "1990", "price": "5000"}):
+                      {"price": "20000"}, {"year": "1990", "price": "5000"},
+                      {"year": "1971", "odometer": "50000"}, {"year": "1972", "price": "60000"}):
             cards.append({"mk": mk, "mo": mo, "va": None, "opts": typed,
                           "payload": explore.car_payload(DB, mk, mo, None, **typed)})
     links = []

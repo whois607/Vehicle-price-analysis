@@ -2,7 +2,11 @@
   "_about": [
     "Brand rules for grouping trims (vpa/trims.py). Read when the data is read; nothing here changes the database.",
     "Per make: 'codes' finds generation codes written in the trim by pattern (BMW chassis codes); 'series' lists codes with the years they were sold, and a code only counts when the car's year fits (Ford's XT and XL are trims too); 'qualifiers' follow a code and belong to it (FG MkII, G20 LCI II); 'body' fills a missing body type from the generation code; 'same_as' borrows another make's rules.",
-    "Years are model years, inclusive, with one year's slack either side for series codes. null = still on sale."
+    "Years are model years, inclusive, with one year's slack either side for series codes. null = still on sale.",
+    "'years' (per model): generations by model year, [name, first, last] - the MY code is used before the listing year. Overlapping ranges are deliberate where both generations were sold: a car in the overlap with no MY code is not guessed: it is named with both (quattro B8/B9). A generation from a year table is added to the trim name ('quattro B9'); a car with no trim takes the generation as its name ('C3').",
+    "'badges' (per model): a pattern in the trim that decides the generation outright (LS460 is always XF40), checked before 'years'.",
+    "'era_words' (per model): words that are the era's name rather than a trim in those generations (a 1966 Corvette 'Sting Ray' is the C2 itself), dropped from the trim there.",
+    "DRAFTED 12/10/2026 from general knowledge, Australian-market model years - check them. Edit this file and every past car regroups on the next page load."
   ],
   "makes": {
     "BMW": {
@@ -33,9 +37,49 @@
         "DL": [1996, 1998],
         "SX": [2004, 2005], "SY": [2005, 2011], "SZ": [2011, 2016],
         "FM": [2015, 2017], "FN": [2017, 2023], "FO": [2023, null]
+      },
+      "years": {
+        "Mustang": [["Gen 1", 1964, 1973], ["Mustang II", 1974, 1978], ["Fox", 1979, 1993],
+                    ["SN95", 1994, 2004], ["S197", 2005, 2014]]
       }
     },
-    "Ford Performance Vehicles": {"same_as": "Ford"}
+    "Ford Performance Vehicles": {"same_as": "Ford"},
+    "Audi": {
+      "years": {
+        "S1": [["8X", 2014, 2018]],
+        "S3": [["8L", 1999, 2003], ["8P", 2006, 2013], ["8V", 2013, 2020], ["8Y", 2021, null]],
+        "RS3": [["8P", 2011, 2012], ["8V", 2015, 2021], ["8Y", 2022, null]],
+        "S4": [["B5", 1997, 2002], ["B6", 2003, 2005], ["B7", 2005, 2008], ["B8", 2009, 2016], ["B9", 2016, null]],
+        "RS4": [["B5", 2000, 2002], ["B7", 2006, 2008], ["B8", 2012, 2015], ["B9", 2018, null]],
+        "S5": [["B8", 2007, 2016], ["B9", 2016, 2024], ["B10", 2025, null]],
+        "RS5": [["B8", 2010, 2016], ["B9", 2017, null]],
+        "S6": [["C5", 1999, 2004], ["C6", 2006, 2011], ["C7", 2012, 2018], ["C8", 2019, null]],
+        "RS6": [["C5", 2002, 2004], ["C6", 2008, 2010], ["C7", 2013, 2019], ["C8", 2020, null]],
+        "S7": [["C7", 2012, 2018], ["C8", 2019, null]],
+        "RS7": [["C7", 2014, 2019], ["C8", 2020, null]],
+        "S8": [["D3", 2006, 2010], ["D4", 2012, 2017], ["D5", 2020, null]],
+        "R8": [["Type 42", 2007, 2015], ["Type 4S", 2016, null]]
+      }
+    },
+    "Lexus": {
+      "badges": {
+        "LS": [["^LS ?(460|600h)\\b", "XF40"], ["^LS ?500h?\\b", "XF50"]],
+        "IS": [["\\b(Version [LS]|Prestige)\\b", "XE20"], ["^IS ?350 X$", "XE20"]]
+      },
+      "years": {
+        "IS": [["XE10", 1999, 2005], ["XE20", 2005, 2013], ["XE30", 2013, null]],
+        "LS": [["XF30", 2001, 2006], ["XF40", 2006, 2017], ["XF50", 2018, null]]
+      }
+    },
+    "Chevrolet": {
+      "years": {
+        "Corvette": [["C1", 1953, 1962], ["C2", 1963, 1967], ["C3", 1968, 1982], ["C4", 1984, 1996],
+                     ["C5", 1997, 2004], ["C6", 2005, 2013], ["C7", 2014, 2019], ["C8", 2020, null]]
+      },
+      "era_words": {
+        "Corvette": {"C2": ["Sting Ray", "Stingray"], "C3": ["Sting Ray", "Stingray"]}
+      }
+    }
   },
   "shorthand": []
 }

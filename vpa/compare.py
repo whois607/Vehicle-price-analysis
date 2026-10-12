@@ -122,10 +122,17 @@ def stored_aliases(df: pd.DataFrame) -> dict:
     out: dict[str, tuple] = {}
     if df.empty or "variant_stored" not in df:
         return out
-    alias = (df.dropna(subset=["make", "model", "variant", "variant_stored"])
-             [["make", "model", "variant", "variant_stored"]].drop_duplicates())
-    alias = alias[alias["variant"] != alias["variant_stored"]]
-    for mk, mo, va, st in alias.itertuples(index=False):
+    one = df.drop_duplicates("key").dropna(subset=["make", "model", "variant", "variant_stored"])
+    one = one[one["variant"] != one["variant_stored"]]
+    # a stored name whose cars now sit in several groups (generations)
+    # points at the one most of them landed in - trims.resolve's rule
+    n = one.groupby(["make", "model", "variant_stored", "variant"]).size()
+    best: dict[tuple, tuple] = {}
+    for (mk, mo, st, va), c in n.items():
+        k = (mk, mo, st)
+        if k not in best or (c, -len(va)) > (best[k][1], -len(best[k][0])):
+            best[k] = (va, c)
+    for (mk, mo, st), (va, _) in best.items():
         out.setdefault(f"{mk} {mo} {' '.join(str(st).split())}",
                        (str(mk), str(mo), str(va), "trim"))
     return out

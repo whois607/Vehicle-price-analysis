@@ -178,11 +178,54 @@ def generation_of(make, model, name, year) -> tuple:
     return " ".join(toks[s:e]), rest or None
 
 
+def generation_by_year(make, model, name, year) -> str | None:
+    """A generation from the make's 'badges' (a pattern in the trim decides
+    it: LS460 is always XF40), else its 'years' table. A year two
+    generations share - both were on sale - is not guessed: it is named
+    with both ("B8/B9"), so those few cars are a group of their own and
+    say why."""
+    R = make_rules(make)
+    for pattern, gen in (R.get("badges") or {}).get(model, []):
+        if name and re.search(pattern, name):
+            return gen
+    if year is None:
+        return None
+    hits = [g for g, lo, hi in (R.get("years") or {}).get(model, [])
+            if lo <= year <= (hi if hi is not None else 9999)]
+    return "/".join(hits) if hits else None
+
+
+def _drop_words(name, words) -> str | None:
+    if not name:
+        return name
+    out = " " + name + " "
+    for w in sorted(words, key=len, reverse=True):
+        out = re.sub(rf"(?i)\s{re.escape(w)}\s", " ", out)
+    return " ".join(out.split()) or None
+
+
 def place(make, model, name, year) -> tuple:
     """(grouped name, generation, trim without it) for one cleaned name and
     the car's year - the one place the brand rules are applied, for the
-    frame and for a single car alike."""
+    frame and for a single car alike.
+
+    A generation written in the name (codes/series) is kept where it is. One
+    that comes from a year table or a badge is ADDED to the name - "quattro"
+    becomes "quattro B9", so a B8 and a B9 are no longer one trim - and a car
+    with no trim takes it as its name ("C3"). Era words ("Sting Ray" on a C2)
+    are dropped in the generations they belong to."""
+    if not isinstance(name, str) or not name:
+        name = None                                    # pandas hands over NaN
     gen, tb = generation_of(make, model, name, year)
+    if gen is None:
+        g = generation_by_year(make, model, name, year)
+        if g:
+            era = ((make_rules(make).get("era_words") or {}).get(model) or {}).get(g, [])
+            base = _drop_words(name, era) if era else name
+            if base and g in base.split():                 # already written in it
+                base = _drop_words(base, [g])
+            gen, tb = g, base
+            name = f"{base} {g}" if base else g
     return name, gen, tb
 
 
@@ -282,29 +325,55 @@ def add_trim_cols(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def resolve(df: pd.DataFrame, make, model, variant):
-    """The derived name for a trim someone asked for by name - a derived
-    name already, or a stored one from an old link or a saved page. Unknown
-    names come back unchanged, so they still match nothing."""
+def resolve_all(df: pd.DataFrame, make, model, variant) -> list:
+    """Every grouped name a trim asked for by name stands for, most cars
+    first. A grouped name is itself; a STORED name (an old link, a saved
+    comparison) is every group its cars landed in - an old "Audi S5
+    quattro" is now "quattro B8", "quattro B9" and "quattro B10"; a name
+    never stored is matched by its clean form, generation or not. Unknown:
+    [variant], so it still matches nothing."""
     if not variant or df.empty or "variant_stored" not in df:
-        return variant
+        return [variant] if variant else []
     line = df
     if make:
         line = line[line["make"] == make]
     if model:
         line = line[line["model"] == model]
-    if (line["variant"] == variant).any():
-        return variant
-    hit = line.loc[line["variant_stored"] == variant, "variant"].dropna()
-    if not hit.empty:
-        return str(hit.iloc[0])
-    # a name never stored, e.g. read from a page just saved: its clean form
+    one = line.drop_duplicates("key")
+    # cars STORED under the name - exactly, or once cleaned the same way
+    # ("Sting Ray Manual MY66" was the "Sting Ray" group before generations)
     c = clean(variant)
-    if c:
-        hit = [n for n in line["variant"].dropna().unique() if fold(str(n)) == fold(c)]
-        if hit:
-            return str(hit[0])
-    return variant
+    f = fold(c) if c else None
+    cf = {v: fold(clean(v)) if clean(v) else None for v in one["variant_stored"].dropna().unique()}
+    # a raw stored-style name ("Auto quattro MY24") means exactly the cars
+    # stored under it; a clean one ("Sting Ray", from a later link) means
+    # every car that cleans to it
+    raw = c != " ".join(str(variant).split())
+    exact = [isinstance(v, str) and v == variant for v in one["variant_stored"]]
+    mask = exact if (raw and any(exact)) else [
+        isinstance(v, str) and (v == variant or (f is not None and cf.get(v) == f))
+        for v in one["variant_stored"]]
+    hit = one.loc[mask, "variant"].dropna()
+    if (line["variant"] == variant).any():
+        # a group by that name - plus wherever else cars stored under it went
+        others = [n for n in hit.astype(str).value_counts().index if n != variant]
+        return [variant] + others
+    if hit.empty and f is not None:
+        # a name never stored: its clean form, with or without a generation
+        mask = [(isinstance(b, str) and fold(b) == f) or (isinstance(n, str) and fold(n) == f)
+                for b, n in zip(one["trim_base"], one["variant"])]
+        hit = one.loc[mask, "variant"].dropna()
+    if hit.empty:
+        return [variant]
+    counts = hit.astype(str).value_counts()
+    return sorted(counts.index, key=lambda n: (-counts[n], n))
+
+
+def resolve(df: pd.DataFrame, make, model, variant):
+    """The ONE grouped name for a trim asked for by name: the group most of
+    its cars landed in (resolve_all)."""
+    got = resolve_all(df, make, model, variant)
+    return got[0] if got else variant
 
 
 # ------------------------------------------------------------ one car
@@ -412,7 +481,7 @@ def coverage(df: pd.DataFrame) -> list[dict]:
     one = df.drop_duplicates("key")
     for mk, g in one.groupby("make"):
         R = make_rules(mk)
-        has_gen = bool(R.get("codes") or R.get("series") or R.get("years"))
+        has_gen = bool(R.get("codes") or R.get("series") or R.get("years") or R.get("badges"))
         sizes = g.dropna(subset=["variant"]).groupby(["model", "variant"])["key"].nunique()
         out.append({"make": str(mk), "cars": int(len(g)),
                     "with_trim": int(g["variant"].notna().sum()),
@@ -432,7 +501,7 @@ def unmatched(df: pd.DataFrame, limit: int = 200) -> list[dict]:
     one = df.drop_duplicates("key", keep="last")
     for (mk, mo, va), g in one.groupby(["make", "model", one["variant"].fillna("")]):
         R = make_rules(mk)
-        if not (R.get("codes") or R.get("series") or R.get("years")):
+        if not (R.get("codes") or R.get("series") or R.get("years") or R.get("badges")):
             continue
         miss = g[g["generation"].isna()]
         if miss.empty:

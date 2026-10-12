@@ -1163,6 +1163,34 @@ Keep these — each one was a bug that took a while to find.
   The Trims page (/trims, nav button "Trims", vpa/trimspage.py, read-only):
   coverage per make, names left without a generation, and every stored
   name -> its group, searchable. `python -m vpa trims --unmatched`.
+* Stage 6 - generations by year (trim_rules.json `years`, `badges`,
+  `era_words`; trims.generation_by_year, applied in trims.place): Audi
+  S1/S3/RS3/S4/RS4/S5/RS5/S6/RS6/S7/RS7/S8/R8, Lexus IS/LS, Corvette C1-C8,
+  Mustang Gen 1..S197 (FM/FN/FO stay codes). DRAFTED from general knowledge
+  (AU model years) - the Trims page lays every row out with the cars it
+  places, to be checked. The MY code is used before the listing year. A
+  year two generations share is NOT guessed: the car is named with both
+  ("quattro B8/B9", generation "B8/B9"). A badge decides outright (LS460 =
+  XF40, LS500 = XF50, IS350 Version L/S/Prestige/X = XE20). The generation
+  is ADDED to the grouped name ("quattro B9"); a car with no trim takes it
+  as its name ("C4"); era words go in their eras (a 1966 "Sting Ray" is
+  "C2", a 1973 "Stingray" "C3"). Real data: 602 -> 637 groups, 1,182 cars
+  moved (Audi quattro split by generation; Corvette base cars C1-C6;
+  Lexus XE20/XE30, XF40/XF50; Mustang Gen 1), every move reviewed.
+* Old names after a split: trims.resolve_all - a grouped name is itself
+  (plus wherever cars stored under it went); a RAW stored name ("Auto
+  quattro MY24") is exactly its cars' groups; a CLEAN name from a later
+  link ("Sting Ray", "quattro") is every car that cleans to it. Explore
+  pools all of them (an old "Audi S5 quattro" link opens every generation);
+  the car check takes the car's own group, or for a typed car the one its
+  year gives; the saved-page lookup groups the page's car with
+  trims.derive_one; Compare's old labels point at the largest group.
+* Classics (explore.CAR_CLASSIC_AGE = 35 years): ranked like any car, but
+  no mileage curve and no expected price - condition and originality, not
+  kilometres, set the price; the spread of comparable cars is shown.
+  Laptop = phone (subject.classic).
+* WRITING trim_rules.json: use the Write tool or json.dump from a file -
+  a shell heredoc turned "\b" into a backspace and broke every badge once.
 * tests/check_savewarn: the watch-folder checks now wait for the RESULT
   (inbox._take archives the file a moment before recording it - reading
   on "file gone" raced and failed once in a full run).

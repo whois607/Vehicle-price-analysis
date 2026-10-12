@@ -55,6 +55,9 @@ CAR_LINE_DISAGREE = 25      # percentile points before the line rank is worth a 
 CAR_STALE_DAYS = 21         # capture older than this is flagged on the card
 EST_NEAREST = 12            # cars nearest in km an expected range is read from
                             # when the mileage fit cannot speak for this car
+CAR_CLASSIC_AGE = 35        # a car this many years old or more is a classic:
+                            # condition and originality, not kilometres, set
+                            # its price - no mileage curve, no expected price
 CAR_NEAR_YEARS = 2          # a trim with fewer than CAR_MIN_PEERS priced cars
                             # (or no trim) is judged against its model within
                             # this many years either side - said on the card
@@ -79,7 +82,8 @@ def _select(df: pd.DataFrame, make, model, variant) -> pd.DataFrame:
     if model:
         sub = sub[sub["model"] == model]
     if variant:
-        sub = sub[sub["variant"] == _trims.resolve(df, make, model, variant)]
+        # an old name may now stand for several generations: all of them
+        sub = sub[sub["variant"].isin(_trims.resolve_all(df, make, model, variant))]
     return sub
 
 
@@ -99,7 +103,8 @@ def _select_multi(df: pd.DataFrame, make, model, variants) -> pd.DataFrame:
     if not variants:
         return _select(df, make, model, None)
     sub = _select(df, make, model, None)
-    return sub[sub["variant"].isin([_trims.resolve(df, make, model, v) for v in variants])]
+    return sub[sub["variant"].isin([n for v in variants
+                                    for n in _trims.resolve_all(df, make, model, v)])]
 
 
 #: Columns a keyword is matched against. `variant` is the trim as stored;
@@ -247,9 +252,8 @@ def detail_payload(db_path: str | Path = DEFAULT_DB, make: str | None = None,
     from . import analyze, forecast
 
     df = _frame(db_path)
-    picked = [_trims.resolve(df, make, model, v)
-              for v in ([variant] if variant else []) + list(variants or [])
-              if v and str(v).strip()]
+    picked = [n for v in ([variant] if variant else []) + list(variants or [])
+              if v and str(v).strip() for n in _trims.resolve_all(df, make, model, v)]
     picked = list(dict.fromkeys(picked))          # de-dupe, keep order
     if len(picked) == 1:
         label = " ".join(x for x in (make, model, picked[0]) if x)
@@ -681,6 +685,13 @@ def _subject_typed(price, odometer, year, seller, state) -> dict:
             "source": None, "day": None}
 
 
+def _classic_reason(year) -> str:
+    """Said where a classic's expected price would be (stats.js: same)."""
+    return (f"a classic ({year}): its asking price depends on condition, "
+            f"originality and history far more than on kilometres, so no expected "
+            f"price is given - the spread of comparable cars is shown instead")
+
+
 def _estimate(peers: pd.DataFrame, fit_rows: pd.DataFrame, fit: dict,
               subject: dict, what: str = "this trim") -> dict:
     """The asking price a car with these details would be EXPECTED to list
@@ -702,6 +713,9 @@ def _estimate(peers: pd.DataFrame, fit_rows: pd.DataFrame, fit: dict,
     import numpy as np
     odo = subject.get("odometer_km")
     out = {"usable": False, "basis": None, "reason": "", "why_not_curve": None}
+    if subject.get("classic"):
+        out["reason"] = _classic_reason(subject.get("year"))
+        return out
     qs = [0.10, 0.25, 0.75, 0.90]
     got = None
     if odo is not None and fit.get("usable"):
@@ -907,7 +921,18 @@ def car_payload(db_path: str | Path = DEFAULT_DB, make: str | None = None,
     from . import analyze
 
     df = _frame(db_path)
-    variant = _trims.resolve(df, make, model, variant)
+    # a name standing for several groups (an old link): this car's own
+    # group, or for a typed car the one its year places it in
+    names = _trims.resolve_all(df, make, model, variant) if variant else []
+    if len(names) > 1:
+        own = df[df["key"] == key]["variant"].dropna() if key else None
+        if own is not None and not own.empty and own.iloc[-1] in names:
+            variant = str(own.iloc[-1])
+        else:
+            placed = _trims.derive_one(df, make, model, variant, year)["variant"]
+            variant = placed if placed in names else names[0]
+    elif names:
+        variant = names[0]
     label = " ".join(x for x in (make, model, variant) if x) or "everything"
     base = {"ok": True, "label": label, "gates": {
         "min_peers": CAR_MIN_PEERS, "percentile_min": CAR_PERCENTILE_MIN}}
@@ -1009,6 +1034,9 @@ def car_payload(db_path: str | Path = DEFAULT_DB, make: str | None = None,
         peers = pool
         fit_rows = prepped
     subject["label"] = label
+    from datetime import date as _date
+    subject["classic"] = bool(subject.get("year")
+                              and _date.today().year - int(subject["year"]) >= CAR_CLASSIC_AGE)
     PHOTOS = _photos.load(db_path)
     if key:
         r0 = own.iloc[0]
@@ -1037,7 +1065,9 @@ def car_payload(db_path: str | Path = DEFAULT_DB, make: str | None = None,
     # makes the slope pick up mix rather than wear.
     # Pooled trims: no curve at all - its slope would measure the mix of
     # trims, not wear (the same reason the line's fit is never substituted)
-    fit = (analyze.fit_mileage(fit_rows) if level == "trim" else
+    fit = ({"usable": False, "n": 0, "reason": "a classic: kilometres don't set "
+            "its price, so no mileage curve is used"} if subject["classic"] else
+           analyze.fit_mileage(fit_rows) if level == "trim" else
            {"usable": False, "n": 0, "reason": "several trims or generations are "
             "pooled, so a mileage curve would measure the mix, not wear"})
     adjusted, expected = None, None
@@ -1306,6 +1336,11 @@ def identify_payload(db_path: str | Path = DEFAULT_DB, html: str = "") -> dict:
     }
 
     df = _frame(db_path)
+    # the trim as it would be GROUPED (the page's own wording kept beside
+    # it), so the picker lands on the group this car would join
+    found["variant_page"] = rec.variant
+    found["variant"] = _trims.derive_one(df, rec.make, rec.model, rec.variant, rec.year,
+                                         rec.raw_title)["variant"] or rec.variant
     key = basis = None
     if not df.empty:
         if rec.listing_id:
@@ -1319,8 +1354,9 @@ def identify_payload(db_path: str | Path = DEFAULT_DB, html: str = "") -> dict:
         if key is None and rec.price_aud and rec.odometer_km \
                 and rec.odometer_km % ROUND_KM != 0:
             hit = df[(df["make"] == rec.make) & (df["model"] == rec.model)
-                     & (df["variant"] == _trims.resolve(df, rec.make, rec.model,
-                                                        rec.variant))
+                     & (df["variant"] == _trims.derive_one(
+                         df, rec.make, rec.model, rec.variant, rec.year,
+                         rec.raw_title)["variant"])
                      & (df["price_aud"] == rec.price_aud)
                      & (df["odometer_km"] == rec.odometer_km)]
             if not hit.empty:
@@ -1340,7 +1376,7 @@ def identify_payload(db_path: str | Path = DEFAULT_DB, html: str = "") -> dict:
         out["adds"] = gained
     else:
         # is the trim itself known? decides whether it can even be ranked
-        sel = _select(df, rec.make, rec.model, rec.variant)
+        sel = _select(df, rec.make, rec.model, found["variant"])
         out["trim_known"] = bool(len(sel))
         out["line_known"] = bool(len(_select(df, rec.make, rec.model, None)))
     return out

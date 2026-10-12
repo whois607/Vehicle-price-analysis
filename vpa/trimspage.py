@@ -35,7 +35,28 @@ def payload(db_path: str | Path = DEFAULT_DB) -> dict:
             names.append({"make": str(mk), "model": str(mo), "stored": s or None,
                           "variant": v or None, "generation": gen or None, "cars": int(n)})
         names.sort(key=lambda r: (r["make"], r["model"], r["variant"] or "", -r["cars"]))
+    # the year tables and badge rules, each row with the cars it places -
+    # drafted from general knowledge, so laid out to be checked
+    tables = []
+    one = df.drop_duplicates("key") if not df.empty else df
+    for mk, own in sorted(trims.rules().get("makes", {}).items()):
+        if not (own.get("years") or own.get("badges")):
+            continue                     # none of its own ('same_as' borrows them)
+        R = trims.make_rules(mk)
+        for mo in sorted(set((R.get("years") or {})) | set((R.get("badges") or {}))):
+            line = one[(one["make"] == mk) & (one["model"] == mo)] if not one.empty else one
+            gens = line["generation"].value_counts() if not line.empty else {}
+            rows = [{"gen": g, "from": lo, "to": hi, "cars": int(gens.get(g, 0))}
+                    for g, lo, hi in (R.get("years") or {}).get(mo, [])]
+            both = {str(g): int(n) for g, n in (gens.items() if len(line) else [])
+                    if "/" in str(g)}
+            tables.append({"make": mk, "model": mo, "rows": rows,
+                           "badges": [{"pattern": p, "gen": g}
+                                      for p, g in (R.get("badges") or {}).get(mo, [])],
+                           "overlap": both, "cars": int(len(line)),
+                           "unplaced": int(line["generation"].isna().sum()) if len(line) else 0})
     return {"ok": True, "coverage": trims.coverage(df), "unmatched": trims.unmatched(df),
+            "tables": tables,
             "names": names, "rules_file": str(trims.RULES_PATH),
             "thresholds": {"model": trims.WORDING_MIN_MODEL, "share": trims.WORDING_SHARE}}
 
@@ -56,6 +77,9 @@ __CHROME_CSS__
  .names .moved{color:var(--ink-2)}
  .same{color:var(--faint)}
  @media (max-width:700px){.um .ttl{max-width:180px}}
+ .tblgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px;margin-top:10px}
+ .tblgrid table td,.tblgrid table th{padding:4px 8px}
+ .tblgrid .mini-h{margin:0 0 4px}
 </style></head><body><div class="wrap">
 __NAV__
 <div class="pagehead"><div>
@@ -81,6 +105,17 @@ __NAV__
   <th>years</th><th>stored as / a title</th></tr></thead><tbody id="um"></tbody></table>
  <div class="hint">Cars of a make that has generation rules, where none applied &mdash; usually
   a trim written without its code, or years the rules don't list yet.</div>
+</div>
+
+<div class="card" id="tblCard">
+ <div class="ptitle">generations by year &mdash; please check these</div>
+ <div class="hint note">These year ranges were drafted from general knowledge of Australian
+  model years, not from your data, so check them. Each row shows how many of your cars it
+  places. A car whose year two generations share (both were on sale) is not guessed: it gets
+  both names, e.g. <b>B8/B9</b>. A <b>badge</b> rule decides outright from the trim name
+  (an LS460 is always an XF40). To change one, edit <code id="rulesfile2"></code> &mdash; every
+  car regroups on the next page load, and nothing in your data changes.</div>
+ <div id="tbls" class="tblgrid"></div>
 </div>
 
 <div class="card">
@@ -124,6 +159,18 @@ function render(){
     <td>${esc(r.variant||"(no trim)")}</td><td class="num">${r.cars}</td>
     <td>${r.years?(r.years[0]===r.years[1]?r.years[0]:r.years[0]+"–"+r.years[1]):""}</td>
     <td><div class="ttl" title="${esc((r.stored.concat(r.titles)).join(" | "))}">${esc(r.stored.join(", ")||"")}${r.titles[0]?` &middot; ${esc(r.titles[0])}`:""}</div></td></tr>`).join("");
+  $("rulesfile2").textContent=$("rulesfile").textContent;
+  $("tblCard").style.display=D.tables.length?"":"none";
+  $("tbls").innerHTML=D.tables.map(t=>`<div><div class="mini-h">${esc(t.make)} ${esc(t.model)}
+    <span class="flat">&middot; ${t.cars} cars</span></div><table><tbody>
+    ${t.rows.map(r=>`<tr><td><b>${esc(r.gen)}</b></td><td>${r.from}&ndash;${r.to==null?"now":r.to}</td>
+      <td class="num">${r.cars}</td></tr>`).join("")}
+    ${t.badges.map(b=>`<tr><td><b>${esc(b.gen)}</b></td><td colspan="2"><span class="flat">badge</span>
+      <code>${esc(b.pattern)}</code></td></tr>`).join("")}
+    ${Object.entries(t.overlap).map(([g,n])=>`<tr><td><b>${esc(g)}</b></td><td><span class="flat">year shared</span></td>
+      <td class="num">${n}</td></tr>`).join("")}
+    ${t.unplaced?`<tr><td colspan="2"><span class="flat">not placed</span></td><td class="num">${t.unplaced}</td></tr>`:""}
+    </tbody></table></div>`).join("");
   renderNames();
 }
 $("q").oninput=renderNames;

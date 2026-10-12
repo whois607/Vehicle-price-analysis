@@ -86,11 +86,20 @@ FLEET = [
     ("Ford", "Mustang", "GT FN Manual RWD MY22.25", 2022, 9),
     # the nearby-years fallback: a thin trim, a car with no trim, and cars
     # outside the window that must NOT be pooled
+    ("Holden", "Caprice", "V8", 2013, 5),
+    ("Holden", "Caprice", "V8 Version C", 2014, 4),
+    ("Holden", "Caprice", "V8", 2016, 2),
+    ("Holden", "Caprice", "Auto", 2014, 1),
+    ("Holden", "Caprice", "V8", 2009, 3),
+    # generations by year table and badge
     ("Lexus", "LS", "LS460", 2013, 5),
     ("Lexus", "LS", "LS460 Version C", 2014, 4),
-    ("Lexus", "LS", "LS460", 2016, 2),
-    ("Lexus", "LS", "Auto", 2014, 1),
-    ("Lexus", "LS", "LS460", 2009, 3),
+    ("Lexus", "LS", "LS500h Sports Luxury", 2019, 2),
+    ("Lexus", "IS", "IS350 Version L", 2013, 1),
+    ("Lexus", "IS", "IS350 F Sport", 2013, 1),
+    ("Audi", "S5", "quattro", 2016, 1),
+    # classics (35+ years old)
+    ("Ford", "Falcon", "GT XY", 1971, 9),
     # generations
     ("Ford", "Falcon", "XT BF MkII", 2006, 2),
     ("Ford", "Falcon", "XT", 1968, 1),
@@ -182,10 +191,10 @@ def main() -> int:
         return set(df[(df["make"] == mk) & (df["model"] == mo)
                       & (df["variant"] == va)]["variant_stored"].unique())
     groups = df.drop_duplicates("key").groupby(["make", "model", "variant"])["key"].nunique()
-    check("Audi S5: 'quattro' and 'Auto quattro MY18' are one trim of 10 cars",
-          grouped("Audi", "S5", "quattro") == {"quattro", "Auto quattro MY18"}
-          and groups[("Audi", "S5", "quattro")] == 10
-          and groups[("Audi", "S5", "edition one quattro")] == 2, f"{dict(groups['Audi'])}")
+    check("Audi S5: 'quattro' and 'Auto quattro MY18' are one trim of 10 cars (B9, 2018)",
+          grouped("Audi", "S5", "quattro B9") == {"quattro", "Auto quattro MY18"}
+          and groups[("Audi", "S5", "quattro B9")] == 10
+          and groups[("Audi", "S5", "edition one quattro B10")] == 2, f"{dict(groups['Audi'])}")
     check("Falcon: 'Mk II' and 'MkII' are one trim; FG MkII untouched",
           groups[("Ford", "Falcon", "XR6 Turbo BA MkII")] == 5
           and grouped("Ford", "Falcon", "XR6 FG MkII") == {"XR6 FG MkII"}
@@ -194,12 +203,12 @@ def main() -> int:
           groups.get(("Skoda", "Superb", "206TSI SportLine")) == 3
           and ("Skoda", "Superb", "206TSI Sportline") not in groups, f"{dict(groups['Skoda'])}")
     vette = df[df["model"] == "Corvette"].drop_duplicates("key")
-    check("Corvette: 'Sting Ray' (1960s) and 'Stingray' stay apart; 'Auto MY86' has no trim",
-          {"Sting Ray", "Stingray", "Stingray 3LT"} <= set(vette["variant"].dropna())
-          and vette[vette["variant_stored"] == "Auto MY86"]["variant"].isna().all(),
+    check("Corvette: 1960s 'Sting Ray' and 1968 'Stingray' are their eras (C2, C3); 'Auto MY86' is a C4",
+          {"C2", "C3", "Stingray 3LT C8"} <= set(vette["variant"].dropna())
+          and (vette[vette["variant_stored"] == "Auto MY86"]["variant"] == "C4").all(),
           f"{sorted(vette['variant'].dropna().unique())}")
     two = df.drop_duplicates("key").groupby(["make", "model", "variant"])["variant_stored"].nunique()
-    expected_merges = {("Audi", "S5", "quattro"), ("BMW", "4 Series", "420i M Sport"),
+    expected_merges = {("Audi", "S5", "quattro B9"), ("BMW", "4 Series", "420i M Sport"),
                        ("BMW", "3 Series", "320i F30"), ("Ford", "Falcon", "XR6 Turbo BA MkII"),
                        ("Skoda", "Superb", "206TSI SportLine"), ("Ford", "Mustang", "GT FN")}
     check("nothing else merged", set(two[two > 1].index) == expected_merges,
@@ -288,7 +297,12 @@ def main() -> int:
             ("XR6 Turbo BA Mk II", None): ("BA MkII", "XR6 Turbo"),
             ("330i M Sport G20 LCI II", None): ("G20 LCI II", "330i M Sport"),
             ("320i F30 Auto MY13.5", None): ("F30", "320i"),
-            ("BF MkII", None): ("BF MkII", None), ("quattro", None): (None, "quattro")}
+            ("BF MkII", None): ("BF MkII", None), ("quattro", 2018): ("B9", "quattro"),
+            ("quattro", 2016): ("B8/B9", "quattro"), ("Sting Ray Manual MY66", None): ("C2", None),
+            ("Auto MY86", None): ("C4", None), ("LS460", 2013): ("XF40", "LS460"),
+            ("IS350 Version L", None): ("XE20", "IS350 Version L"),
+            ("IS350 F Sport", 2013): ("XE20/XE30", "IS350 F Sport"),
+            ("LS500h Sports Luxury", None): ("XF50", "LS500h Sports Luxury")}
     got = {k: gt(*k) for k in want}
     bad = {k: v for k, v in got.items() if v != want[k]}
     check("generation and the trim without it, per brand rule",
@@ -300,6 +314,38 @@ def main() -> int:
           and sorted(f36["body_type"]) == ["coupe", "hatch", "hatch"]
           and int(f36["body_type_stored"].notna().sum()) == 1,
           f"G20 {set(g20['body_type'])}, F36 {sorted(f36['body_type'])}")
+
+    print("\n== generations by year table ==")
+    cars = df.drop_duplicates("key").set_index("key")
+    lx = cars[cars["variant"] == "LS460 Version C XF40"].index[0]
+    pl = explore.car_payload(DB, "Lexus", "LS", "LS460 Version C XF40", key=lx)
+    check("a thin Lexus trim widens to its generation (XF40), not the LS500s",
+          pl["level"] == "generation" and pl["label"] == "Lexus LS XF40" and pl["pool"]["n"] == 8,
+          f"{pl['label']}, {pl['pool']['n']} others")
+    check("an old link to 'Audi S5 quattro' opens every generation it now spans, pooled",
+          set(trims.resolve_all(df, "Audi", "S5", "quattro")) == {"quattro B9", "quattro B8/B9"}
+          and explore.detail_payload(DB, "Audi", "S5", "quattro")["head"]["vehicles"] == 11,
+          f"{trims.resolve_all(df, 'Audi', 'S5', 'quattro')}")
+    check("...and an old stored name finds exactly its own cars' group",
+          trims.resolve_all(df, "Audi", "S5", "Auto quattro MY18") == ["quattro B9"]
+          and trims.resolve_all(df, "Chevrolet", "Corvette", "Sting Ray") == ["C2"],
+          "Auto quattro MY18 -> quattro B9; Sting Ray -> C2")
+    typed_old = explore.car_payload(DB, "Audi", "S5", "quattro", price="60000", year="2018")
+    check("a typed check under an old name lands on the generation its year gives",
+          typed_old["label"] == "Audi S5 quattro B9", typed_old["label"])
+
+    print("\n== classics ==")
+    gt = cars[cars["variant_stored"] == "GT XY"].index[0]
+    pg = explore.car_payload(DB, "Ford", "Falcon", "GT XY", key=gt)
+    tg = explore.car_payload(DB, "Ford", "Falcon", "GT XY", odometer="90000", year="1971")
+    check("a 35+ year-old car is ranked, but gets no mileage curve and no expected price",
+          pg["usable"] and pg["subject"]["classic"] and not pg["fit"]["usable"]
+          and "classic" in pg["fit"]["reason"] and pg["adjusted"] is None
+          and not tg["estimate"]["usable"] and "classic (1971)" in tg["estimate"]["reason"],
+          tg["estimate"]["reason"][:70])
+    modern = explore.car_payload(DB, "Ford", "Falcon", "XR6 FG MkII", odometer="90000", year="2012")
+    check("...a modern one still gets both", not modern["subject"]["classic"]
+          and modern["estimate"]["usable"], modern["estimate"].get("basis"))
 
     print("\n== too few of a trim: the ladder ==")
     k36 = f36[f36["body_type_stored"].isna()]["key"].iloc[0]
@@ -317,38 +363,38 @@ def main() -> int:
 
     print("\n== too few of a trim: the model's nearby years ==")
     cars = df.drop_duplicates("key").set_index("key")
-    vc = cars[cars["variant"] == "LS460 Version C"].index[0]
-    p = explore.car_payload(DB, "Lexus", "LS", "LS460 Version C", key=vc)
+    vc = cars[cars["variant"] == "V8 Version C"].index[0]
+    p = explore.car_payload(DB, "Holden", "Caprice", "V8 Version C", key=vc)
     pf = p.get("fallback") or {"note": "(no fallback)", "trim_n": None, "trim": "?"}
-    want = set(cars[(cars["model"] == "LS") & cars["year"].between(2012, 2016)].index) - {vc}
+    want = set(cars[(cars["model"] == "Caprice") & cars["year"].between(2012, 2016)].index) - {vc}
     got = {c["key"] for c in p["comparables"]} | {vc}
-    check("a thin trim (3 others) with a year: every LS 2012-2016, labelled and said",
-          p["level"] == "years" and p["label"] == "Lexus LS 2012-2016"
+    check("a thin trim (3 others) with a year: every Caprice 2012-2016, labelled and said",
+          p["level"] == "years" and p["label"] == "Holden Caprice 2012-2016"
           and p["pool"]["n"] == len(want) == 11 and pf["trim_n"] == 3
-          and "Only 3 other priced LS460 Version C" in pf["note"]
+          and "Only 3 other priced V8 Version C" in pf["note"]
           and "rough guide" in pf["note"], pf["note"])
     check("...never the 2009 cars outside the window",
           not (set(cars[cars["year"] == 2009].index) & {c["key"] for c in p["comparables"]})
-          and p["pool"]["n"] == 11, f"pool {p['pool']['n']} of {int((cars['model'] == 'LS').sum())} LS")
+          and p["pool"]["n"] == 11, f"pool {p['pool']['n']} of {int((cars['model'] == 'Caprice').sum())} Caprice")
     check("...with no mileage curve (it would measure the trim mix) and no trim caveats",
           not p["fit"]["usable"] and "the mix" in p["fit"]["reason"] and p["caveats"] == []
           and p["adjusted"] is None and p["expected"] is None, p["fit"]["reason"][:50])
     nt = cars[cars["variant_stored"] == "Auto"].index[0]
-    q = explore.car_payload(DB, "Lexus", "LS", None, key=nt)
+    q = explore.car_payload(DB, "Holden", "Caprice", None, key=nt)
     qf = q.get("fallback") or {"note": q.get("reason") or "(no fallback)", "trim": "?"}
     check("a stored car with no trim is judged the same way, not refused",
           q.get("level") == "years" and q.get("usable") and qf["trim"] is None
           and qf["note"].startswith("No trim is recorded"), qf["note"][:60])
-    t = explore.car_payload(DB, "Lexus", "LS", None, odometer="120000", year="2014")
+    t = explore.car_payload(DB, "Holden", "Caprice", None, odometer="120000", year="2014")
     e = t.get("estimate") or {}
     check("a typed model + year gets an expected range from those cars",
           t.get("level") == "years" and e.get("usable") and e.get("basis") == "nearest"
           and "these cars" in (e.get("why_not_curve") or "")
           and (t.get("fallback") or {}).get("note", "").startswith("No trim was picked"),
           f"{e.get('basis')} {e.get('lo')}-{e.get('hi')}" if e else t.get("reason", ""))
-    a = explore.car_payload(DB, "Lexus", "LS", None, price="30000")
-    b = explore.car_payload(DB, "Lexus", "LS", None, price="30000", year="2003")
-    c = explore.car_payload(DB, "Lexus", "LS", "LS460 Version C", price="30000")
+    a = explore.car_payload(DB, "Holden", "Caprice", None, price="30000")
+    b = explore.car_payload(DB, "Holden", "Caprice", None, price="30000", year="2003")
+    c = explore.car_payload(DB, "Holden", "Caprice", "V8 Version C", price="30000")
     check("no year, or too few nearby: refused or trim-only, exactly as before",
           a["level"] == "too broad" and "give the year" in a["reason"]
           and b["level"] == "too broad" and "fewer than 8" in b["reason"]
@@ -358,8 +404,8 @@ def main() -> int:
     r = explore.car_payload(DB, "Ford", "Falcon", "XR6 FG MkII", key=big)
     check("a trim with 8+ others is judged against its trim alone",
           r["level"] == "trim" and r["fallback"] is None and r["pool"]["n"] == 9, f"pool {r['pool']['n']}")
-    other = cars[cars["variant"] == "LS460"].index[0]
-    w = explore.car_payload(DB, "Lexus", "LS", "LS460 Version C", key=other)
+    other = cars[cars["variant"] == "V8"].index[0]
+    w = explore.car_payload(DB, "Holden", "Caprice", "V8 Version C", key=other)
     check("a car asked for under a trim it is not in is still an error",
           w["ok"] is False, w.get("error", ""))
 
@@ -397,15 +443,15 @@ def main() -> int:
     cov = {c["make"]: c for c in tp["coverage"]}
     um = {(u["make"], u["model"], u["variant"]) for u in tp["unmatched"]}
     nm = {(n["make"], n["stored"]): n for n in tp["names"]}
-    check("coverage per make: BMW cars placed in a generation, Audi none (no rules yet)",
+    check("coverage per make: BMW cars placed in a generation, Skoda none (no rules)",
           cov["BMW"]["generation_rules"] and cov["BMW"]["with_generation"]
           == int(df.drop_duplicates("key").query("make == 'BMW'")["generation"].notna().sum())
-          and not cov["Audi"]["generation_rules"], f"BMW {cov['BMW']['with_generation']}/{cov['BMW']['cars']}")
+          and not cov["Skoda"]["generation_rules"], f"BMW {cov['BMW']['with_generation']}/{cov['BMW']['cars']}")
     check("the names left without a generation are listed (BMW 420i M Sport: no code)",
           ("BMW", "4 Series", "420i M Sport") in um and ("Ford", "Falcon", "XR6 FG MkII") not in um,
           f"{len(um)} listed")
     check("every stored name, with the group it lands in",
-          nm[("Audi", "Auto quattro MY18")]["variant"] == "quattro"
+          nm[("Audi", "Auto quattro MY18")]["variant"] == "quattro B9"
           and nm[("Ford", "XT BF MkII")]["generation"] == "BF MkII"
           and sum(n["cars"] for n in tp["names"]) == df["key"].nunique(),
           f"{len(tp['names'])} names, {sum(n['cars'] for n in tp['names'])} cars")

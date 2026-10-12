@@ -425,8 +425,12 @@ function normYear(v) {
 // explore._estimate: the asking price a car with these details would be
 // expected to list at - the middle half and the 10th-90th - on the most
 // specific basis the data supports (mileage curve, nearest in km, the trim)
+// explore._classic_reason, word for word
+const classicReason = y => `a classic (${y}): its asking price depends on condition, originality and history ` +
+  "far more than on kilometres, so no expected price is given - the spread of comparable cars is shown instead";
 function estimate(peers, fitRows, fitT, subject, C, what) {
   what = what || "this trim";
+  if (subject.classic) return { usable: false, basis: null, reason: classicReason(subject.year), why_not_curve: null };
   const odo = subject.odometer_km, qs = [0.10, 0.25, 0.75, 0.90];
   const out = { usable: false, basis: null, reason: "", why_not_curve: null };
   const [fUsable, slope, medOdo, , , fReason] = fitT;
@@ -548,6 +552,9 @@ function carCard(DB, mk, mo, va, opts, now) {
     peers = pool; fitRows = prepped; fitT = K.fit;
   }
   subject.label = label;
+  // a classic: no mileage curve and no expected price (explore.CAR_CLASSIC_AGE)
+  subject.classic = !!(subject.year && (now || new Date()).getFullYear() - subject.year >= C.CAR_CLASSIC_AGE);
+  if (subject.classic) fitT = [false, null, null, 0, null, "a classic: kilometres don't set its price, so no mileage curve is used"];
   const peerP = peers.map(r => r.p);
   const raw = rankIn(peerP, subject.price, C);
   const unavailable = [], notes = [];

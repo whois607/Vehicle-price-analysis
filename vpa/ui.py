@@ -853,6 +853,40 @@ function vpaAxMoney(v){
   window.addEventListener("focus",vpaStatus);
   setInterval(vpaStatus,20000);
 })();
+/* Australian dates on screen. The database, the API, keys, exports and
+   every comparison keep ISO dates (2026-09-19); only what is SHOWN is
+   rewritten, as it appears: a day as 19/09/2026, a month as Sep 2026.
+   Inputs, scripts and styles are never touched. */
+var VPA_MON=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+var VPA_DAY_RE=/(^|[^\d\/-])((?:19|20)\d\d)-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])(?![\d-])/g;
+var VPA_MONTH_RE=/(^|[^\d\/-])((?:19|20)\d\d)-(0[1-9]|1[0-2])(?![\d\/-])/g;
+function vpaAu(s){
+  if(typeof s!=="string"||s.indexOf("-")<0)return s;
+  return s.replace(VPA_DAY_RE,function(m,a,y,mo,d){return a+d+"/"+mo+"/"+y;})
+          .replace(VPA_MONTH_RE,function(m,a,y,mo){return a+VPA_MON[+mo-1]+" "+y;});
+}
+var VPA_AU_SKIP={SCRIPT:1,STYLE:1,TEXTAREA:1,INPUT:1,NOSCRIPT:1};
+function vpaAuNode(n){
+  if(n.nodeType===3){
+    var p=n.parentNode;
+    if(p&&!VPA_AU_SKIP[p.nodeName]&&!p.isContentEditable){var t=vpaAu(n.nodeValue);if(t!==n.nodeValue)n.nodeValue=t;}
+    return;
+  }
+  if(n.nodeType!==1||VPA_AU_SKIP[n.nodeName]||n.isContentEditable)return;
+  ["title","aria-label","placeholder"].forEach(function(a){
+    var v=n.getAttribute&&n.getAttribute(a);if(v){var t=vpaAu(v);if(t!==v)n.setAttribute(a,t);}});
+  for(var c=n.firstChild;c;c=c.nextSibling)vpaAuNode(c);
+}
+(function(){
+  if(!document.body)return;
+  vpaAuNode(document.body);
+  new MutationObserver(function(ms){ms.forEach(function(m){
+    if(m.type==="characterData")vpaAuNode(m.target);
+    else if(m.type==="attributes")vpaAuNode(m.target);
+    else m.addedNodes.forEach(vpaAuNode);
+  });}).observe(document.body,{childList:true,subtree:true,characterData:true,
+                               attributes:true,attributeFilter:["title","aria-label","placeholder"]});
+})();
 """
 
 

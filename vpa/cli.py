@@ -141,7 +141,8 @@ def _cmd_status(args) -> int:
     print(f"database: {s['db_path']}")
     print(f"vehicles: {s['vehicles']}   observations: {s['observations']} "
           f"({s['priced_observations']} priced)")
-    print(f"capture dates: {s['date_range'][0]} .. {s['date_range'][1]}")
+    from .dates import au
+    print(au(f"capture dates: {s['date_range'][0]} to {s['date_range'][1]}"))
     print(f"sources: " + (", ".join(f"{k}={v}" for k, v in s["sources"].items()) or "none"))
     print(f"ingest batches: {s['ingests']}")
     return 0

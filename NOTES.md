@@ -1083,6 +1083,22 @@ Keep these — each one was a bug that took a while to find.
   (phone._code_stamp: newest mtime of vpa/*.py/js/html/css): it stops
   listening first, then starts a fresh copy, so it never serves old code.
 
+**Australian dates on screen (12/10/2026)**
+* Display only: a day reads 19/09/2026, a month Sep 2026. The database,
+  keys, API payloads, exports and every comparison stay ISO, so nothing
+  stored or compared changed and the phone parity check is unaffected.
+* One rule, applied as text appears: `vpaAu` in ui.py's shared script (a
+  MutationObserver over text nodes and title/aria-label/placeholder, never
+  inputs, scripts or styles) and the same lines in phone_app/app.js;
+  `vpa/dates.py` is the Python twin, used by `vpa status`. check_explore
+  asserts all three give the same text, and that payloads stay ISO.
+* Doing it per template would have meant ~130 places plus server-written
+  notes ("not in the 2026-09-19 sweep"). The phone already wrote dates as
+  "19 Sep 2026"; no ISO date shows on any phone screen.
+* Guarded against: year ranges (2015-2016), ad ids with digits, an already
+  Australian date. No stored make, model, trim or title contains anything
+  the month rule could catch.
+
 **Workflow and tests streamlined (12/10/2026)**
 * `run_all` runs suites six at a time (each already worked in its own
   folder; `selfcheck` used to delete ALL of tests/synthetic/ and now owns

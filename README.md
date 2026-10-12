@@ -66,6 +66,8 @@ you the file isn't a listings page and skips it.
 - **Phone app**: a read-only copy of your data that works offline, with the
   same numbers as the laptop. You can star cars from the phone.
 - **Light and dark themes** on both the laptop and the phone.
+- **Australian dates**: 19/09/2026, or 19 Sep 2026 on the phone. The database
+  and exports keep ISO dates (2026-09-19) so they sort correctly.
 - **Excel workbook** with pivots and charts, if you prefer spreadsheets.
 
 When there isn't enough data for a statistic, the app says so instead of

@@ -375,6 +375,39 @@ def run_checks() -> int:
           and 'class="card keep"' in compare.PAGE,
           "picker cards are exempt from the fade")
 
+    print("\n== Australian dates on screen, ISO everywhere else ==")
+    import json as _json
+    import re as _re
+    import shutil as _shutil
+    import subprocess as _sp
+    from vpa.dates import au
+    cases = ["captured 2026-09-19", "2026-10-12 20:23:43", "2026-06", "since 2026-08-01 -9.8%",
+             "2015-2016", "2011-12-31", "MY18", "12/10/2026", "month 2026-07 | 2026-08",
+             "EXA-AD-2026-09", "2026-13", "1999-12", "(2026-02-29)", ""]
+    want = {"captured 2026-09-19": "captured 19/09/2026", "2026-06": "Jun 2026",
+            "2015-2016": "2015-2016", "EXA-AD-2026-09": "EXA-AD-2026-09",
+            "2026-10-12 20:23:43": "12/10/2026 20:23:43", "12/10/2026": "12/10/2026"}
+    check("a day reads 19/09/2026, a month Sep 2026; ranges and ids are left alone",
+          all(au(k) == v for k, v in want.items()), str({k: au(k) for k in want}))
+    from vpa import ui
+    js = ui.CHROME_JS
+    rule = js[js.index("var VPA_MON="):js.index("var VPA_AU_SKIP")]
+    phone = (Path(__file__).resolve().parent.parent / "vpa" / "phone_app" / "app.js").read_text(encoding="utf-8")
+    prule = phone[phone.index("var VPA_DAY_RE"):phone.index("var VPA_AU_SKIP")]
+    node = _shutil.which("node")
+    if node:
+        out = _sp.run([node, "-e", rule + "console.log(JSON.stringify(" + _json.dumps(cases) + ".map(vpaAu)))"],
+                      capture_output=True, text=True, encoding="utf-8").stdout
+        check("the pages' rule, the phone's and Python's give the same text",
+              _json.loads(out) == [au(c) for c in cases] and prule == rule[rule.index("var VPA_DAY_RE"):],
+              f"{len(cases)} strings")
+    else:
+        check("node is installed to run the pages' rule", False, "node not found")
+    pay = detail_payload(DB, "Ford", "Falcon", "XR6")
+    days = _re.findall(r"\d{4}-\d{2}-\d{2}|\d{2}/\d{2}/\d{4}", _json.dumps(pay, default=str))
+    check("what the server sends keeps ISO dates (only the screen is Australian)",
+          days and all("-" in d for d in days), f"{len(days)} dates in the payload, e.g. {days[:1]}")
+
     fails = [n for ok, n in RESULTS if not ok]
     print(f"\n== {len(RESULTS) - len(fails)}/{len(RESULTS)} checks passed ==")
     if fails:

@@ -37,7 +37,7 @@ from vpa.store import Store
 ROOT = Path(__file__).resolve().parent
 WORK = ROOT / "synthetic" / "inbox_work"
 DB = WORK / "inbox_test.db"
-FOLDER = WORK / "carsales inbox"
+FOLDER = WORK / "inbox"
 
 RESULTS: list[tuple[bool, str]] = []
 
@@ -50,7 +50,7 @@ def check(name: str, ok: bool, detail: str) -> None:
 def page(n: int) -> str:
     """One results 'page' of three cars, as a CSV the real adapter reads."""
     head = "listing_id,make,model,variant,year,price,odometer,state,seller_type"
-    rows = [f"SSE-AD-{n * 10 + i},Ford,Falcon,XR6,2013,{15000 + n * 1000 + i * 100},"
+    rows = [f"EXA-AD-{n * 10 + i},Ford,Falcon,XR6,2013,{15000 + n * 1000 + i * 100},"
             f"{120000 + i * 777},NSW,private" for i in range(3)]
     return head + "\n" + "\n".join(rows) + "\n"
 
@@ -91,10 +91,10 @@ def main() -> int:
     FOLDER.mkdir(parents=True)
     with Store(DB) as store:                      # a database with one car in it
         from vpa.schema import make_record
-        store.ingest([make_record({"listing_id": "SSE-AD-1", "make": "Ford",
+        store.ingest([make_record({"listing_id": "EXA-AD-1", "make": "Ford",
                                    "model": "Falcon", "variant": "XR6", "year": 2012,
                                    "price": 14000, "odometer": 150000,
-                                   "capture_date": "2026-05-01"}, source="carsales")],
+                                   "capture_date": "2026-05-01"}, source="examplecars")],
                      source_file="(seed)", adapter="test")
     before = content_hash()
     backups_before = len(list((WORK / "backups").glob("*.db"))) if (WORK / "backups").exists() else 0
@@ -119,15 +119,15 @@ def main() -> int:
 
     t0 = time.time() - 120
     # page 1 - written in two halves, like a browser still saving it
-    (FOLDER / "carsales.csv").write_text(page(1)[:40], encoding="utf-8")
+    (FOLDER / "examplecars.csv").write_text(page(1)[:40], encoding="utf-8")
     time.sleep(0.5)
     check("a file still being written is not read yet",
           s.done == 0 and not s.events, f"done={s.done}")
-    save("carsales.csv", page(1), when=t0)          # ...and now it is finished
+    save("examplecars.csv", page(1), when=t0)          # ...and now it is finished
     ok1 = wait_for(lambda: s.done == 1)
-    arch = list((FOLDER / "imported").rglob("*carsales.csv"))
+    arch = list((FOLDER / "imported").rglob("*examplecars.csv"))
     check("the saved page is imported, then moved out of the folder",
-          ok1 and not (FOLDER / "carsales.csv").exists() and len(arch) == 1,
+          ok1 and not (FOLDER / "examplecars.csv").exists() and len(arch) == 1,
           f"done={s.done}, archived as {arch[0].relative_to(FOLDER) if arch else None}")
     ev = s.events[-1]
     check("...through a normal bulk run you could undo on its own",
@@ -135,38 +135,38 @@ def main() -> int:
           f"run #{ev['run']}, {ev['obs_new']} new sightings")
 
     # the SAME name again - no replace prompt because the folder is empty
-    save("carsales.csv", page(1), when=t0 + 20)     # identical page re-saved
+    save("examplecars.csv", page(1), when=t0 + 20)     # identical page re-saved
     wait_for(lambda: len(s.events) >= 2)
     check("the same page saved twice is skipped, and still leaves the folder",
           s.events[-1]["kind"] == "duplicate" and s.done == 1
-          and not (FOLDER / "carsales.csv").exists(),
+          and not (FOLDER / "examplecars.csv").exists(),
           s.events[-1]["error"][:60])
 
-    save("carsales.html", "<html><head><title>Cars</title></head><body>"
+    save("examplecars.html", "<html><head><title>Cars</title></head><body>"
          "<script src='https://ct.captcha-delivery.com/c.js'></script></body></html>",
          when=t0 + 25)
     wait_for(lambda: len(s.events) >= 3)
     check("a bot-check page is refused, does not count, and leaves the folder",
           s.events[-1]["kind"] == "refused" and s.done == 1
-          and not (FOLDER / "carsales.html").exists(),
+          and not (FOLDER / "examplecars.html").exists(),
           "refused: " + s.events[-1]["error"][:50].replace("<", "&lt;"))
 
-    save("carsales.csv", page(2), when=t0 + 30)
+    save("examplecars.csv", page(2), when=t0 + 30)
     wait_for(lambda: s.done == 2)
     st = inbox.state(DB)["session"]
     check("pace and time left come from the gaps between saves",
           st["pace_s"] == 30 and st["eta_s"] is not None and st["finish"],
           f"{st['pace_s']} s a page, about {st['eta_s']} s left, done ~{st['finish']}")
 
-    save("carsales.csv", page(3), when=t0 + 60)
+    save("examplecars.csv", page(3), when=t0 + 60)
     wait_for(lambda: s.status == "complete")
     time.sleep(1.2)
-    save("carsales.csv", page(4), when=t0 + 90)      # after the count is reached
+    save("examplecars.csv", page(4), when=t0 + 90)      # after the count is reached
     time.sleep(1.8)
     st = inbox.state(DB)["session"]
     check("it stops by itself at the page count and imports nothing more",
           st["status"] == "complete" and st["done"] == 3
-          and (FOLDER / "carsales.csv").exists(),
+          and (FOLDER / "examplecars.csv").exists(),
           f"status {st['status']}, {st['done']} of {st['target']}; the 4th save is left in the folder")
     with sqlite3.connect(DB) as c:
         runs = c.execute("SELECT id, backup_path FROM bulk_runs").fetchall()
@@ -195,12 +195,12 @@ def main() -> int:
 
     def locked(*a, **k):
         raise PermissionError("locked by sync")
-    (FOLDER / "carsales.csv").unlink()
+    (FOLDER / "examplecars.csv").unlink()
     r3 = inbox.start(DB, str(FOLDER), 2)
     s3 = inbox._CUR["s"]
     inbox.shutil.move = locked
     try:
-        save("carsales.csv", page(5))
+        save("examplecars.csv", page(5))
         wait_for(lambda: s3.done == 1)
         time.sleep(4.5)                               # retries, then several scans
     finally:
@@ -215,20 +215,20 @@ def main() -> int:
     s3.join()
     check("the default folder is inside the project and ignored by git",
           Path(inbox.default_folder()).parent == ROOT.parent
-          and "carsales inbox/" in (ROOT.parent / ".gitignore").read_text(),
+          and "inbox/" in (ROOT.parent / ".gitignore").read_text(),
           inbox.default_folder())
 
     print("\n== a second session, stopped by hand ==")
-    (FOLDER / "carsales.csv").unlink(missing_ok=True)
+    (FOLDER / "examplecars.csv").unlink(missing_ok=True)
     r2 = inbox.start(DB, str(FOLDER), 5)
     again = inbox.start(DB, str(FOLDER), 5)
     check("only one session at a time", r2["ok"] and again["ok"] is False,
           again.get("error", ""))
     inbox.stop()
-    save("carsales.csv", page(7))
+    save("examplecars.csv", page(7))
     time.sleep(1.5)
     check("after Stop, a new save is left alone",
-          inbox._CUR["s"].done == 0 and (FOLDER / "carsales.csv").exists(),
+          inbox._CUR["s"].done == 0 and (FOLDER / "examplecars.csv").exists(),
           inbox.state(DB)["session"]["status"])
     check("the folder and page count are remembered for next time",
           inbox.load_settings(DB)["folder"] == str(FOLDER)

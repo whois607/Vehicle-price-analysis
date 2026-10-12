@@ -25,7 +25,13 @@ self.addEventListener("activate", e => {
     .map(k => caches.delete(k)))).then(() => self.clients.claim()));
 });
 const PHOTOS = "vpa-photos", PHOTO_MAX = 600;
-const isPhoto = url => /^[a-z]{3,20}\.pxcrush\.net$/.test(url.hostname) && url.protocol === "https:";
+// the photo server, filled in by the laptop from its private site file
+const PHOTO_SERVER = "__PHOTO_SERVER__";
+const isPhoto = url => {
+  const h = url.hostname, i = h.indexOf(".");
+  return !PHOTO_SERVER.startsWith("__") && PHOTO_SERVER !== "" && i > 0 &&
+    /^[a-z]{3,20}$/.test(h.slice(0, i)) && h.slice(i + 1) === PHOTO_SERVER && url.protocol === "https:";
+};
 async function photo(req) {
   const c = await caches.open(PHOTOS), hit = await c.match(req.url);
   if (hit) return hit;

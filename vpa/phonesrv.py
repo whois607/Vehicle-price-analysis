@@ -275,7 +275,17 @@ def _build_id() -> str:
             h.update((APP / f).read_bytes())
         except OSError:
             pass
+    h.update(_photo_server().encode())
     return h.hexdigest()[:12]
+
+
+def _photo_server() -> str:
+    """The photo server from the private site file - only a plain host name
+    is ever written into the worker."""
+    import re
+    from . import sites
+    s = str(sites.photos().get("server") or "")
+    return s if re.fullmatch(r"[a-z0-9.-]{1,100}", s) else ""
 
 
 def _app(name, ctype):
@@ -285,7 +295,8 @@ def _app(name, ctype):
             return None, ctype, "no-cache"
         body = p.read_bytes()
         if name == "sw.js":
-            body = body.replace(b"__BUILD__", _build_id().encode())
+            body = (body.replace(b"__BUILD__", _build_id().encode())
+                    .replace(b"__PHOTO_SERVER__", _photo_server().encode()))
         return body, ctype, "no-cache"
     return f
 

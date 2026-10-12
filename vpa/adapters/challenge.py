@@ -24,9 +24,9 @@ the parser broke, or the save failed. It does not and must not do anything to
 get past a challenge: working around a site's bot protection is off limits,
 and the fix is always to re-save the page in a normal browser session.
 
-**The marker is the interstitial, not the vendor.** Every carsales page loads
-DataDome's ordinary tag (`dd.carsales.com.au/tags.js`); only the challenge
-page contacts `captcha-delivery.com`. Keying on "datadome" would flag all 48
+**The marker is the interstitial, not the vendor.** A site's every page may
+load its bot-protection vendor's ordinary tag; only the challenge page
+contacts `captcha-delivery.com`. Keying on "datadome" would flag all 48
 files. Verified: `captcha-delivery` appears in 4 of 48 and in none of the 44
 good ones.
 """
@@ -62,7 +62,7 @@ def detect(html: str) -> str | None:
     """Name the bot-protection vendor if this is a challenge page, else None.
 
     Returns a vendor name rather than True so the message can say which
-    system fired — "carsales' bot protection (DataDome)" tells you the page
+    system fired — "the site's bot protection (DataDome)" tells you the page
     needs re-saving; "could not parse" sends you looking at the parser.
     """
     if not html:

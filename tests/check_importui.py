@@ -88,7 +88,7 @@ def _mix_scenario_db() -> Path:
                     "model": "Falcon", "variant": "XR6", "year": 2004,
                     "price": 5000, "odometer": 250000,
                     "capture_date": "2026-03-08"})
-    recs = [r for r in (make_record(d, source="carsales") for d in raw) if r]
+    recs = [r for r in (make_record(d, source="examplecars") for d in raw) if r]
     with Store(p) as store:
         store.ingest(recs, source_file="(mix-scenario)", adapter="test")
     return p
@@ -102,7 +102,7 @@ def main() -> int:
     seed = make_record({"listing_id": "SEED-1", "make": "Ford", "model": "Falcon",
                         "year": 2012, "price": 20000, "odometer": 150000,
                         "state": "VIC", "seller_type": "dealer",
-                        "capture_date": "2026-07-01"}, source="carsales")
+                        "capture_date": "2026-07-01"}, source="examplecars")
     with Store(DB) as store:
         store.ingest([seed], source_file="(seed)", adapter="seed")
 
@@ -240,7 +240,7 @@ def run_checks() -> int:
     print("\n== preview (no writes) ==")
     st0 = api("/api/status")
     res = api("/api/parse", {"name": "sample.csv", "text": SAMPLE_CSV,
-                             "source": "carsales", "capture_date": None})
+                             "source": "examplecars", "capture_date": None})
     check("parse ok over live HTTP", res.get("ok") is True, f"ok={res.get('ok')}")
     rows = res.get("rows", [])
     check("3 of 4 raw rows parsed, 1 dropped and reported",
@@ -308,7 +308,7 @@ def run_checks() -> int:
           res.get("ok") and res["committed"] == 0 and res["duplicates_skipped"] == 2,
           f"committed={res.get('committed')}, skipped={res.get('duplicates_skipped')}")
     res = api("/api/parse", {"name": "sample.csv", "text": SAMPLE_CSV,
-                             "source": "carsales", "capture_date": None})
+                             "source": "examplecars", "capture_date": None})
     now_dupes = [r for r in res["rows"] if r["status"] == "duplicate"]
     known = [r for r in res["rows"] if r["status"] == "new_observation"]
     # NEW-1 was committed WITH the hand-edited odometer, so the original file
@@ -319,7 +319,7 @@ def run_checks() -> int:
           and known[0].get("listing_id") == "NEW-1",
           f"{len(now_dupes)} duplicate(s), known={[(r.get('listing_id'), r['flags']) for r in known]}")
 
-    print("\n== Facebook Marketplace paste (price-above-title tiles) ==")
+    print("\n== Example Ads paste (price-above-title tiles) ==")
     fb_paste = "\n".join([
         "Just listed",
         "AU$55,000", "2010 Ford Falcon", "Sydney, NSW",
@@ -332,7 +332,7 @@ def run_checks() -> int:
         "AU$13,000", "2010 Ford Falcon", "Sydney, NSW",
     ])
     res = api("/api/parse", {"name": "fb.txt", "text": fb_paste,
-                             "source": "facebook", "format": "text",
+                             "source": "exampleads", "format": "text",
                              "capture_date": None})
     rows = res.get("rows", [])
     check("7 vehicle tiles parsed; rims tile (no year) skipped",
@@ -358,16 +358,16 @@ def run_checks() -> int:
           res.get("ok") and res["committed"] == 7 and res["new_vehicles"] == 7,
           f"committed={res.get('committed')}, new_vehicles={res.get('new_vehicles')}")
     res = api("/api/parse", {"name": "fb.txt", "text": fb_paste,
-                             "source": "facebook", "format": "text",
+                             "source": "exampleads", "format": "text",
                              "capture_date": None})
     n_dupe = sum(1 for r in res["rows"] if r["status"] == "duplicate")
     check("re-pasting the same dump flags all 7 as duplicates", n_dupe == 7,
           f"{n_dupe} of {len(res['rows'])} duplicate")
 
-    print("\n== empty Facebook HTML save -> actionable note ==")
+    print("\n== empty Exampleads HTML save -> actionable note ==")
     res = api("/api/parse", {"name": "fb_save.htm",
-                             "text": "<html><head><title>Facebook</title></head>"
-                                     "<body><div>facebook.com shell</div>"
+                             "text": "<html><head><title>Exampleads</title></head>"
+                                     "<body><div>exampleads.example shell</div>"
                                      "</body></html>",
                              "capture_date": None})
     check("0-listing HTML explains itself and points to the paste box",
@@ -527,7 +527,7 @@ def run_checks() -> int:
     # rows; without this check the app said "no listings", which sends you
     # looking at the parser instead of at the file.
     challenge = (
-        '<html lang="en"><head><title>carsales.com.au</title></head>'
+        '<html lang="en"><head><title>examplecars.example</title></head>'
         '<body style="margin:0"><p id="cmsg">Please enable JS and disable any '
         'ad blocker</p><script data-cfasync="false">var dd={\'rt\':\'i\','
         "'cid':'AHrlqAAAAAMAfkXkTHrVvv0AOqEJIQ==','hsh':'C0705ACD75EBF650',"
@@ -535,7 +535,7 @@ def run_checks() -> int:
         '<script src="https://ct.captcha-delivery.com/i.js"></script>'
         "</body></html>")
     got = api("/api/parse", {"name": "Ford cars for sale.htm",
-                             "text": challenge, "source": "carsales"})
+                             "text": challenge, "source": "examplecars"})
     check("a saved challenge page is refused and names the system that fired",
           got.get("ok") is False and got.get("challenge") is True
           and "DataDome" in got.get("error", "")
@@ -553,14 +553,14 @@ def run_checks() -> int:
           "three vendors, one message shape")
     # VACUOUS-GUARD: a detector that fired on everything would pass the above
     # while blocking every real capture. DataDome's ORDINARY tag runs on every
-    # carsales page - only the interstitial contacts captcha-delivery.com.
+    # examplecars page - only the interstitial contacts captcha-delivery.com.
     check("a normal page carrying the vendor's ordinary tag is NOT flagged",
           detect('<script id="datadomeScriptId" '
-                 'src="https://dd.carsales.com.au/tags.js" async=""></script>'
+                 'src="https://dd.examplecars.example/tags.js" async=""></script>'
                  '<html>...listings...</html>') is None,
           "keying on 'datadome' would have flagged all 45 good captures")
     good = api("/api/parse", {"name": "sample.csv", "text": SAMPLE_CSV,
-                              "source": "carsales"})
+                              "source": "examplecars"})
     check("...and an ordinary import is untouched by the check",
           good.get("ok") is True and len(good.get("rows", [])) == 3,
           f"{len(good.get('rows', []))} rows still parse")

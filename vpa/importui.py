@@ -33,6 +33,7 @@ from pathlib import Path
 
 from .schema import make_record
 from .adapters import parse_file
+from . import sites
 from .store import Store, DEFAULT_DB
 
 DEFAULT_PORT = 8765
@@ -125,9 +126,9 @@ def parse_payload(payload: dict, db_path: str | Path) -> dict:
                  any("duplicate" in f or "already" in f for f in r["flags"]))
     note = None
     if not rows and used_fmt == "html":
-        note = ("This HTML file contains no listings. Facebook Marketplace "
-                "saved pages are empty shells (the listings never reach the "
-                "file) - on Facebook, select the results text (Ctrl+A, "
+        note = ("This HTML file contains no listings. Some sites' saved "
+                "pages are empty shells (the listings never reach the "
+                "file) - on such a site, select the results text (Ctrl+A, "
                 "Ctrl+C) and use the paste box instead.")
     elif rows and all(r["status"] == "duplicate" for r in rows):
         # every car already recorded for its day: a page saved twice
@@ -1095,16 +1096,16 @@ __MODES__
   <ul>
    <li>Browse yourself and save what you see - this app never fetches from the
        sites, and don't point bots or scrapers at them.</li>
-   <li><b>Carsales / Bikesales:</b> open a results or listing page, press
-       <code>Ctrl+S</code> ("Webpage, Complete" or "HTML Only"), drop the saved
-       <code>.html</code> here. Saved pages carry structured data, so this is the
-       cleanest source.</li>
-   <li><b>Facebook Marketplace:</b> select the results text on the page
-       (<code>Ctrl+A</code>, <code>Ctrl+C</code>) and use the paste box. Tile
-       dumps parse as-is - prices above titles, "AU$" prices, and struck-through
-       old prices are handled; tiles without a year-led title (wheels, parts)
-       are skipped. Do NOT save the page as HTML - Facebook saves are empty
-       shells with no listings in them.</li>
+   <li><b>Sites whose saved pages hold the listings:</b> open a results or
+       listing page, press <code>Ctrl+S</code> ("Webpage, Complete" or "HTML
+       Only"), drop the saved <code>.html</code> here. Saved pages carry
+       structured data, so this is the cleanest source.</li>
+   <li><b>Sites that draw listings by script:</b> select the results text on
+       the page (<code>Ctrl+A</code>, <code>Ctrl+C</code>) and use the paste
+       box. Tile dumps parse as-is - prices above titles, "AU$" prices, and
+       struck-through old prices are handled; tiles without a year-led title
+       (wheels, parts) are skipped. A saved copy of such a page is an empty
+       shell with no listings in it.</li>
    <li><b>Your own spreadsheet:</b> drop a <code>.csv</code> or <code>.json</code>
        export - common column names (Price ($), KMs, Rego State, Ad ID...) are
        recognised automatically.</li>
@@ -1157,8 +1158,7 @@ __MODES__
   <input type="file" id="file" accept=".csv,.json,.html,.htm,.txt" multiple hidden>
   <div><label>source</label>
    <select id="source"><option value="">auto / from data</option>
-    <option>carsales</option><option>bikesales</option><option>facebook</option>
-    <option>gumtree</option><option>other</option></select></div>
+    __SOURCE_OPTIONS__</select></div>
   <div><label>format</label>
    <select id="format"><option value="">auto</option><option>csv</option>
     <option>json</option><option>html</option><option>text</option></select></div>
@@ -1791,7 +1791,7 @@ from .ui import action as _action, chrome as _chrome   # noqa: E402
 
 #: Assembled after the templates exist. Import is one of the three modes of
 #: Add data; the Overview page owns the data check and the workbook rebuild.
-PAGE = _chrome(_PAGE, "add", mode="import")
+PAGE = _chrome(_PAGE.replace("__SOURCE_OPTIONS__", sites.options_html()), "add", mode="import")
 OVERVIEW = _chrome(_OVERVIEW, "overview",
                    _action("vfBtn", "Data check", "check",
                            "cross-check the database against itself and the workbook")

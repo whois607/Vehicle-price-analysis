@@ -47,7 +47,7 @@ def main() -> int:
 
     # ---- 1. adapter parsing --------------------------------------------------
     print("\n== adapters ==")
-    csv_recs, _ = load_file(SYN / "falcons_1.csv", source="carsales")
+    csv_recs, _ = load_file(SYN / "falcons_1.csv", source="examplecars")
     check("CSV parse count", len(csv_recs) == truth["csv_rows"],
           f"parsed {len(csv_recs)}, expected {truth['csv_rows']}")
     json_recs, _ = load_file(SYN / "falcons_2.json")
@@ -55,9 +55,9 @@ def main() -> int:
     check("JSON parse count", len(json_recs) == want,
           f"parsed {len(json_recs)}, expected {want}")
     check("JSON per-row source honoured",
-          {r.source for r in json_recs} == {"carsales", "bikesales"},
+          {r.source for r in json_recs} == {"examplecars", "examplebikes"},
           f"sources: {sorted({r.source for r in json_recs})}")
-    text_recs, _ = load_file(SYN / "falcons_3.txt", source="facebook",
+    text_recs, _ = load_file(SYN / "falcons_3.txt", source="exampleads",
                              capture_date=flags["falcons_3.txt"])
     check("pasted-text parse count", len(text_recs) == truth["text_rows"],
           f"parsed {len(text_recs)}, expected {truth['text_rows']}")
@@ -65,7 +65,7 @@ def main() -> int:
                              capture_date=flags["falcons_4.html"])
     check("HTML JSON-LD parse count", len(html_recs) == truth["html_ld_rows"],
           f"parsed {len(html_recs)}, expected {truth['html_ld_rows']}")
-    check("HTML source auto-detected", all(r.source == "carsales" for r in html_recs),
+    check("HTML source auto-detected", all(r.source == "examplecars" for r in html_recs),
           f"sources: {sorted({r.source for r in html_recs})}")
     n_seller = sum(1 for r in html_recs if r.seller_type)
     n_state = sum(1 for r in html_recs if r.state)
@@ -74,7 +74,7 @@ def main() -> int:
           n_seller >= 8 and n_state >= 6 and n_variant == len(html_recs),
           f"seller_type on {n_seller}, state on {n_state}, variant on "
           f"{n_variant} of {len(html_recs)} records")
-    relist_recs, _ = load_file(SYN / "falcons_5_relist.txt", source="facebook",
+    relist_recs, _ = load_file(SYN / "falcons_5_relist.txt", source="exampleads",
                                capture_date=flags["falcons_5_relist.txt"])
     check("re-list paste parse count", len(relist_recs) == 1,
           f"parsed {len(relist_recs)}, expected 1")

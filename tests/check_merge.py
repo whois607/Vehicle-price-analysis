@@ -64,22 +64,22 @@ def seed(db: Path) -> None:
     # One row carries a price_note, because price_note is NULL on most rows
     # and a word on a few - and the invariant fingerprint has to sort a
     # mixture of the two without raising.
-    car("Safe", "SSE-AD-1001", D1, 18000, 167_431)
-    car("Safe", "SSE-AD-1001", D3, "17500 negotiable", 167_431)
+    car("Safe", "EXA-AD-1001", D1, 18000, 167_431)
+    car("Safe", "EXA-AD-1001", D3, "17500 negotiable", 167_431)
     car("Safe", None, D2, 18000, 167_431, state=None)
     # 2. SAFE triple spanning three id eras
-    car("Trio", "OAG-AD-2002", D3, 24990, 98_744)
+    car("Trio", "EXB-AD-2002", D3, 24990, 98_744)
     car("Trio", "IMG-aaaa1111", D1, 24990, 98_744)
     car("Trio", None, D2, 24990, 98_744, year=None)
     # 3. ROUND odometer - two different cars really can share this
-    car("Round", "SSE-AD-3003", D1, 15000, 150_000)
+    car("Round", "EXA-AD-3003", D1, 15000, 150_000)
     car("Round", None, D2, 15000, 150_000)
     # 4. YEAR conflicts
-    car("YearClash", "SSE-AD-4004", D1, 21000, 143_216, year=2012)
+    car("YearClash", "EXA-AD-4004", D1, 21000, 143_216, year=2012)
     car("YearClash", None, D2, 21000, 143_216, year=2015)
     # 5. TWO site ids - the site says these are two ads
-    car("TwoIds", "SSE-AD-5005", D1, 19000, 132_887)
-    car("TwoIds", "OAG-AD-5006", D2, 19000, 132_887)
+    car("TwoIds", "EXA-AD-5005", D1, 19000, 132_887)
+    car("TwoIds", "EXB-AD-5006", D2, 19000, 132_887)
     # 6. NO site id at all - nothing stable to survive onto
     car("NoId", "IMG-bbbb2222", D1, 16000, 121_559)
     car("NoId", None, D2, 16000, 121_559)
@@ -87,17 +87,17 @@ def seed(db: Path) -> None:
     # They must LINK on one day (same price and odometer) and DISAGREE on
     # another, so the partner needs a stable id of its own - an id-less pair
     # at two odometers would simply be two different keys and never link.
-    car("DayClash", "SSE-AD-7007", D1, 22000, 176_338)
-    car("DayClash", "SSE-AD-7007", D2, 21000, 176_338)
+    car("DayClash", "EXA-AD-7007", D1, 22000, 176_338)
+    car("DayClash", "EXA-AD-7007", D2, 21000, 176_338)
     car("DayClash", "IMG-dddd4444", D1, 22000, 176_338)
     car("DayClash", "IMG-dddd4444", D2, 20500, 176_338)
     # 8. Odometer would run backwards ONLY once merged: the partner's later
     # sighting shows fewer kilometres than the survivor's earlier one.
-    car("Backwards", "SSE-AD-8008", D2, 26000, 205_998)
+    car("Backwards", "EXA-AD-8008", D2, 26000, 205_998)
     car("Backwards", "IMG-cccc3333", D1, 26000, 205_998)
     car("Backwards", "IMG-cccc3333", D3, 25000, 180_447)
 
-    recs = [r for r in (make_record(d, source="carsales") for d in raw) if r]
+    recs = [r for r in (make_record(d, source="examplecars") for d in raw) if r]
     with Store(db) as store:
         store.ingest(recs, source_file="(merge-test)", adapter="test")
 
@@ -134,7 +134,7 @@ def run_checks() -> int:
           and p["absorbed"] == 3,
           f"{p['absorbed']} surplus identities over {p['groups']} groups")
     check("the surviving key is always the one with the site's own ad id",
-          all(m["listing_id"].startswith(("SSE-AD-", "OAG-AD-"))
+          all(m["listing_id"].startswith(("EXA-AD-", "EXB-AD-"))
               for m in p["merges"]),
           ", ".join(m["listing_id"] for m in p["merges"]))
     check("the plan quotes the shared reading that linked them, as evidence",

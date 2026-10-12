@@ -31,7 +31,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from . import dupes, links
+from . import dupes, links, sites
 from . import photos as _photos
 from . import trims as _trims
 from .store import Store, DEFAULT_DB
@@ -1302,7 +1302,7 @@ def identify_payload(db_path: str | Path = DEFAULT_DB, html: str = "") -> dict:
         return {"ok": False, "error": "no page content"}
     if "networkId" not in html and "application/ld+json" not in html:
         return {"ok": False, "error":
-                "that does not look like a saved carsales/bikesales page"}
+                "that does not look like a saved advert page"}
 
     raw = parse_html(html)
     if not raw:
@@ -1322,7 +1322,7 @@ def identify_payload(db_path: str | Path = DEFAULT_DB, html: str = "") -> dict:
     colour = raw.pop("colour", None)
     interior = raw.pop("interior_colour", None)
     fuel = raw.pop("fuel_type", None)
-    rec = make_record(dict(raw), source="carsales")
+    rec = make_record(dict(raw), source=sites.default_source())
     if rec is None:
         return {"ok": False, "error": "the page gave no usable make and model"}
 
@@ -1392,13 +1392,13 @@ def _stored_summary(own: pd.DataFrame) -> dict:
 
 
 # ------------------------------------------------------- identify from a link
-#: what a site ad id looks like (SSE-AD-20578075, OAG-AD-..., SHRM-AD-...)
+#: what a site ad id looks like (EXA-AD-20578075, EXB-AD-..., EXCD-AD-...)
 _SITE_ID = re.compile(r"\b([A-Z]{2,5}-AD-\d+)\b", re.I)
 
 
 def _norm_path(u: str) -> str:
-    """'https://www.carsales.com.au/cars/details/x/SSE-AD-1/?q=2' and the
-    stored bare path '/cars/details/x/SSE-AD-1/' -> the same string."""
+    """'https://www.site.example/cars/details/x/EXA-AD-1/?q=2' and the
+    stored bare path '/cars/details/x/EXA-AD-1/' -> the same string."""
     from urllib.parse import urlsplit
     u = (u or "").strip()
     if "://" not in u and not u.startswith("/"):
@@ -1427,10 +1427,11 @@ def link_payload(db_path: str | Path = DEFAULT_DB, link: str = "") -> dict:
     if len(link) > 2000 or any(c.isspace() for c in link):
         return {"ok": False, "error": "that does not look like a single link"}
     low = link.lower()
-    if "facebook.com" in low or "fb.com" in low:
+    rules = sites.link_rules()
+    if any(w in low for w in rules["unlinked"]):
         return {"ok": False, "error":
-                ("Facebook listings were captured without their links, so a "
-                 "Facebook link cannot be matched. Pick the car's trim below "
+                ("That site's listings were captured without their links, so "
+                 "its links cannot be matched. Pick the car's trim below "
                  "instead, or use Type one I've seen.")}
 
     df = _frame(db_path)
@@ -1455,14 +1456,14 @@ def link_payload(db_path: str | Path = DEFAULT_DB, link: str = "") -> dict:
             basis = "the advert's address"
     m = _SITE_ID.search(link)
     if key is None:
-        if not m and not want_path.startswith(("/cars/", "/bikes/")) \
-                and "carsales" not in low and "bikesales" not in low:
+        if not m and not want_path.startswith(tuple(rules["paths"])) \
+                and not any(w in low for w in rules["words"]):
             return {"ok": False, "error":
                     ("no ad id in that link - paste the address of the advert "
-                     "itself (it contains something like SSE-AD-20578075)")}
+                     "itself (it contains the ad's id)")}
         return {"ok": True, "in_data": False, "key": None,
                 "found": {"listing_id": m.group(1).upper() if m else None,
-                          "url": links.ad_url(link, "carsales")}}
+                          "url": links.ad_url(link, sites.default_source())}}
 
     own = df[df["key"] == key].sort_values("capture_date", kind="stable")
     last = own.iloc[-1]
@@ -1658,11 +1659,11 @@ __NAV__
   <li>The <b>Compare</b> tab carries this selection and its nearest trims
       across to the side-by-side view - the workbook's Comparison sheet.</li>
   <li><b>Finding a car by its link.</b> Paste an advert's address (or just its
-      ad id, e.g. SSE-AD-20578075) into the box at the top. It is matched
+      ad id) into the box at the top. It is matched
       against the links and ad ids your captures recorded - the advert is
       never opened. A car you never captured cannot be scored from a link
       alone (a link has no price or kilometres): save its page and use
-      <b>From a saved page</b>. Facebook captures carry no links.</li>
+      <b>From a saved page</b>. Captures from pasted text carry no links.</li>
   <li><b>Judging one car.</b> Click any row in the vehicles table, or any
       point on the price-vs-odometer scatter, to rank that car against the
       rest of its trim. <b>Score a car I've seen</b> does the same for a car
@@ -1698,7 +1699,7 @@ __NAV__
      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
     <path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg>
    <input type="text" id="findLink" spellcheck="false"
-     placeholder="https://www.carsales.com.au/cars/details/.../SSE-AD-20578075/  or just the ad id">
+     placeholder="the advert's address, or just its ad id">
    <button class="bigbtn" type="submit" id="linkBtn">
     <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"
       stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">

@@ -49,19 +49,19 @@ def seed() -> None:
                     "odometer": odo, "year": kw.pop("year", 2013),
                     "state": kw.pop("state", "NSW"), **kw})
 
-    car("Proven", "SSE-AD-1001", D2, 18000, 167_431)
-    car("Proven", "SSE-AD-1001", D3, 17500, 167_431)
+    car("Proven", "EXA-AD-1001", D2, 18000, 167_431)
+    car("Proven", "EXA-AD-1001", D3, 17500, 167_431)
     car("Proven", None, D1, 18000, 167_431, state=None)
-    car("Round", "SSE-AD-3003", D2, 15000, 150_000)
+    car("Round", "EXA-AD-3003", D2, 15000, 150_000)
     car("Round", None, D1, 15000, 150_000)
     car("NoId", "IMG-bbbb2222", D1, 16000, 121_559)
     car("NoId", None, D2, 16000, 121_559)
     car("NoId", None, D3, 15500, 121_900)     # a third, unrelated NoId car
-    car("YearClash", "SSE-AD-4004", D2, 21000, 143_216, year=2012)
+    car("YearClash", "EXA-AD-4004", D2, 21000, 143_216, year=2012)
     car("YearClash", None, D1, 21000, 143_216, year=2015)
-    car("TwoIds", "SSE-AD-5005", D1, 19000, 132_887)
-    car("TwoIds", "OAG-AD-5006", D2, 19000, 132_887)
-    recs = [r for r in (make_record(d, source="carsales") for d in raw) if r]
+    car("TwoIds", "EXA-AD-5005", D1, 19000, 132_887)
+    car("TwoIds", "EXB-AD-5006", D2, 19000, 132_887)
+    recs = [r for r in (make_record(d, source="examplecars") for d in raw) if r]
     with Store(DB) as store:
         store.ingest(recs, source_file="(dupes-test)", adapter="test")
 
@@ -80,7 +80,7 @@ def key_of(variant: str, with_id: bool) -> str:
         rows = store.conn.execute(
             "SELECT key, listing_id FROM vehicles WHERE variant = ?", (variant,)).fetchall()
     for k, lid in rows:
-        if bool(lid and lid.startswith(("SSE-AD-", "OAG-AD-", "IMG-"))) == with_id:
+        if bool(lid and lid.startswith(("EXA-AD-", "EXB-AD-", "IMG-"))) == with_id:
             return k
     raise KeyError(variant)
 

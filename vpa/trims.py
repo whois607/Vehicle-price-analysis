@@ -45,7 +45,7 @@ import pandas as pd
 
 from .adapters.titles import strip_tail
 
-#: Gearbox words removed from ANYWHERE in a trim, not just its end - carsales
+#: Gearbox words removed from ANYWHERE in a trim, not just its end - listings
 #: writes "edition one Auto quattro" with the gearbox before a badge word.
 #: Deliberately a narrower list than titles._TRANSMISSION: "man" and "seq"
 #: are left alone mid-name.
@@ -132,7 +132,7 @@ def make_rules(make) -> dict:
 
 def _fits(span, year, slack=1) -> bool:
     """A car with no year cannot rule a code out (the LAST code in a name
-    is taken, which is how carsales writes them)."""
+    is taken, which is how listings write them)."""
     if year is None:
         return True
     lo, hi = span[0], span[1] if span[1] is not None else 9999
@@ -141,7 +141,7 @@ def _fits(span, year, slack=1) -> bool:
 
 def generation_of(make, model, name, year) -> tuple:
     """(generation, trim_base) for one grouped trim name. The generation is
-    the LAST code in the name the make's rules recognise - carsales writes
+    the LAST code in the name the make's rules recognise - listings write
     the trim first ("XT BF MkII") - with its qualifier; a series code
     counts only when the car's year fits its years (Ford's XT and XL are
     trims too) or the car has no year. Nothing recognised: (None, name)."""

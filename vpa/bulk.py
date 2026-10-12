@@ -65,7 +65,7 @@ from pathlib import Path
 
 from .adapters import parse_file
 from .adapters.challenge import explain as _challenge
-from . import links
+from . import links, sites
 from .store import DEFAULT_DB, Store
 
 #: columns of `vehicles` snapshotted before a run, so undo can put a
@@ -105,7 +105,7 @@ def cut_off(text: str, name: str = "") -> str | None:
     """A saved web page that ends before the page does - a download that
     stalled on a poor connection. Seen on 2026-10-09: two copies of a results
     page stopped at exactly 640 KB. The listings' prices sit near the top of
-    a carsales page, so it still parsed - but body type, state and seller
+    a results page, so it still parsed - but body type, state and seller
     sit further down, and came out empty. Refused, with the reason; None if
     the file is fine or is not a web page at all."""
     head = (text or "").lstrip()[:400].lower()
@@ -158,7 +158,7 @@ def _parse_one(name: str, text: str, source=None, fmt=None, capture_date=None):
     if not records:
         raise ValueError(
             "no listings found in this file"
-            + (" - Facebook Marketplace saved pages are empty shells; use the "
+            + (" - some sites' saved pages are empty shells; use the "
                "paste box in Add data > Import with preview instead" if used_fmt == "html"
                else ""))
     return records, used_fmt, raw_count
@@ -694,7 +694,7 @@ __MODES__
    it. Forty pages saved across three evenings are three capture days, not
    one.</li>
   <li><b>Files that are not listings are refused</b>, not imported: a saved
-   bot-protection page, an empty file, a Facebook shell with no listings in
+   bot-protection page, an empty file, an empty shell with no listings in
    it. Each one is named in the results with the reason.</li>
   <li><b>Any run can be undone in full</b> - it removes exactly the sightings
    that run added, deletes only the vehicles it introduced, and puts back
@@ -738,11 +738,7 @@ __MODES__
   <div style="width:150px"><label for="source">source</label>
    <select id="source" style="width:100%">
     <option value="">detect from file</option>
-    <option value="carsales">carsales</option>
-    <option value="bikesales">bikesales</option>
-    <option value="facebook">facebook</option>
-    <option value="gumtree">gumtree</option>
-    <option value="other">other</option>
+    __SOURCE_OPTIONS__
    </select></div>
   <div style="width:150px"><label for="format">format</label>
    <select id="format" style="width:100%">
@@ -1144,4 +1140,4 @@ __CHROME_JS__
 
 from .ui import chrome as _chrome   # noqa: E402
 
-PAGE = _chrome(_PAGE, "add", mode="bulk")
+PAGE = _chrome(_PAGE.replace("__SOURCE_OPTIONS__", sites.options_html()), "add", mode="bulk")

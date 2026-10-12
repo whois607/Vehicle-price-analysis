@@ -1,4 +1,4 @@
-"""Parse a saved carsales/bikesales page for ONE vehicle (a "details" page).
+"""Parse a saved advert page for ONE vehicle (a "details" page).
 
     Ctrl+S on the ad itself, not the search results.
 
@@ -9,7 +9,7 @@ page carries a single analytics `metaData` object that states everything at
 once, for that one car:
 
     "make":"Ford","model":"Falcon","badge":"XR6 Turbo","state":"NSW",
-    "networkId":"SSE-AD-20672993","colour":"Black","sellertype":"Private",
+    "networkId":"EXA-AD-20672993","colour":"Black","sellertype":"Private",
     "year":"2015","odometermin":"161843","price":"28000","bodystyle":"Sedan"
 
 That is a different shape from `htmlpage._tracking_supplement`'s
@@ -91,7 +91,7 @@ def _colours(html: str) -> tuple[str | None, str | None]:
 
     Read from the labelled spec rows, NOT from the analytics object, which
     is the obvious-looking source and is wrong. On the real page checked on
-    03/08/2026 (2015 Ford Falcon XR6 Turbo FG X, SSE-AD-20672993) the ad
+    03/08/2026 (a 2015 Ford Falcon XR6 Turbo FG X) the ad
     displays:
 
         Exterior colour   Kinetic
@@ -136,9 +136,9 @@ def is_detail_page(html: str) -> bool:
     Two things this has to get right, both learned from the real file:
 
     * the id FORMAT is not constrained - what makes this a details page is
-      that it describes one vehicle, not that the id looks like `SSE-AD-…`;
-    * ids are compared CASE-FOLDED. A real carsales details page emits the
-      same ad as `SSE-AD-20672993` fifteen times and `sse-ad-20672993` ten
+      that it describes one vehicle, not that the id has a particular shape;
+    * ids are compared CASE-FOLDED. A real details page can emit the
+      same ad as `EXA-AD-20672993` fifteen times and `exa-ad-20672993` ten
       times; counting them case-sensitively says "two vehicles" and rejects
       the page. A search page carries 5-10 genuinely different ids, so
       folding case cannot make one look like a details page."""

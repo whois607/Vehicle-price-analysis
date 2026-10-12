@@ -57,7 +57,7 @@ def seed() -> None:
     raw.append({"listing_id": "E-3", "make": "Ford", "model": "Falcon",
                 "variant": "XR6 Auto R", "year": 2014, "price": 23000,
                 "odometer": 90000, "state": "QLD", "capture_date": DAY_B})
-    recs = [r for r in (make_record(d, source="carsales") for d in raw) if r]
+    recs = [r for r in (make_record(d, source="examplecars") for d in raw) if r]
     with Store(DB) as store:
         store.ingest(recs, source_file="(edit-test)", adapter="test")
 

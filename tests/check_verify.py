@@ -72,13 +72,13 @@ def seed(db: Path) -> None:
                         "price": price, "odometer": 100000 + i * 12000,
                         "state": "NSW", "seller_type": "dealer",
                         "capture_date": day})
-    recs = [r for r in (make_record(d, source="carsales") for d in raw) if r]
+    recs = [r for r in (make_record(d, source="examplecars") for d in raw) if r]
     with Store(db) as store:
         store.ingest(recs, source_file="(verify-test)", adapter="test")
 
 
 def add(db: Path, rows: list[dict], *, legacy_bucket: int | None = None) -> None:
-    recs = [r for r in (make_record(d, source="carsales") for d in rows) if r]
+    recs = [r for r in (make_record(d, source="examplecars") for d in rows) if r]
     old = Record.ODO_BUCKET_KM
     if legacy_bucket:
         Record.ODO_BUCKET_KM = legacy_bucket

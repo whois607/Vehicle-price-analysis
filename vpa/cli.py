@@ -1,6 +1,6 @@
 """CLI: ingest / add / import-v2 / report / export / status.
 
-    python -m vpa ingest listings.html --source carsales
+    python -m vpa ingest listings.html --source mysite
     python -m vpa add --make Ford --model Falcon --year 2012 --price 18990
     python -m vpa import-v2
     python -m vpa report --segment "ford falcon"
@@ -32,7 +32,7 @@ def _cmd_ingest(args) -> int:
         print(f"Parsed 0 listings from {path.name} (format: {fmt}). "
               "Check the file, or try --format text / --format csv.")
         if fmt == "html":
-            print("Note: Facebook Marketplace saved pages are empty shells - "
+            print("Note: some sites' saved pages are empty shells - "
                   "select the results text on the page and ingest it as text "
                   "instead.")
         return 1
@@ -155,7 +155,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     q = sub.add_parser("ingest", help="ingest a CSV/JSON/HTML/text file of listings")
     q.add_argument("path")
-    q.add_argument("--source", help="carsales|bikesales|facebook|gumtree|other "
+    q.add_argument("--source", help="a source label (your sites are named in data/sites.json), or other "
                                     "(auto-detected for HTML)")
     q.add_argument("--format", choices=["csv", "json", "html", "text"],
                    help="override format auto-detection")

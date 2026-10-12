@@ -2,7 +2,7 @@
 
     python -m tests.check_quickadd     (from vehicle-price-analysis/)
 
-Seeds a prior Quick Add batch (2026-07-01) and an imported carsales row
+Seeds a prior Quick Add batch (2026-07-01) and an imported examplecars row
 (2026-07-02) for a test model, then drives /api/quick/* on the real server:
 exact median/mode/highest/lowest over the all-history pool, exact signed
 percentage changes against the pre-today baseline, the multimodal tie case,
@@ -73,9 +73,9 @@ def run_checks() -> int:
                                     "capture_date": "2026-07-01"})
     check("seed batch committed via endpoint", res.get("ok") and res["committed"] == 4,
           f"committed={res.get('committed')} (normalised line: {res.get('line')})")
-    # seed 2: an imported carsales row on 2026-07-02 (via the standard pipeline)
+    # seed 2: an imported examplecars row on 2026-07-02 (via the standard pipeline)
     rec = make_record({"listing_id": "CS-1", "make": "Testmake", "model": "Testmodel",
-                       "price": 11000, "capture_date": "2026-07-02"}, source="carsales")
+                       "price": 11000, "capture_date": "2026-07-02"}, source="examplecars")
     with Store(DB) as store:
         store.ingest([rec], source_file="(seed)", adapter="seed")
 

@@ -1,11 +1,11 @@
 """Saved HTML pages (Ctrl+S from your browser) -> raw field dicts.
 
 Two passes, most-structured first:
-  1. JSON-LD (<script type="application/ld+json">): Carsales/Bikesales embed
+  1. JSON-LD (<script type="application/ld+json">): many listing sites embed
      schema.org Vehicle/Car/Motorcycle/Product objects with clean fields.
   2. Fallback: strip tags to visible text (stdlib parser, scripts/styles
      dropped, block elements become line breaks) and reuse the pasted-text
-     parser. This is what usually fires for Facebook Marketplace saves.
+     parser. This is what fires for pages drawn by script with no JSON-LD.
 
 No network access — this only ever reads files you saved yourself.
 """
@@ -19,15 +19,13 @@ from pathlib import Path
 
 from . import pastetext
 from .titles import strip_tail
+from .. import sites
 
 _LDJSON = re.compile(
     r"<script[^>]+type\s*=\s*[\"']application/ld\+json[\"'][^>]*>(.*?)</script>",
     re.I | re.S)
 
 _VEHICLE_TYPES = {"car", "vehicle", "motorcycle", "motorizedvehicle", "product"}
-
-_SITE_HINTS = [("carsales.com", "carsales"), ("bikesales.com", "bikesales"),
-               ("facebook.com", "facebook"), ("gumtree.com", "gumtree")]
 
 _BLOCK_TAGS = {"p", "div", "li", "tr", "br", "h1", "h2", "h3", "h4", "h5",
                "section", "article", "header", "footer", "td", "span"}
@@ -109,7 +107,7 @@ def _variant_from_name(name: str, brand: str | None, model: str | None) -> str |
     return strip_tail(" ".join(tokens)) or None
 
 
-# Carsales result pages embed per-listing analytics attributes keyed by the
+# Some result pages embed per-listing analytics attributes keyed by the
 # same ad id that appears in each listing's URL — the only place the page
 # states seller type and state per listing in machine-readable form.
 _TRACK_ID = re.compile(r'"tracking/item/networkId":"([^"]+)"')
@@ -126,11 +124,11 @@ def _seller_word(v: str) -> str | None:
     return None
 
 
-# The format carsales moved to by late July 2026: plain keys inside one flat
+# The newer format (seen from late July 2026): plain keys inside one flat
 # analytics object per event, with the state BEFORE the id -
-#   {..."state":"VIC","networkId":"SSE-AD-19312099",...,"adtype":"Private",...}
+#   {..."state":"VIC","networkId":"EXA-AD-19312099",...,"adtype":"Private",...}
 # The old pattern (prefixed keys, fields AFTER the id) matched none of it, so
-# from 27/07/2026 every carsales capture stored no seller type and no state.
+# from 27/07/2026 such captures stored no seller type and no state.
 _FLAT_ID = re.compile(r'"networkId":"([A-Z]{2,4}-AD-\d+)"')
 _FLAT_STATE = re.compile(r'"state":"([A-Za-z]{2,3})"')
 _FLAT_ADTYPE = re.compile(r'"ad[Tt]ype":"([^"]+)"')
@@ -172,7 +170,7 @@ def _tracking_supplement(html: str) -> dict[str, dict]:
     tracking clusters (some clusters carry only part of the fields).
 
     Two formats: the original prefixed one, read as it always was, and the
-    flat one carsales moved to (see _flat_tracking), which only fills what
+    newer flat one (see _flat_tracking), which only fills what
     the original found nothing for."""
     out: dict[str, dict] = {}
     matches = list(_TRACK_ID.finditer(html))
@@ -245,7 +243,7 @@ def _ld_to_raw(obj: dict) -> dict | None:
     raw["year"] = (obj.get("vehicleModelDate") or obj.get("productionDate")
                    or obj.get("modelDate") or obj.get("releaseDate"))
     # `trim` is a clean badge where a site provides it. `vehicleConfiguration`
-    # is NOT: on a carsales details page it is the full spec string
+    # is NOT: on some details pages it is the full spec string
     # "FG X XR6 Turbo Sedan 4dr Spts Auto 6sp 4.0T", which stored as a variant
     # invents a trim no other capture of the same car will ever match. The
     # title gives "XR6 Turbo FG X", which is what every search-page capture
@@ -273,7 +271,7 @@ def _ld_to_raw(obj: dict) -> dict | None:
     # hiding. A search page puts it in the listing URL; a saved DETAILS page
     # puts a full URL in `@id` and no `sku` at all, so taking `@id` verbatim
     # keyed that car by URL while every search capture of the SAME car was
-    # keyed 'SSE-AD-20672993' — one car, two identities, silently. The ad id
+    # keyed 'EXA-AD-20672993' — one car, two identities, silently. The ad id
     # is extracted from any of the candidates before any of them is used raw.
     candidates = [obj.get("sku"), obj.get("@id"), obj.get("identifier"),
                   raw.get("url")]
@@ -303,11 +301,8 @@ def _ld_to_raw(obj: dict) -> dict | None:
 
 
 def detect_source(html: str) -> str:
-    head = html[:200_000].casefold()
-    for hint, name in _SITE_HINTS:
-        if hint in head:
-            return name
-    return "other"
+    """The page's source label, from your private site file (vpa/sites.py)."""
+    return sites.detect(html, 200_000)
 
 
 def parse(path: str | Path) -> tuple[list[dict], str]:

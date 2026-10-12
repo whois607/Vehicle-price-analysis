@@ -1,0 +1,14 @@
+{
+ "_note": "Copy to data/sites.json (private, never shared) and name the sites you capture from. Every key is optional; without the file the app labels every import 'other' and shows no advert links or photos. A source label becomes part of each stored car's identity, so never rename one that already has data.",
+ "sites": [
+  {"source": "examplecars", "domains": ["examplecars.example"], "address": "https://www.examplecars.example",
+   "ad_paths": ["/cars/", "/bikes/"]},
+  {"source": "examplebikes", "domains": ["examplebikes.example"]},
+  {"source": "exampleads", "domains": ["exampleads.example"], "link_words": ["ea.example"], "links": false}
+ ],
+ "default_source": "examplecars",
+ "id_prefixes": ["EXA-AD-", "EXB-AD-"],
+ "search_site": "examplecars.example",
+ "photos": {"server": "photos.example", "size": "w={w}&h={h}&fit=pad"},
+ "private_words": []
+}

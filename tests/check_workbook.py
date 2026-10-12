@@ -66,7 +66,7 @@ def seed(db: Path) -> None:
                             "price": base + i * 900 - m * 250,
                             "odometer": 90000 + i * 7000, "state": "NSW",
                             "seller_type": "dealer", "capture_date": day})
-    recs = [r for r in (make_record(d, source="carsales") for d in raw) if r]
+    recs = [r for r in (make_record(d, source="examplecars") for d in raw) if r]
     with Store(db) as store:
         store.ingest(recs, source_file="(workbook-test)", adapter="test")
 
@@ -128,10 +128,14 @@ def main() -> int:
     check("...and the workbook is cell-for-cell what the first build wrote",
           cells(a) == first, f"{len(first):,} cells compared")
 
-    with sqlite3.connect(DB) as conn:           # one Holden price moves
+    with sqlite3.connect(DB) as conn:           # one Holden price moves - a car's
+        # LATEST sighting, the one the analysis uses (an earlier price of a
+        # car seen again later moves nothing, and which car comes first by
+        # id depends on the keys, i.e. on the source label)
         conn.execute("UPDATE observations SET price_aud = price_aud + 1500 WHERE id = "
                      "(SELECT o.id FROM observations o JOIN vehicles v ON v.key=o.key "
-                     " WHERE v.make='Holden' ORDER BY o.id LIMIT 1)")
+                     " WHERE v.make='Holden' AND o.capture_date = v.last_seen "
+                     " ORDER BY o.id LIMIT 1)")
     _, after = build(DB, a)
     b = WORK / "b" / "viewer.xlsx"
     b.parent.mkdir()

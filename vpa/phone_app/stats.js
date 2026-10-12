@@ -693,9 +693,9 @@ function findLink(DB, link) {
   link = String(link || "").trim();
   if (!link) return { ok: false, error: "paste an advert link first" };
   if (link.length > 2000 || /\s/.test(link)) return { ok: false, error: "that does not look like a single link" };
-  const low = link.toLowerCase();
-  if (low.includes("facebook.com") || low.includes("fb.com")) return { ok: false, error:
-    "Facebook listings were captured without their links, so a Facebook link cannot be " +
+  const low = link.toLowerCase(), rules = Object.assign({ unlinked: [], words: [], paths: [] }, DB.snap.links || {});
+  if (rules.unlinked.some(w => low.includes(w))) return { ok: false, error:
+    "That site's listings were captured without their links, so its links cannot be " +
     "matched. Find the car's trim instead, or use Price check." };
   const ids = new Map();
   for (const r of DB.S) if (r.v.id != null && !ids.has(String(r.v.id).toUpperCase())) ids.set(String(r.v.id).toUpperCase(), r.v.k);
@@ -713,10 +713,9 @@ function findLink(DB, link) {
   }
   const m = SITE_ID.exec(link);
   if (key == null) {
-    if (!m && !want.startsWith("/cars/") && !want.startsWith("/bikes/") &&
-        !low.includes("carsales") && !low.includes("bikesales"))
+    if (!m && !rules.paths.some(p => want.startsWith(p)) && !rules.words.some(w => low.includes(w)))
       return { ok: false, error: "no ad id in that link - paste the address of the advert itself " +
-                                 "(it contains something like SSE-AD-20578075)" };
+                                 "(it contains the ad's id)" };
     return { ok: true, in_data: false, key: null, found: { listing_id: m ? m[1].toUpperCase() : null } };
   }
   return { ok: true, in_data: true, key, basis, vehicle: DB.byKey.get(key) };

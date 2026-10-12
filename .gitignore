@@ -1,7 +1,8 @@
 # Your data and your results - never shared. The code is the shareable part;
 # every file below is either private to this machine or regenerated on demand.
 
-# Database, its journals, snapshots, and the raw saved listing pages.
+# Database, its journals, snapshots, the raw saved listing pages, and
+# data/sites.json - the private file naming the sites you capture from.
 # data/raw/ matters twice over: those files are YOUR captures AND they are
 # copies of someone else's pages. They must never be redistributed.
 # NOTE the trailing /* rather than a bare `data/`. Git cannot re-include a
@@ -14,9 +15,10 @@ data/*
 # Reports, exports and the Excel workbook (rebuild: python -m vpa report --all)
 output/
 
-# The watch folder (Bulk > Watch a folder): saved carsales pages and their
-# imported/ archive. Same rule as data/raw - never shared.
-carsales inbox/
+# The watch folder (Bulk > Watch a folder): saved pages and their imported/
+# archive. Same rule as data/raw - never shared. (A folder with another name
+# belongs in .git/info/exclude, which is never shared either.)
+inbox/
 
 # Generated test fixtures and their report tree
 tests/synthetic/

@@ -30,7 +30,7 @@ import numpy as np
 import pandas as pd
 
 from vpa import forecast, turnover
-from vpa.merge import SITE_ID_PREFIXES
+from vpa.merge import site_id_prefixes
 
 RESULTS: list[tuple[bool, str]] = []
 
@@ -45,8 +45,9 @@ def old_cohort(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty or "listing_id" not in df.columns:
         return df.iloc[0:0]
     lid = df["listing_id"].astype("string").fillna("")
-    mask = lid.str.startswith(SITE_ID_PREFIXES[0], na=False)
-    for p in SITE_ID_PREFIXES[1:]:
+    pre = site_id_prefixes()
+    mask = lid.str.startswith(pre[0], na=False)
+    for p in pre[1:]:
         mask = mask | lid.str.startswith(p, na=False)
     return df[mask.fillna(False)]
 
@@ -95,7 +96,7 @@ def line_frame(n_trims=6, cars=10, days=("2026-03-01", "2026-03-08",
             for di, d in enumerate(days):
                 if c < di:                 # car c has left by capture c+1
                     continue
-                rows.append({"key": f"k{t}-{c}", "listing_id": f"SSE-AD-{t}{c:03d}",
+                rows.append({"key": f"k{t}-{c}", "listing_id": f"EXA-AD-{t}{c:03d}",
                              "day": d, "variant": f"T{t}",
                              "price_aud": 20000.0 + 500 * c + 1000 * t,
                              "odometer_km": 100000.0 + c, "year": 2014,
@@ -157,8 +158,8 @@ def main() -> int:
     print("\n== cohort and day sets: single passes against the old pandas code ==")
     awkward = pd.DataFrame({
         "key": ["a", "b", "c", "d", "e", "f", "g", "h", 5],
-        "listing_id": ["SSE-AD-1", "OAG-AD-9", None, np.nan, "IMG-abc", "BASE-1",
-                       12345, "sse-ad-lower", "SSE-AD-2"],
+        "listing_id": ["EXA-AD-1", "EXB-AD-9", None, np.nan, "IMG-abc", "BASE-1",
+                       12345, "exa-ad-lower", "EXA-AD-2"],
         "day": ["2026-03-01", "2026-03-01", "2026-03-08", None, "2026-03-08",
                 "2026-03-01", "2026-03-08", "2026-03-01", "2026-03-08"],
     })

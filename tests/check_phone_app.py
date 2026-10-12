@@ -7,7 +7,7 @@ The phone shows the laptop's own Explore / Compare / Overview results
 over the sightings it carries - car lists, ranks, comparables, the car card,
 filtered stats, link matching (vpa/phone_app/stats.js). This suite builds a
 deliberately awkward database - missing odometers, price-only quick adds,
-Facebook cars with no link, a car with two prices on one day, duplicate
+Exampleads cars with no link, a car with two prices on one day, duplicate
 identities and a group marked "not duplicates", starred cars - builds the
 phone copy from it in a separate process, then runs stats.js under node
 against the Python it ports, on:
@@ -16,7 +16,7 @@ against the Python it ports, on:
     keyword filters: headline, splits, capture days, supply, monthly
     series, histogram, scatter, the car list, price movers, standouts;
   * the car card for every car of several trims, and for typed-in cars;
-  * advert links (ids, addresses, Facebook, junk), typed values, Python's
+  * advert links (ids, addresses, Exampleads, junk), typed values, Python's
     rounding, and compare ranks;
   * every screen of the app itself (app.js, against a stand-in page) for
     every selection, filtered and not, every car, price checks and compare:
@@ -78,7 +78,7 @@ def seed() -> None:
             base = rnd.randint(9000, 60000)
             for i in range(rnd.randint(6, 46)):
                 n += 1
-                lid = f"SSE-AD-{100000 + n}"
+                lid = f"EXA-AD-{100000 + n}"
                 year = rnd.choice([2008, 2010, 2012, 2014, 2016, None if i % 17 == 0 else 2018])
                 odo = None if i % 9 == 0 else rnd.randint(30, 320) * 1000 + rnd.choice([0, 0, 137])
                 state = rnd.choice(["NSW", "VIC", "QLD", None])
@@ -95,7 +95,7 @@ def seed() -> None:
                         # same-gearbox split is compared too (trims.py)
                         "title": (f"{year or ''} {mk} {mo} {va or ''}".strip()
                                   + ("", " Manual", " Auto")[i % 3]),
-                        "capture_date": d}, source="carsales"))
+                        "capture_date": d}, source="examplecars"))
     # thin trims: their cards walk the ladder - a 5-car Sprint to every FG X
     # Falcon (generation), a 3-car 428i F36 to every 428i of 2013-2017
     # (trim, any generation) - and a 5-car XR6 Sprint with no code to the
@@ -112,39 +112,39 @@ def seed() -> None:
     for mk, mo, va, yr, count in thin:
         for i in range(count):
             m += 1
-            recs.append(make_record({"listing_id": f"SSE-AD-998{m:03d}", "make": mk, "model": mo,
+            recs.append(make_record({"listing_id": f"EXA-AD-998{m:03d}", "make": mk, "model": mo,
                                      "variant": va, "year": yr - (i % 2),
                                      "price": 32000 + m * 900, "odometer": 30000 + m * 4100,
-                                     "url": f"/cars/details/z/SSE-AD-998{m:03d}/",
+                                     "url": f"/cars/details/z/EXA-AD-998{m:03d}/",
                                      "title": f"{yr} {mk} {mo} {va} Manual",
-                                     "capture_date": DAYS[m % len(DAYS)]}, source="carsales"))
+                                     "capture_date": DAYS[m % len(DAYS)]}, source="examplecars"))
     # a car with two prices on one day (two cars merged into one identity)
     for p in (21000, 23500):
-        recs.append(make_record({"listing_id": "SSE-AD-999001", "make": "Ford", "model": "Falcon",
+        recs.append(make_record({"listing_id": "EXA-AD-999001", "make": "Ford", "model": "Falcon",
                                  "variant": "XR6", "year": 2012, "price": p, "odometer": 150000,
-                                 "url": "/cars/details/x/SSE-AD-999001/",
-                                 "capture_date": DAYS[3]}, source="carsales"))
+                                 "url": "/cars/details/x/EXA-AD-999001/",
+                                 "capture_date": DAYS[3]}, source="examplecars"))
     # duplicate identities: same price and odometer under two ad ids
-    for lid in ("SSE-AD-999101", "SSE-AD-999102", "SSE-AD-999103", "SSE-AD-999104"):
+    for lid in ("EXA-AD-999101", "EXA-AD-999102", "EXA-AD-999103", "EXA-AD-999104"):
         recs.append(make_record({"listing_id": lid, "make": "Ford", "model": "Falcon",
                                  "variant": "XR8", "year": 2014,
-                                 "price": 33990 if lid < "SSE-AD-999103" else 28500,
-                                 "odometer": 98000 if lid < "SSE-AD-999103" else 120000,
+                                 "price": 33990 if lid < "EXA-AD-999103" else 28500,
+                                 "odometer": 98000 if lid < "EXA-AD-999103" else 120000,
                                  "url": f"/cars/details/y/{lid}/", "capture_date": DAYS[4]},
-                                source="carsales"))
-    # Facebook cars (no link, no id) and price-only quick adds
+                                source="examplecars"))
+    # Exampleads cars (no link, no id) and price-only quick adds
     for i in range(5):
         recs.append(make_record({"make": "Ford", "model": "Falcon", "variant": "XR6",
                                  "year": 2011, "price": 15000 + i * 900, "state": "NSW",
                                  "title": f"Ford Falcon XR6 fb {i}",
-                                 "capture_date": DAYS[2]}, source="facebook"))
+                                 "capture_date": DAYS[2]}, source="exampleads"))
     for i in range(4):
         recs.append(make_record({"make": "Ford", "model": "Falcon", "price": 18000 + i * 1100,
                                  "capture_date": DAYS[5]}, source="quick_add"))
     with Store(DB) as st:
         st.ingest(recs, source_file="(fixture)", adapter="test")
         keys = [r[0] for r in st.conn.execute(
-            "SELECT key FROM vehicles WHERE listing_id IN ('SSE-AD-999103','SSE-AD-999104') ORDER BY key")]
+            "SELECT key FROM vehicles WHERE listing_id IN ('EXA-AD-999103','EXA-AD-999104') ORDER BY key")]
         st.conn.execute("INSERT INTO not_duplicates (keys, ts) VALUES (?, '2026-08-23 10:00:00')",
                         (",".join(sorted(keys)),))
         for k in [r[0] for r in st.conn.execute("SELECT key FROM vehicles ORDER BY key LIMIT 3")]:
@@ -176,7 +176,7 @@ def main(argv=None) -> int:
         with sqlite3.connect(DB) as c:
             ads = sorted({photos.ad_id(l, u) for l, u in c.execute(
                 "SELECT listing_id, url FROM vehicles")} - {None})
-        photos.remember(DB, {ad: [f"carsales/cars/private/{ad.lower().replace('-', '')}{j}x0000.jpg"
+        photos.remember(DB, {ad: [f"examplecars/cars/private/{ad.lower().replace('-', '')}{j}x0000.jpg"
                                   for j in range(1 + i % 4)] for i, ad in enumerate(ads) if i % 2 == 0},
                         "2026-08-20")
     before = hashlib.sha256(DB.read_bytes()).hexdigest()
@@ -260,11 +260,11 @@ def main(argv=None) -> int:
     with sqlite3.connect(DB) as c:
         ids = [r[0] for r in c.execute("SELECT listing_id FROM vehicles WHERE listing_id IS NOT NULL LIMIT 6")]
     for lid in ids[:3]:
-        links.append(f"https://www.carsales.com.au/cars/details/whatever/{lid}/?gts={lid}&x=1")
-    links += [f"carsales.com.au/cars/details/x-falcon/{ids[3]}", ids[4],
-              "https://www.carsales.com.au/cars/details/new-car/SSE-AD-1234567/",
-              "https://www.facebook.com/marketplace/item/123", "hello there", "https://example.com/x",
-              "https://www.carsales.com.au/cars/details/x-hilux/SSE-AD-100200/"]
+        links.append(f"https://www.examplecars.example/cars/details/whatever/{lid}/?gts={lid}&x=1")
+    links += [f"examplecars.example/cars/details/x-falcon/{ids[3]}", ids[4],
+              "https://www.examplecars.example/cars/details/new-car/EXA-AD-1234567/",
+              "https://www.exampleads.example/item/123", "hello there", "https://example.com/x",
+              "https://www.examplecars.example/cars/details/x-hilux/EXA-AD-100200/"]
     link_exp = [{"link": l, "payload": explore.link_payload(DB, l)} for l in links]
     from vpa.schema import norm_seller, norm_state, norm_year, parse_odometer, parse_price
     strings = ["$18,990", "18990", "18,990 Drive Away", "Negotiable", "$12.5k", "POA", "45,000 km",

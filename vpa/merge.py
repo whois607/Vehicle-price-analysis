@@ -8,7 +8,7 @@ THE PROBLEM
 fingerprint otherwise. So one car captured twice by different methods - once
 pasted as text (no ad id) and once saved as HTML (ad id present) - produces
 TWO identities that can never collide. Capture eras made it worse: the same
-car carries a `BASE-` id in May, an `IMG-` id in June, an `SSE-AD-` id in
+car carries a `BASE-` id in May, an `IMG-` id in June, a site ad id in
 July and none at all from a paste. Measured on the real database: 835
 vehicles of which 106 were surplus copies of a car already stored.
 
@@ -33,7 +33,7 @@ THE RULE - every condition must hold, or the group is reported and LEFT ALONE
   4. Year and state do not conflict (either equal, or one is not recorded -
      one capture method routinely records what the other does not).
   5. Exactly ONE identity in the group carries a real site ad id
-     (`SSE-AD-`/`OAG-AD-`). That one survives and the others fold into it,
+     (`id_prefixes`, vpa/sites.py). That one survives and the others fold into it,
      so the surviving key stays the stable, site-derived one. `IMG-`/`BASE-`
      ids are image- and era-derived and are not evidence of anything.
   6. Merging must not put two different prices on one capture day - that is
@@ -64,8 +64,11 @@ from .store import DEFAULT_DB, Store
 
 #: an odometer that is a whole multiple of this is treated as approximate
 ROUND_KM = 1000
-#: ad-id prefixes the sites actually issue; everything else is derived
-SITE_ID_PREFIXES = ("SSE-AD-", "OAG-AD-")
+#: ad-id prefixes the sites actually issue (`id_prefixes` in your private
+#: site file, vpa/sites.py); everything else is derived
+def site_id_prefixes() -> tuple[str, ...]:
+    from . import sites
+    return sites.id_prefixes()
 
 
 def _rows(store: Store) -> list[dict]:
@@ -99,7 +102,8 @@ def _rows(store: Store) -> list[dict]:
 
 
 def _is_site_id(listing_id) -> bool:
-    return bool(listing_id) and str(listing_id).startswith(SITE_ID_PREFIXES)
+    pre = site_id_prefixes()
+    return bool(listing_id) and bool(pre) and str(listing_id).startswith(pre)
 
 
 def _fingerprint(store: Store) -> list[tuple]:

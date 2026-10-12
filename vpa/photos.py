@@ -1,6 +1,6 @@
 """Listing photos: the photo addresses already inside the pages you save.
 
-A saved carsales search page states, for every listing, its ad id and the
+A saved search page states, for every listing, its ad id and the
 addresses of its first few photos (the schema.org `image` list beside the
 listing's `url`). A saved details page states the ad's main photo the same
 way and preloads the start of its gallery. This module keeps those
@@ -16,15 +16,17 @@ Kept OUT of the database, in data/photos.json beside it:
 
 * the price data is never touched - photos can be added, rebuilt or deleted
   without a write to vpa.db;
-* the file is keyed by the site's own ad id (`SSE-AD-20672993`), which
+* the file is keyed by the site's own ad id (`EXA-AD-20672993`), which
   survives everything the database does to its own keys (merges, repairs);
 * losing it loses only pictures. `python -m vpa photos --backfill` rebuilds
   what the kept pages hold.
 
-Only addresses on the site's own photo server (`<site>.pxcrush.net`) of one
-exact shape are stored, so a page can never make the app show an image from
-anywhere else. Stored form: `carsales/cars/private/7zwwbadhk89otj6l43lwr4y06.jpg`;
-the app adds the size it wants (`photo_url`).
+Only addresses on the site's own photo server (`<site>.<server>`, the
+`photos` entry of your private site file - vpa/sites.py) of one exact shape
+are stored, so a page can never make the app show an image from anywhere
+else; with no photo server configured, no photo is read or shown. Stored
+form: `<site>/cars/private/7zwwbadhk89otj6l43lwr4y06.jpg`; the app adds the
+size it wants (`photo_url`, from the server's `size` query).
 """
 from __future__ import annotations
 
@@ -42,11 +44,22 @@ MAX_PER_CAR = 12               # a details page can preload more; a tile has 5
 FILE_NAME = "photos.json"
 
 #: a photo address on the site's own image server, in either of the two forms
-#: a page uses: https://carsales.pxcrush.net/carsales/cars/private/ID.jpg and
-#: https://carsales.pxcrush.net/cars/private/ID.jpg (same photo)
-_URL = re.compile(
-    r"https?://([a-z]{3,20})\.pxcrush\.net/(?:([a-z]{3,20})/)?([a-z]{2,20})/"
-    r"([a-z]{2,20})/([a-z0-9]{10,64})\.(jpg|jpeg|png|webp)\b", re.I)
+#: a page uses: https://SITE.SERVER/SITE/cars/private/ID.jpg and
+#: https://SITE.SERVER/cars/private/ID.jpg (same photo)
+_URLS: dict[str, re.Pattern] = {}
+
+
+def _server() -> str | None:
+    from . import sites
+    return sites.photos().get("server")
+
+
+def _url_re(server: str) -> re.Pattern:
+    if server not in _URLS:
+        _URLS[server] = re.compile(
+            r"https?://([a-z]{3,20})\." + re.escape(server) + r"/(?:([a-z]{3,20})/)?([a-z]{2,20})/"
+            r"([a-z]{2,20})/([a-z0-9]{10,64})\.(jpg|jpeg|png|webp)\b", re.I)
+    return _URLS[server]
 #: the stored form, checked again on every read and by both front ends
 PATH = re.compile(r"^[a-z]{3,20}/[a-z]{2,20}/[a-z]{2,20}/[a-z0-9]{10,64}\.(jpg|jpeg|png|webp)$")
 _AD = re.compile(r"\b([A-Z]{2,5}-AD-\d+)\b", re.I)
@@ -56,7 +69,8 @@ _PRELOAD = re.compile(
 
 def clean(url) -> str | None:
     """A photo address -> its stored form, or None if it is not one."""
-    m = _URL.search(unescape(str(url or "")))
+    server = _server()
+    m = _url_re(server).search(unescape(str(url or ""))) if server else None
     if not m:
         return None
     host, first, cat, kind, pid, ext = (g.lower() if g else g for g in m.groups())
@@ -69,11 +83,13 @@ def clean(url) -> str | None:
 def photo_url(path: str, w: int = 480, h: int = 320) -> str | None:
     """The address to show a stored photo at w x h (the image server sizes
     it; the whole photo is kept, padded rather than cropped)."""
-    if not path or not PATH.match(path):
+    from . import sites
+    ph = sites.photos()
+    if not path or not PATH.match(path) or not ph:
         return None
     host = path.split("/", 1)[0]
-    return (f"https://{host}.pxcrush.net/{path}"
-            f"?pxc_method=fitfill&pxc_bgtype=self&pxc_size={int(w)},{int(h)}")
+    size = str(ph.get("size") or "").replace("{w}", str(int(w))).replace("{h}", str(int(h)))
+    return f"https://{host}.{ph['server']}/{path}" + (f"?{size}" if size else "")
 
 
 def ad_id(listing_id=None, url=None) -> str | None:
@@ -109,7 +125,8 @@ def extract(html: str) -> dict[str, list[str]]:
     which are never preloaded."""
     from .adapters import detailpage, htmlpage
     html = html or ""
-    if "pxcrush.net" not in html:
+    server = _server()
+    if not server or server not in html:
         return {}
     found: dict[str, list[str]] = {}
     if detailpage.is_detail_page(html):
@@ -313,10 +330,21 @@ def first_for(db_path, listing_id=None, url=None) -> str | None:
 # ------------------------------------------------------------ backfill
 def kept_pages(db_path) -> list[Path]:
     """Every saved page the app still has: data/raw and the watch folder's
-    imported/ archive (beside the database's folder)."""
+    imported/ archive (the folder you set, and the default one beside the
+    database's folder)."""
+    from . import inbox
     data = Path(db_path).resolve().parent
     out: list[Path] = []
-    for folder in (data / "raw", data.parent / "carsales inbox" / "imported"):
+    folders = [data / "raw", data.parent / "inbox" / inbox.ARCHIVE]
+    try:
+        folders.append(Path(inbox.load_settings(db_path)["folder"]) / inbox.ARCHIVE)
+    except (KeyError, TypeError, ValueError):
+        pass
+    seen = set()
+    for folder in folders:
+        if str(folder.resolve()) in seen:
+            continue
+        seen.add(str(folder.resolve()))
         if folder.is_dir():
             out += sorted(p for p in folder.rglob("*")
                           if p.suffix.lower() in (".htm", ".html") and p.is_file())

@@ -41,7 +41,7 @@ def check(name: str, ok: bool, detail: str) -> None:
 
 
 def rec(**kw) -> Record:
-    base = dict(source="carsales", vehicle_type="car", make="Ford",
+    base = dict(source="examplecars", vehicle_type="car", make="Ford",
                 model="Falcon", state="NSW")
     base.update(kw)
     return Record(**base)
@@ -71,7 +71,7 @@ def seed() -> None:
         rec(capture_date=D1, variant="XR8", year=2014, odometer_km=80000, price_aud=30000),
         rec(capture_date=D2, variant="XR8", year=2014, odometer_km=80300, price_aud=29000),
         rec(capture_date=D1, variant="XT", year=2011, odometer_km=200000,
-            price_aud=8000, listing_id="OAG-AD-1"),
+            price_aud=8000, listing_id="EXB-AD-1"),
     ]
     # Seed as the OLD code would have: the point of the migration is legacy
     # data, and the current 500 km rule would never create MERGE-A at all.
@@ -150,11 +150,11 @@ def run_checks() -> int:
           len(driven) == 1 and driven[0][1] == 2,
           f"XR8 across {D1}/{D2}: {len(driven)} identity, {driven[0][1] if driven else 0} sightings")
     untouched = con.execute("""SELECT COUNT(*) FROM vehicles
-                               WHERE listing_id='OAG-AD-1'""").fetchone()[0]
+                               WHERE listing_id='EXB-AD-1'""").fetchone()[0]
     check("a healthy ad-id vehicle is left completely alone",
           untouched == 1 and any(k in before_keys for k in
                                  [r[0] for r in con.execute(
-                                     "SELECT key FROM vehicles WHERE listing_id='OAG-AD-1'")]),
+                                     "SELECT key FROM vehicles WHERE listing_id='EXB-AD-1'")]),
           "its key is unchanged")
     con.close()
 

@@ -75,7 +75,7 @@ def seed() -> None:
         raw.append({"make": "Ford", "model": "Falcon", "variant": "G6E",
                     "year": 2010, "price": price, "odometer": odo,
                     "state": "QLD", "capture_date": DAY_B})
-    recs = [r for r in (make_record(d, source="carsales") for d in raw) if r]
+    recs = [r for r in (make_record(d, source="examplecars") for d in raw) if r]
     # Seed through the OLD 5,000 km rule. Record.ODO_BUCKET_KM is 500 now, so
     # the G6E pair would no longer merge - but merged identities still exist
     # in databases written before the fix, and Explore has to handle them.
@@ -338,7 +338,7 @@ def run_checks() -> int:
     extra = make_record({"listing_id": "XR6-NEW", "make": "Ford", "model": "Falcon",
                          "variant": "XR6", "year": 2013, "price": 16500,
                          "odometer": 140000, "state": "NSW",
-                         "capture_date": DAY_B}, source="carsales")
+                         "capture_date": DAY_B}, source="examplecars")
     with Store(DB) as store:
         store.ingest([extra], source_file="(later-import)", adapter="test")
     later = status_payload(DB)

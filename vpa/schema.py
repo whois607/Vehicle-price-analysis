@@ -18,7 +18,9 @@ FIELDS = [
     "state", "seller_type", "raw_title", "url",
 ]
 
-KNOWN_SOURCES = {"carsales", "bikesales", "facebook", "gumtree", "manual", "v2", "other"}
+# Source labels are free text: the sites you capture from are named in your
+# private data/sites.json (vpa/sites.py), plus the app's own "manual", "v2"
+# and "other".
 
 # Makes whose canonical casing isn't title-case.
 _MAKE_CASING = {
@@ -100,7 +102,7 @@ class Record:
                 (self.model or "").casefold(), str(self.year or ""),
                 (self.variant or "").casefold(), self.state or "", odo_bucket,
             ]
-            # No odometer AND no id (e.g. Facebook Marketplace tiles): the
+            # No odometer AND no id (e.g. classified-ad tiles): the
             # spec fields alone can't tell two same-model listings apart, so
             # fold in a $500 price bucket. Appended ONLY in this case so
             # every existing odometer-bearing fingerprint stays unchanged.

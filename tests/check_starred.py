@@ -54,7 +54,7 @@ def seed() -> None:
                         "price": price, "odometer": 100000 + i * 5000,
                         "state": "NSW", "seller_type": "dealer",
                         "capture_date": day})
-    recs = [r for r in (make_record(d, source="carsales") for d in raw) if r]
+    recs = [r for r in (make_record(d, source="examplecars") for d in raw) if r]
     with Store(DB) as store:
         store.ingest(recs, source_file="(star-test)", adapter="test")
 
@@ -119,7 +119,7 @@ def run_checks() -> int:
                         "variant": "XR6", "year": 2014, "price": 26000,
                         "odometer": 100000, "state": "NSW",
                         "seller_type": "dealer",
-                        "capture_date": "2026-03-22"}, source="carsales")]
+                        "capture_date": "2026-03-22"}, source="examplecars")]
     with Store(DB) as store:
         store.ingest(add, source_file="(star-test-2)", adapter="test")
     w2 = starred.watchlist_payload(DB)

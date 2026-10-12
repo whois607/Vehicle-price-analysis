@@ -160,7 +160,7 @@ def seed() -> None:
                             "raw_title": f"{yr} {mk} {mo} {va or ''}".strip()})
             stored.append((lid, va))
     with Store(DB) as st:
-        st.ingest([r for r in (make_record(x, "carsales") for x in raw) if r])
+        st.ingest([r for r in (make_record(x, "examplecars") for x in raw) if r])
         st.conn.executemany("UPDATE vehicles SET variant = ? WHERE listing_id = ?",
                             [(va, lid) for lid, va in stored])
         # one F36 stored with a body that disagrees with its chassis code:
@@ -293,7 +293,7 @@ def main() -> int:
             | {k: v for k, v in list(rec["cars"].items())[3:]}, "groups": rec["groups"]}
     tampered = {"cars": dict(rec["cars"]), "groups": rec["groups"]}
     k0 = next(iter(tampered["cars"]))
-    tampered["cars"][k0] = ["Holden"] + tampered["cars"][k0][1:]
+    tampered["cars"][k0] = ["Tampered make"] + tampered["cars"][k0][1:]
     d1, d2 = trims.compare_records(fake, rec), trims.compare_records(tampered, rec)
     check("...and it reports cars that moved group, and stored data that changed",
           sum(n for *_, n in d1["moved"]) == 3 and d2["data_changed"] == [k0],
@@ -559,18 +559,18 @@ def main() -> int:
     shutil.copy(DB, dd)
     pairs = [  # (stored trim, listing id, year, price, km, day)
         ("XT BF MkII", None, 2008, 4900, 218740, "2026-07-28"),
-        ("XT BF Mk II", "SSE-AD-555001", 2008, 4900, 218740, "2026-08-17"),
+        ("XT BF Mk II", "EXA-AD-555001", 2008, 4900, 218740, "2026-08-17"),
         ("Auto", None, 1986, 21000, 98123, "2026-07-28"),          # a trimless C4
-        ("Auto MY86", "SSE-AD-555002", 1986, 21000, 98123, "2026-08-17"),
+        ("Auto MY86", "EXA-AD-555002", 1986, 21000, 98123, "2026-08-17"),
         ("FG X", None, 2015, 30500, 77321, "2026-07-28"),          # trim = the code it wrote
-        ("FG X", "SSE-AD-555003", 2015, 30500, 77321, "2026-08-17")]
+        ("FG X", "EXA-AD-555003", 2015, 30500, 77321, "2026-08-17")]
     recs = []
     for i, (va, lid, yr, pr, km, day) in enumerate(pairs):
         mk, mo = (("Chevrolet", "Corvette") if yr == 1986 else ("Ford", "Falcon"))
         recs.append(make_record({"listing_id": lid, "make": mk, "model": mo, "variant": "x",
                                  "year": yr, "price": pr, "odometer": km, "state": "NSW",
                                  "capture_date": day, "raw_title": f"{yr} {mk} {mo} pair{i}"},
-                                "carsales"))
+                                "examplecars"))
     with Store(dd) as st:
         st.ingest(recs)
         for i, (va, *_rest) in enumerate(pairs):
@@ -602,7 +602,7 @@ def main() -> int:
         kept = st.conn.execute("SELECT variant, listing_id FROM vehicles WHERE key = ?",
                                (xt["winner"],)).fetchone()
     check("merging it keeps every price, folds one identity into the site-id one",
-          r["ok"] and fp1 == fp0 and n1 == n0 - 1 and tuple(kept) == ("XT BF Mk II", "SSE-AD-555001"),
+          r["ok"] and fp1 == fp0 and n1 == n0 - 1 and tuple(kept) == ("XT BF Mk II", "EXA-AD-555001"),
           f"vehicles {n0} -> {n1}; kept {tuple(kept)}; backup {Path(r['backup']).name}")
     u = dupes.undo(dd, r["batch"])
     with Store(dd) as st:

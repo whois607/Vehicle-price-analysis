@@ -1,0 +1,14 @@
+{
+ "_note": "The test suites' site file (set by tests/__init__.py): fictional sites only.",
+ "sites": [
+  {"source": "examplecars", "domains": ["examplecars.example"], "address": "https://www.examplecars.example",
+   "ad_paths": ["/cars/", "/bikes/"]},
+  {"source": "examplebikes", "domains": ["examplebikes.example"]},
+  {"source": "exampleads", "domains": ["exampleads.example"], "link_words": ["ea.example"], "links": false},
+  {"source": "exampleclassifieds", "domains": ["exampleclassifieds.example"]}
+ ],
+ "default_source": "examplecars",
+ "id_prefixes": ["EXA-AD-", "EXB-AD-"],
+ "search_site": "examplecars.example",
+ "photos": {"server": "photos.example", "size": "fit=pad&size={w},{h}"}
+}

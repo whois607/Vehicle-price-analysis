@@ -79,7 +79,7 @@ def seed() -> None:
                 continue
             if i in arrives and day < arrives[i]:
                 continue
-            raw.append(rec(f"SSE-AD-{9000 + i}", "STEADY", day, price,
+            raw.append(rec(f"EXA-AD-{9000 + i}", "STEADY", day, price,
                            odo=100000 + i * 1000))
 
     # -- NOID: image-derived ids, which are not unique per listing
@@ -90,17 +90,17 @@ def seed() -> None:
 
     # -- SCOPE: eight cars on day 0, eight DIFFERENT cars on day 3
     for i in range(8):
-        raw.append(rec(f"SSE-AD-{5000 + i}", "SCOPE", DAYS[0], 30000 + i * 500))
+        raw.append(rec(f"EXA-AD-{5000 + i}", "SCOPE", DAYS[0], 30000 + i * 500))
     for i in range(8):
-        raw.append(rec(f"SSE-AD-{6000 + i}", "SCOPE", DAYS[3], 31000 + i * 500))
+        raw.append(rec(f"EXA-AD-{6000 + i}", "SCOPE", DAYS[3], 31000 + i * 500))
 
     # -- NARROW: 12 cars, then a capture holding only 2 of them
     for i in range(12):
-        raw.append(rec(f"SSE-AD-{4000 + i}", "NARROW", DAYS[0], 25000 + i * 400))
+        raw.append(rec(f"EXA-AD-{4000 + i}", "NARROW", DAYS[0], 25000 + i * 400))
     for i in range(2):
-        raw.append(rec(f"SSE-AD-{4000 + i}", "NARROW", DAYS[2], 25000 + i * 400))
+        raw.append(rec(f"EXA-AD-{4000 + i}", "NARROW", DAYS[2], 25000 + i * 400))
 
-    recs = [r for r in (make_record(d, source="carsales") for d in raw) if r]
+    recs = [r for r in (make_record(d, source="examplecars") for d in raw) if r]
     with Store(DB) as store:
         store.ingest(recs, source_file="(turnover-test)", adapter="test")
 
@@ -235,9 +235,9 @@ def run_checks() -> int:
     # a delisting until the unfiltered selection is consulted
     print("\n== a car that repriced out of the filter is not a delisting ==")
     with Store(DB) as store:
-        store.ingest([make_record(rec("SSE-AD-9099", "STEADY", d,
+        store.ingest([make_record(rec("EXA-AD-9099", "STEADY", d,
                                       23000 if d == DAYS[0] else 29000),
-                                  source="carsales") for d in DAYS],
+                                  source="examplecars") for d in DAYS],
                      source_file="(repricer)", adapter="test")
     cap = detail_payload(DB, "Ford", "Falcon", "STEADY", price_max="27000")
     check("it is vetoed by the unfiltered selection, not counted as an exit",

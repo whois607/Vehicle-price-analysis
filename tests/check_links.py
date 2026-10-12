@@ -2,7 +2,7 @@
 
     python -m tests.check_links
 
-carsales' own links are bare paths, stored as they came. Shown as they
+examplecars' own links are bare paths, stored as they came. Shown as they
 stand they resolve against the app (127.0.0.1) and go nowhere, so every
 link that leaves the app gets the site's address put in front. These checks
 pin that rule, that nothing is guessed for a path of unknown origin, and
@@ -26,24 +26,24 @@ def check(name: str, ok: bool, detail: str) -> None:
     print(f"  [{'PASS' if ok else 'FAIL'}] {name}: {detail}")
 
 
-PATH = "/cars/details/2016-ford-falcon-g6e-turbo-fg-x-auto/SSE-AD-20616552/"
-FULL = "https://www.carsales.com.au" + PATH
+PATH = "/cars/details/2016-ford-falcon-g6e-turbo-fg-x-auto/EXA-AD-20616552/"
+FULL = "https://www.examplecars.example" + PATH
 
 
 def main() -> int:
     print("\n== the full address of an advert ==")
-    check("a carsales bare path gets the site in front",
-          links.ad_url(PATH, "carsales") == FULL, links.ad_url(PATH, "carsales"))
+    check("a examplecars bare path gets the site in front",
+          links.ad_url(PATH, "examplecars") == FULL, links.ad_url(PATH, "examplecars"))
     check("a full address is left exactly as it is",
-          links.ad_url("https://example.com/ad/1", "facebook") == "https://example.com/ad/1",
+          links.ad_url("https://example.com/ad/1", "exampleads") == "https://example.com/ad/1",
           "unchanged")
     check("a protocol-relative address gets https",
-          links.ad_url("//www.carsales.com.au" + PATH, None) == FULL, "https: added")
+          links.ad_url("//www.examplecars.example" + PATH, None) == FULL, "https: added")
     check("a bare path from a site with no known address is not guessed",
-          links.ad_url(PATH, "facebook") is None and links.ad_url(PATH, None) is None,
+          links.ad_url(PATH, "exampleads") is None and links.ad_url(PATH, None) is None,
           "no link rather than a wrong one")
     check("no link, an empty link and a NaN all give None",
-          all(links.ad_url(v, "carsales") is None for v in (None, "", "  ", float("nan"))),
+          all(links.ad_url(v, "examplecars") is None for v in (None, "", "  ", float("nan"))),
           "nothing to open")
     check("the archive link lists copies of the full address",
           links.archive_url(FULL) == "https://web.archive.org/web/*/" + FULL
@@ -56,10 +56,10 @@ def main() -> int:
         from vpa.schema import make_record
         rec = make_record({"make": "Ford", "model": "Falcon", "variant": "XR6 Turbo",
                            "year": 2016, "price": 31400, "odometer": 187000,
-                           "listing_id": "SSE-AD-20616552", "url": PATH,
-                           "capture_date": "2026-09-01"}, source="carsales")
+                           "listing_id": "EXA-AD-20616552", "url": PATH,
+                           "capture_date": "2026-09-01"}, source="examplecars")
         store.ingest([rec], source_file="t", adapter="t")
-        links.ad_url(store.frame()["url"].iloc[0], "carsales")
+        links.ad_url(store.frame()["url"].iloc[0], "examplecars")
         store.close()
         con = sqlite3.connect(db)
         stored = con.execute("SELECT url FROM vehicles").fetchone()[0]

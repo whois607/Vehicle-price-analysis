@@ -103,7 +103,7 @@ def seed() -> None:
     # 18 cars, of which 14 appear again on DAY_B: the filter genuinely bites
     # (18 -> 14) while BOTH sides still clear CURVE_MIN_N, so the "refit on
     # the survivors" assertion has two real curves to compare.
-    # Its ids are the SITE's own (`SSE-AD-`), unlike every other selection
+    # Its ids are the SITE's own (`EXA-AD-`), unlike every other selection
     # here, which makes it the one column turnover can actually measure:
     # 18 cars then 14 is a 1.29 size ratio, inside the scope gate, so four
     # real exits over 35 days. Everything else stays deliberately
@@ -111,7 +111,7 @@ def seed() -> None:
     for i in range(18):
         days = (DAY_A, DAY_B) if i >= 4 else (DAY_A,)
         for day in days:
-            raw.append({"listing_id": f"SSE-AD-BT{i}", "make": "Mazda",
+            raw.append({"listing_id": f"EXA-AD-BT{i}", "make": "Mazda",
                         "model": "BT-50", "variant": "XT", "year": 2015,
                         "price": 28000 + i * 1100, "odometer": 90000 + i * 6000,
                         "state": "NSW", "seller_type": "dealer",
@@ -123,19 +123,19 @@ def seed() -> None:
     # trim count moves. Without it the "a scope break is flagged" check below
     # would assert on a fixture that has none, and pass on an empty set.
     for i in range(8):
-        raw.append({"listing_id": f"SSE-AD-SPA{i}", "make": "Mazda",
+        raw.append({"listing_id": f"EXA-AD-SPA{i}", "make": "Mazda",
                     "model": "BT-50", "variant": "SPLIT", "year": 2013,
                     "price": 26000 + i * 300, "odometer": 150000 + i * 4000,
                     "state": "VIC", "seller_type": "private",
                     "capture_date": DAY_A})
     for i in range(8):
-        raw.append({"listing_id": f"SSE-AD-SPB{i}", "make": "Mazda",
+        raw.append({"listing_id": f"EXA-AD-SPB{i}", "make": "Mazda",
                     "model": "BT-50", "variant": "SPLIT", "year": 2013,
                     "price": 27000 + i * 300, "odometer": 152000 + i * 4000,
                     "state": "VIC", "seller_type": "private",
                     "capture_date": DAY_B})
 
-    recs = [r for r in (make_record(d, source="carsales") for d in raw) if r]
+    recs = [r for r in (make_record(d, source="examplecars") for d in raw) if r]
     with Store(DB) as store:
         store.ingest(recs, source_file="(compare-test)", adapter="test")
 

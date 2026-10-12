@@ -2,7 +2,7 @@
 
     python -m tests.check_viewer     (from vehicle-price-analysis/)
 
-Seeds a throwaway store with a mixed model (24 full carsales rows with
+Seeds a throwaway store with a mixed model (24 full examplecars rows with
 odometer/year/variant/state/seller + 6 brief quick-add rows) and a
 brief-only model, generates viewer.xlsx, then opens it in actual Excel to
 read what the formulas COMPUTE (not what Python intended): pooled trend
@@ -96,7 +96,7 @@ def seed() -> dict:
                 "price": price, "odometer": odo,
                 "state": "NSW" if j % 2 else "VIC",
                 "seller_type": "dealer" if j % 4 == 0 else "private",
-                "capture_date": f"{m}-{3 + k * 3:02d}"}, source="carsales"))
+                "capture_date": f"{m}-{3 + k * 3:02d}"}, source="examplecars"))
             j += 1
     # Supply fixture - 3 listings captured on each of 3 days, so the counts
     # and per-day medians are hand-checkable:
@@ -112,7 +112,7 @@ def seed() -> dict:
                 "listing_id": f"MV-{lid}", "make": "Mtest", "model": "Mmodel",
                 "year": 2015, "price": 20000 + int(lid[1:]) * 500,
                 "odometer": 100_000, "state": "NSW", "seller_type": "private",
-                "capture_date": day}, source="carsales"))
+                "capture_date": day}, source="examplecars"))
     with Store(DB) as store:
         store.ingest(full, source_file="(seed-full)", adapter="seed")
         store.ingest(mover, source_file="(seed-supply)", adapter="seed")

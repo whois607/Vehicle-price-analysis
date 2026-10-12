@@ -49,8 +49,12 @@ const CHEV = '<svg class="chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></sv
    screen, at the size it shows it. Ones already seen are kept by the
    offline worker (sw.js), so they show with no signal too. */
 const PH_RE = /^[a-z]{3,20}\/[a-z]{2,20}\/[a-z]{2,20}\/[a-z0-9]{10,64}\.(jpg|jpeg|png|webp)$/;
-const photoUrl = (p, w, h) => p && PH_RE.test(p) ? "https://" + p.split("/")[0] + ".pxcrush.net/" + p
-  + "?pxc_method=fitfill&pxc_bgtype=self&pxc_size=" + w + "," + h : null;
+const photoUrl = (p, w, h) => {
+  const ph = (DB && DB.snap.photos) || {};       // the photo server, from the laptop's site file
+  if (!p || !ph.server || !PH_RE.test(p)) return null;
+  const q = String(ph.size || "").split("{w}").join(w).split("{h}").join(h);
+  return "https://" + p.split("/")[0] + "." + ph.server + "/" + p + (q ? "?" + q : "");
+};
 const thumb = p => { const u = photoUrl(p, 160, 107);
   return u ? `<img class="thumb" loading="lazy" decoding="async" referrerpolicy="no-referrer" alt="" src="${u}" onerror="this.className='thumb none'">`
     : '<span class="thumb none"></span>'; };

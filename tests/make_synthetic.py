@@ -18,7 +18,7 @@ Delivery is split across all four adapters:
   months 1-6  -> CSV   (messy headers; half the rows are title-only)
   months 7-8  -> JSON  (plus the sparse YZ250F bikes)
   month  9    -> pasted text (May 2026)
-  month 10    -> saved HTML with JSON-LD, carsales-flavoured (June 2026)
+  month 10    -> saved HTML with JSON-LD, examplecars-flavoured (June 2026)
                  + a second text paste holding the June re-list
 
 Writes files to tests/synthetic/ plus truth.json with the expected numbers.
@@ -127,7 +127,7 @@ def main() -> dict:
     # --- months 7-8 -> JSON, plus the sparse YZ250F bikes -------------------
     json_rows = [r for r in falcons if r["month_idx"] in (6, 7)]
     payload = [{
-        "source": "carsales",
+        "source": "examplecars",
         "listing_id": r["listing_id"], "make": r["make"], "model": r["model"],
         "variant": r["variant"], "year": r["year"],
         "price": price_text(r, i), "odometer_km": r["odo_km"],
@@ -136,7 +136,7 @@ def main() -> dict:
         "url": f"https://example.local/{r['listing_id']}",
     } for i, r in enumerate(json_rows)]
     bikes = [{
-        "source": "bikesales",
+        "source": "examplebikes",
         "listing_id": f"BIKE-{i}", "make": "yamaha", "model": "yz250f",
         "year": 2020, "price": f"${7_500 + 300 * i:,}",
         "odometer_km": None, "state": "QLD", "seller_type": "private",
@@ -163,7 +163,7 @@ def main() -> dict:
         blocks.append("\n".join(lines))
     (OUT / "falcons_3.txt").write_text("\n\n".join(blocks), encoding="utf-8")
 
-    # --- month 10 -> saved HTML with JSON-LD (carsales-flavoured) ----------
+    # --- month 10 -> saved HTML with JSON-LD (examplecars-flavoured) ----------
     html_rows = [r for r in falcons if r["month_idx"] == HTML_MONTH]
     items = []
     for r in html_rows:
@@ -172,7 +172,7 @@ def main() -> dict:
             "brand": {"@type": "Brand", "name": r["make"].strip()},
             "model": r["model"].title(), "vehicleModelDate": str(r["year"]),
             "vehicleConfiguration": r["variant"], "sku": r["listing_id"],
-            "url": f"https://www.carsales.com.au/cars/details/{r['listing_id']}",
+            "url": f"https://www.examplecars.example/cars/details/{r['listing_id']}",
         }
         if r["odo_km"] is not None:
             car["mileageFromOdometer"] = {"@type": "QuantitativeValue",
@@ -183,7 +183,7 @@ def main() -> dict:
         items.append({"@type": "ListItem", "item": car})
     ld = {"@context": "https://schema.org", "@type": "ItemList",
           "itemListElement": items}
-    # carsales-style per-listing tracking clusters: the only machine-readable
+    # examplecars-style per-listing tracking clusters: the only machine-readable
     # per-ad seller/state on real result pages — exercises the supplement join
     state_canon = {"NSW": "NSW", "nsw": "NSW", "New South Wales": "NSW",
                    "Penrith, NSW": "NSW", "VIC": "VIC", "QLD": "QLD"}
@@ -196,7 +196,7 @@ def main() -> dict:
             adtype = "Dealer used" if "ealer" in r["seller"] else "Private"
             bits.append(f'"tracking/item/adtype":"{adtype}"')
         clusters.append("{" + ",".join(bits) + "}")
-    html = ("<!DOCTYPE html><html><head><title>Used Ford Falcon - carsales.com.au"
+    html = ("<!DOCTYPE html><html><head><title>Used Ford Falcon - examplecars.example"
             "</title><script type=\"application/ld+json\">" + json.dumps(ld)
             + "</script></head><body><h1>Results</h1>"
             + "<script>var junk = {price: 999}; var tracking = ["

@@ -65,14 +65,14 @@ def records(month: int, n: int = 12, start: int = 0):
     out = []
     for var, base in (("XR6", 16000), ("XR8", 30000)):
         for i in range(start, start + n):
-            lid = f"SSE-AD-{9000 + i}{1 if var == 'XR6' else 2}"
+            lid = f"EXA-AD-{9000 + i}{1 if var == 'XR6' else 2}"
             out.append(make_record({
                 "listing_id": lid, "make": "Ford", "model": "Falcon", "variant": var,
                 "year": 2012 + i % 4, "price": base - i * 400 - month * 120,
                 "odometer": 90000 + i * 9000 + month * 1500, "state": "NSW",
                 "seller_type": "private" if i % 2 else "dealer",
                 "url": f"/cars/details/ford-falcon/{lid}/",
-                "capture_date": f"2026-{month:02d}-10"}, source="carsales"))
+                "capture_date": f"2026-{month:02d}-10"}, source="examplecars"))
     return out
 
 
@@ -381,6 +381,7 @@ def main() -> int:
     print("\n== what the listener can reach ==")
     banned = {"store", "bulk", "inbox", "edit", "merge", "quickadd", "importui",
               "repair", "dupes", "starred", "phone", "viewer_xlsx", "explore"}
+    # sites: reads the private site file (the photo server for the worker)
     seen, todo, reach = set(), ["phonesrv"], set()
     while todo:
         mod = todo.pop()
@@ -391,7 +392,7 @@ def main() -> int:
         reach |= imps
         todo.extend(imps)
     check("the listener imports nothing that can open the database",
-          not (reach & banned) and reach <= {"phonecfg", "phoneinbox"},
+          not (reach & banned) and reach <= {"phonecfg", "phoneinbox", "sites"},
           f"reaches only: {sorted(reach) or 'the standard library'}")
 
     print("\n== who listens: the app, or the background listener ==")

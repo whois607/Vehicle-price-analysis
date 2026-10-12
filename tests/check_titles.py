@@ -49,7 +49,7 @@ def table(name: str, cases: list[tuple], fn) -> None:
 
 def run_checks() -> int:
     print("== the gearbox/drive tail comes off ==")
-    table("carsales tails are removed, whatever their shape", [
+    table("examplecars tails are removed, whatever their shape", [
         ("LS460 Version U I Package Auto R", "LS460 Version U I Package"),
         ("LS500 F Sport Auto R", "LS500 F Sport"),
         ("LS500h Sports Luxury Auto R", "LS500h Sports Luxury"),
@@ -169,7 +169,7 @@ def run_checks() -> int:
                 "2007 Lexus LS", ""]
     table("a real badge line is accepted",
           [(s, True) for s in accepted], is_badge_line)
-    table("every other line a carsales card emits is refused",
+    table("every other line a examplecars card emits is refused",
           [(s, False) for s in rejected], is_badge_line)
 
     print("\n== make and model ==")
@@ -200,7 +200,7 @@ def run_checks() -> int:
         "2013 Lexus LS", "LS460 Sports Luxury Auto R", "$35,000", "120,000 km",
         "Private seller • VIC",
     ])
-    got = [make_record(r, source="carsales") for r in pastetext.parse(lexus)]
+    got = [make_record(r, source="examplecars") for r in pastetext.parse(lexus)]
     variants = [r.variant for r in got]
     check("one page of one model separates into its badges",
           variants == ["LS500 F Sport", "LS460 Version U I Package",
@@ -229,7 +229,7 @@ def run_checks() -> int:
         "Dealer used • VIC",
         "2021 Yamaha YZ250F", "$9,500", "Private seller • VIC",
     ])
-    rows = [make_record(r, source="carsales") for r in pastetext.parse(mixed)]
+    rows = [make_record(r, source="examplecars") for r in pastetext.parse(mixed)]
     check("five makes in one upload separate cleanly",
           [(r.make, r.model, r.variant) for r in rows] ==
           [("Ford", "Falcon", "XR6 Turbo FG X"),

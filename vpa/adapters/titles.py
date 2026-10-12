@@ -13,7 +13,7 @@ One trim, three names, three separate pools in every chart. A shared splitter
 is the only way a paste and a saved page can be guaranteed to agree, for the
 same reason `analyze` is shared between the app, the CLI and the workbook.
 
-What a carsales results card actually looks like:
+What a typical results card looks like:
 
     line 1 (title)  "2007 Lexus LS"                       {year} {make} {model}
     line 2 (badge)  "LS460 Version U I Package Auto R"     {badge} {series} {transmission} {drive}
@@ -43,7 +43,7 @@ import re
 #: Deliberately absent, and each absence is load-bearing:
 #:   "Sport"   badge word — "420i M Sport", "GT Sport", "Maxx Sport".
 #:   "Sports"  badge word — Lexus "IS200 Sports", "LS500h Sports Luxury".
-#:             carsales abbreviates the gearbox to "Spts Auto", never
+#:             listings abbreviate the gearbox to "Spts Auto", never
 #:             "Sports Auto", so only the abbreviation is a descriptor.
 #:   "S tronic" (Audi) — would need "S" to be strippable, and "S" is a badge
 #:             in its own right ("A45 S", "C63 S", "Cooper S"). Left alone
@@ -57,7 +57,7 @@ _TRANSMISSION = {
 #: carried out with one: "Spts Auto Dual Clutch 7sp" is all gearbox.
 _TAIL_EXTRA = {"spts", "sprts", "dual", "clutch"}
 
-#: Drive codes. quattro, xDrive, 4MATIC and AllGrip are NOT here — carsales
+#: Drive codes. quattro, xDrive, 4MATIC and AllGrip are NOT here — listings
 #: prints those as part of the badge, not as a trailing drive code.
 _DRIVE = {"r", "f", "4", "2", "awd", "4wd", "fwd", "rwd", "2wd", "4x4", "4x2"}
 
@@ -70,7 +70,7 @@ _SPEED = re.compile(r"^(\d{1,2}sp|sp|\d{1,2})$", re.I)
 #: split one trim into one pool per model year, so they come off the end.
 _MY_CODE = re.compile(r"^my\d{2}$", re.I)
 
-#: Body styles carsales appends AFTER the gearbox on ute and van listings:
+#: Body styles a listing appends AFTER the gearbox on ute and van listings:
 #: "XR6 Turbo FG X Manual Super Cab". They are redundant with the body_type
 #: column and, being on the far side of the gearbox word, they block it —
 #: which is how one real Falcon ute trim reached the database under both
@@ -121,7 +121,7 @@ def strip_tail(text: str) -> str:
     tokens = text.split()
     if not tokens:
         return text
-    # A model-year code can sit on either side of the gearbox run — carsales
+    # A model-year code can sit on either side of the gearbox run — listings
     # writes both "Wildtrak PX MkIII Auto 4x4 MY22" and "... FY MY21 Auto 4x4"
     # — so the two removals alternate until neither applies. Stripping it in
     # only one position is what left the same Ranger under two trim names.
@@ -160,7 +160,7 @@ def strip_tail(text: str) -> str:
             if any(t.casefold().strip(",") in _TRANSMISSION
                    for t in tokens[cut:]):
                 tokens, changed = tokens[:cut], True
-        # A LEADING gearbox word means the badge field was empty and carsales
+        # A LEADING gearbox word means the badge field was empty and the site
         # started the tail immediately: "Auto quattro MY23" on an Audi RS3.
         # No Australian badge begins with a gearbox word, so this is safe, and
         # without it those cars keep "Auto" welded to the front of their trim.
@@ -223,23 +223,23 @@ def take_model(words: list[str]) -> tuple[str, list[str]]:
 
 
 # ------------------------------------------------------------- the badge line
-#: Body styles, fuel/engine words and UI furniture that a carsales card puts
+#: Body styles, fuel/engine words and UI furniture that a results card puts
 #: on its own line. None of these is ever a badge.
 _NOT_BADGE_WORDS = {
     "sedan", "hatch", "hatchback", "suv", "ute", "wagon", "coupe", "convertible",
     "cabriolet", "van", "people mover", "bus", "truck", "automatic", "manual",
     "petrol", "diesel", "hybrid", "electric", "lpg",
 }
-#: Whole lines carsales renders as buttons, labels or disclaimers.
+#: Whole lines a results page renders as buttons, labels or disclaimers.
 _UI_LINE = re.compile(
     r"^\s*(view details|contact (dealer|seller)|enquire|save|share|compare|"
     r"excl\.?\s*(est\.?\s*)?govt\.?\s*charges|drive away|dealer (used|new|demo)|"
-    r"private seller|id verified|pay through carsales|sponsored|featured|"
+    r"private seller|id verified|pay through \w+|sponsored|featured|"
     r"finance|instant offer|great price|fair price|new arrival)\b", re.I)
 _HAS_PRICE = re.compile(r"\$|\bAU\$")
 _HAS_ODO = re.compile(r"\d[\d,\. ]*\s*k?m?s?\s*(km|kms)\b", re.I)
 _ENGINE = re.compile(r"\d+\s*cyl|\b\d\.\d\s*L\b|\bkw\b|\bnm\b", re.I)
-#: A bare state, or a Marketplace location line "Sydney, NSW". Matched as a
+#: A bare state, or a tile's location line "Sydney, NSW". Matched as a
 #: WHOLE line rather than by looking for a state anywhere, so a badge is never
 #: refused for containing two letters that happen to spell a state.
 _STATE_ONLY = re.compile(

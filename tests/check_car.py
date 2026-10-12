@@ -125,7 +125,7 @@ def seed() -> None:
     # would give every sighting the same batch_id and quietly make the
     # provenance checks below vacuous - they exist to prove that three
     # capture days really came from three separate imports.
-    recs = [r for r in (make_record(d, source="carsales") for d in raw) if r]
+    recs = [r for r in (make_record(d, source="examplecars") for d in raw) if r]
     with Store(DB) as store:
         for day in sorted({r.capture_date for r in recs}):
             store.ingest([r for r in recs if r.capture_date == day],
@@ -138,7 +138,7 @@ def seed() -> None:
         merged = [make_record({"make": "Ford", "model": "Falcon",
                                "variant": "Wide", "year": 2013, "price": pr,
                                "odometer": odo, "state": "TAS",
-                               "capture_date": DAYS[3]}, source="carsales")
+                               "capture_date": DAYS[3]}, source="examplecars")
                   for odo, pr in ((310100, 12000), (312900, 15000))]
         with Store(DB) as store:
             store.ingest([m for m in merged if m], source_file="(car-test)",
@@ -495,7 +495,7 @@ def run_checks() -> int:
                     price=31000, odo=100000, exterior="Kinetic",
                     interior="Black", state="NSW", seller="Private",
                     year="2013", specs=True):
-        """A page shaped like a real carsales details page: one JSON-LD block,
+        """A page shaped like a real examplecars details page: one JSON-LD block,
         one analytics metaData object, page-level tracking, and the ad's own
         specifications table.
 
@@ -514,7 +514,7 @@ def run_checks() -> int:
                 '{"@type":["Product","Vehicle"],"name":"%s",'
                 '"brand":{"@type":"Brand","name":"%s"},"model":"%s",'
                 '"offers":{"@type":"Offer","price":%s,"priceCurrency":"AUD"},'
-                '"@id":"https://www.carsales.com.au/cars/details/x/%s/"}'
+                '"@id":"https://www.examplecars.example/cars/details/x/%s/"}'
                 '</script></head><body>%s<script>var t={"metaData":{'
                 '"pageCategory":"details","make":"%s","model":"%s",'
                 '"badge":"Wide","state":"%s","networkId":"%s","colour":"%s",'
@@ -590,14 +590,14 @@ def run_checks() -> int:
             "WHERE v.variant='Wide' AND CAST(o.odometer_km AS INT) % 1000 <> 0 "
             "LIMIT 1").fetchone()
     if prec:
-        anon = detail_page("SSE-AD-NOTSTORED", price=int(prec["price_aud"]),
+        anon = detail_page("EXA-AD-NOTSTORED", price=int(prec["price_aud"]),
                            odo=int(prec["odometer_km"]))
         got2 = identify_payload(DB, anon)
         check("an unknown ad id still matches on exact price + exact odometer",
               got2["ok"] and got2["in_data"] and got2["key"] == prec["key"],
               f"matched via {got2.get('basis')}")
     # a ROUND odometer must NOT be enough on its own
-    roundish = detail_page("SSE-AD-ALSONOTSTORED", price=31000, odo=100000)
+    roundish = detail_page("EXA-AD-ALSONOTSTORED", price=31000, odo=100000)
     got3 = identify_payload(DB, roundish)
     check("a round odometer alone is NOT accepted as an identity match",
           got3["ok"] and got3["in_data"] is False
@@ -606,7 +606,7 @@ def run_checks() -> int:
 
     # VACUOUS-GUARD: an error dict would satisfy "not in_data", so ok is
     # asserted True and the trim/line flags are required to be present
-    unknown = detail_page("SSE-AD-9999", make="Mazda", model="MX-5",
+    unknown = detail_page("EXA-AD-9999", make="Mazda", model="MX-5",
                           name="2016 Mazda MX-5 Roadster", price=29000,
                           odo=54321)
     got4 = identify_payload(DB, unknown)
@@ -615,8 +615,8 @@ def run_checks() -> int:
           and got4["trim_known"] is False and got4["line_known"] is False,
           "Mazda MX-5: not in data, trim and line both unknown")
 
-    multi = ('<html><body><script>var a={"networkId":"SSE-AD-1"},'
-             'b={"networkId":"SSE-AD-2"}</script></body></html>')
+    multi = ('<html><body><script>var a={"networkId":"EXA-AD-1"},'
+             'b={"networkId":"EXA-AD-2"}</script></body></html>')
     check("a search-results page is refused with guidance, not mis-parsed",
           is_detail_page(multi) is False
           and identify_payload(DB, multi)["ok"] is False
@@ -629,7 +629,7 @@ def run_checks() -> int:
 
     print("\n== finding one car from its advert LINK (nothing fetched) ==")
     from vpa.explore import link_payload
-    full = f"https://www.carsales.com.au/cars/details/2013-ford-falcon-wide/{ad}/?Cr=0&gclid=abc"
+    full = f"https://www.examplecars.example/cars/details/2013-ford-falcon-wide/{ad}/?Cr=0&gclid=abc"
     lk = link_payload(DB, full)
     check("a full advert link finds the stored car by the ad id inside it",
           lk["ok"] and lk["in_data"] and lk["key"] == want_key
@@ -641,18 +641,18 @@ def run_checks() -> int:
           f"{lk['found']['make']} {lk['found']['model']} {lk['found']['variant']} "
           f"${lk['found']['price']:,.0f}")
     bare = link_payload(DB, ad.lower())
-    nohost = link_payload(DB, f"carsales.com.au/cars/details/x/{ad}")
+    nohost = link_payload(DB, f"examplecars.example/cars/details/x/{ad}")
     check("a bare ad id, any case, or a link without https:// works the same",
           bare["key"] == nohost["key"] == want_key, f"{ad.lower()} and a host-less link")
-    gone = link_payload(DB, "https://www.carsales.com.au/cars/details/x/SSE-AD-123456789/")
+    gone = link_payload(DB, "https://www.examplecars.example/cars/details/x/EXA-AD-123456789/")
     check("an advert you never captured is reported as such, not guessed at",
           gone["ok"] and gone["in_data"] is False
-          and gone["found"]["listing_id"] == "SSE-AD-123456789",
+          and gone["found"]["listing_id"] == "EXA-AD-123456789",
           "a link has no price or km, so there is no weaker rule to fall back on")
-    fb = link_payload(DB, "https://www.facebook.com/marketplace/item/12345/")
+    fb = link_payload(DB, "https://www.exampleads.example/item/12345/")
     junk = [link_payload(DB, t) for t in ("", "two words", "https://example.com/x")]
-    check("Facebook, junk and empty links are refused with a reason",
-          fb["ok"] is False and "Facebook" in fb["error"]
+    check("an unlinked site's, junk and empty links are refused with a reason",
+          fb["ok"] is False and "captured without their links" in fb["error"]
           and all(j["ok"] is False and j["error"] for j in junk),
           fb["error"][:60])
     import vpa.explore as _ex
@@ -665,7 +665,7 @@ def run_checks() -> int:
     before_id = hashlib.sha256(DB.read_bytes()).hexdigest()
     for pg in (page, roundish, unknown, multi, ""):
         identify_payload(DB, pg)
-    for t in (full, ad, "https://www.carsales.com.au/cars/details/x/SSE-AD-1/", ""):
+    for t in (full, ad, "https://www.examplecars.example/cars/details/x/EXA-AD-1/", ""):
         link_payload(DB, t)
     check("identifying a car imports nothing - the database is untouched",
           hashlib.sha256(DB.read_bytes()).hexdigest() == before_id,

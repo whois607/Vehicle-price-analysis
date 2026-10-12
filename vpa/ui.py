@@ -655,8 +655,11 @@ function vpaLatest(channel,url){
 /* The two links from a car to its advert: the site itself, and the Internet
    Archive's copies of the same address. The server sends the full address
    (vpa/links.py); a car with none gets no links. `gone` marks a car no
-   longer listed - carsales usually takes a sold car's page down, so the
-   archive link is the one to try first there. */
+   longer listed - a site usually takes a sold car's page down, so the
+   archive link is the one to try first there. VPA_SITE comes from your
+   private site file (vpa/sites.py): the site a search is limited to, and the
+   photo server. */
+var VPA_SITE=__VPA_SITE__;
 function vpaAdLinks(url,gone,car){
   var e=function(s){return String(s).replace(/[&<>"']/g,function(c){
     return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];});};
@@ -668,7 +671,7 @@ function vpaAdLinks(url,gone,car){
     if(!car)return "";
     var name=car.title||[car.year,car.make,car.model,car.variant].filter(Boolean).join(" ");
     if(!name)return "";
-    var q='site:carsales.com.au "'+name+'"'
+    var q=(VPA_SITE.search?'site:'+VPA_SITE.search+' ':'')+'"'+name+'"'
       +(car.odometer_km?' "'+Math.round(car.odometer_km).toLocaleString("en-AU")+' km"':"");
     return '<span class="adlinks"><a class="ext muted" href="https://www.google.com/search?q='
       +encodeURIComponent(q)+'" target="_blank" rel="noreferrer noopener" title="no advert '
@@ -690,9 +693,10 @@ function vpaAdLinks(url,gone,car){
    same shape check as the server, so nothing but that server is ever asked. */
 var VPA_PH=/^[a-z]{3,20}\/[a-z]{2,20}\/[a-z]{2,20}\/[a-z0-9]{10,64}\.(jpg|jpeg|png|webp)$/;
 function vpaPhotoUrl(p,w,h){
-  if(!p||!VPA_PH.test(p))return null;
-  return "https://"+p.split("/")[0]+".pxcrush.net/"+p
-    +"?pxc_method=fitfill&pxc_bgtype=self&pxc_size="+w+","+h;
+  var ph=VPA_SITE.photos||{};
+  if(!p||!ph.server||!VPA_PH.test(p))return null;
+  var q=String(ph.size||"").split("{w}").join(w).split("{h}").join(h);
+  return "https://"+p.split("/")[0]+"."+ph.server+"/"+p+(q?"?"+q:"");
 }
 function vpaThumb(p){
   var u=vpaPhotoUrl(p,160,107);
@@ -936,4 +940,13 @@ def chrome(page: str, active: str, actions: str = "", mode: str = "") -> str:
                 .replace("__MODES__", modes(mode) if mode else "")
                 .replace("__ACTIONS__",
                          f'<div class="pageacts">{actions}</div>' if actions else "")
-                .replace("__CHROME_JS__", CHROME_JS))
+                .replace("__CHROME_JS__", CHROME_JS.replace("__VPA_SITE__", _site_js())))
+
+
+def _site_js() -> str:
+    """The site facts the shared page script needs, from the private site
+    file - safe to drop inside a <script>."""
+    import json
+    from . import sites
+    s = json.dumps({"search": sites.search_site(), "photos": sites.photos()})
+    return s.replace("<", "\\u003c")

@@ -488,7 +488,7 @@ __NAV__
    <button class="primary mini" id="mergeTicked" disabled>Merge ticked</button></div></div>
  <div class="hint note" style="margin-top:0">Strongest first: more recorded details that
   agree, a real ad id on one side, and both seen in the same sweep rank higher.
-  Open the advert (<b>carsales</b> or <b>archive</b>) of the one with an ad id to check.</div>
+  Open the advert (the <b>site</b> or <b>archive</b> link) of the one with an ad id to check.</div>
  <div id="review"></div>
 </div>
 

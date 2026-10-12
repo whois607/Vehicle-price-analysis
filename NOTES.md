@@ -21,7 +21,7 @@ One SQLite file: `data/vpa.db`. Schema is created idempotently by
 `Store.__init__` from the `_SCHEMA` constant at the top of `vpa/store.py`
 (`CREATE TABLE IF NOT EXISTS`), so opening a fresh path just works — no
 migration step. Live as of writing: **769 vehicles, 877 observations,
-15/05/2026 → 28/07/2026, sources carsales 708 / facebook 61, 77 ingest
+15/05/2026 → 28/07/2026, sources: main site 708 / classifieds site 61, 77 ingest
 batches.**
 
 ### Tables
@@ -29,7 +29,7 @@ batches.**
 **`vehicles`** — one row per *physical listing* (an ad), not per car model.
 ```
 key TEXT PRIMARY KEY          -- see "Identity" below
-source, listing_id            -- 'carsales'|'facebook'|'quick_add'|..., site ad id or NULL
+source, listing_id            -- a site label|'quick_add'|..., site ad id or NULL
 vehicle_type                  -- 'car' | 'bike'
 make, model, variant, year, body_type
 state, seller_type            -- 'NSW'.., 'dealer'|'private'
@@ -72,11 +72,11 @@ promise ("what preview says is what commit does") holds by construction.
 ### Identity — `Record.dedupe_key()` in `vpa/schema.py`
 
 * If the source gave a listing id → `sha1("id|source|listing_id")`.
-  Saved carsales/bikesales HTML yields `SSE-AD-…`/`OAG-AD-…`; this is the
+  Saved listing-site HTML yields `EXA-AD-…`/`EXB-AD-…`; this is the
   reliable path.
 * Otherwise a fingerprint over `source, make, model, year, variant, state`
   and odometer bucketed to 5,000 km.
-* **Extra rule:** when there is neither an id nor an odometer (Facebook
+* **Extra rule:** when there is neither an id nor an odometer (classified-ad
   tiles, quick adds), a $500 price bucket is appended, so five same-model
   ads on one day stay distinct. Consequence: an FB re-list at a new price
   reads as a new listing. Unavoidable without stable ids.
@@ -111,7 +111,7 @@ vehicle-price-analysis/
                            of each (vpa/phoneinbox.py)
     photos.json            listing photo ADDRESSES by ad id (vpa/photos.py);
                            .bak = the version before the last save
-    raw/                   the 16 saved carsales/Facebook .htm captures
+    raw/                   the 16 saved .htm captures
   output/                  GENERATED - rebuild with `python -m vpa report --all`
     reports/<segment>/     trend/forecast .html + .png, stats/listings .csv
     reports/plotly.min.js  ONE shared copy for every report page
@@ -165,10 +165,10 @@ rewrites the capture date on re-import.
 * `htmlpage.py` — saved pages. `parse()` tries JSON-LD first
   (`_walk_ld`/`_ld_to_raw`), falls back to a tag-stripped text pass.
   `_variant_from_name()` derives the trim; `_tracking_supplement()` joins
-  per-listing seller/state from carsales' analytics blobs; `detect_source()`
+  per-listing seller/state from the main site's analytics blobs; `detect_source()`
   matches `_SITE_HINTS`.
 * `pastetext.py` — `parse()` handles both title-led and **price-led**
-  (Facebook) tile layouts; `split_title()` splits make/model/variant.
+  (classified-ad) tile layouts; `split_title()` splits make/model/variant.
 * `tabular.py` — `parse_csv()`, `parse_json()`, `map_columns()` (synonym
   matching), `_finish_row()` (backfills make/model from a title).
 * `v2db.py` — `load()` imports the old tracker at `DEFAULT_V2_DB`.
@@ -231,7 +231,7 @@ rewrites the capture date on re-import.
   write (NOTES §6 listed this as un-started; a page that writes without
   showing you anything is where it stopped being optional), plus a refusal of
   anything that is not a listings page (challenge interstitial, empty file,
-  Facebook shell) named per file with its reason;
+  empty shell) named per file with its reason;
   **after** — `bulk_runs` records the ingest batch ids and a snapshot of every
   vehicle that already existed, so `undo()` removes exactly the run's
   observations, deletes only the vehicles it introduced, and restores the
@@ -437,8 +437,8 @@ rewrites the capture date on re-import.
   `data/raw/`: **4 of 49 saved pages were challenge pages**, each exactly
   777 bytes — the broad `Ford cars`, `Audi cars` and `Mercedes-Benz cars`
   searches, plus one narrow `Ford Falcon FG MkII Sedan`.
-  * **The marker is the interstitial, not the vendor.** Every carsales page
-    loads DataDome's ordinary tag (`dd.carsales.com.au/tags.js`); only the
+  * **The marker is the interstitial, not the vendor.** Every main-site page
+    loads its bot-protection vendor's ordinary tag (tag script); only the
     challenge contacts `captcha-delivery.com`. Keying on "datadome" flags all
     49. Verified: 4 hits, 0 false positives across the whole folder.
   * `parse_payload` refuses such a file outright and names the system that
@@ -461,14 +461,14 @@ rewrites the capture date on re-import.
   they shared it they disagreed, and one physical trim reached the database
   under three names (`420i M Sport` / `420i M Sport Auto R` /
   `420i M Sport F32`).
-  * **The badge line.** A carsales card puts the model on the title line and
+  * **The badge line.** A results card puts the model on the title line and
     the trim on the line below it (`2007 Lexus LS` / `LS460 Version U I
     Package Auto R`). The paste path never read the second line, so every
     Lexus LS on a results page — LS460, LS500, LS500h, F Sport, Sports
     Luxury, three Version packages — parsed as one trimless `Lexus LS`.
     `is_badge_line()` is written as ordered REJECTIONS (price, odometer,
     engine spec, body word, state, `Dealer used • VIC`, UI furniture,
-    year-led next title, Marketplace location); anything not clearly a badge
+    year-led next title, tile location); anything not clearly a badge
     is refused, because a wrong badge invents a trim while a missed one only
     leaves the variant blank, which is what it did before.
   * **The badge line makes the model exact.** Whatever remains of the title
@@ -482,14 +482,14 @@ rewrites the capture date on re-import.
     descriptor run, and cutting at the run's START turns the first into
     plain `Golf`. Speed is included so `8 Sp Automatic R` goes too.
   * **Never stripped:** `Sport` AND `Sports` (badge words — Lexus `IS200
-    Sports`, `LS500h Sports Luxury`, BMW `M Sport`; carsales writes the
+    Sports`, `LS500h Sports Luxury`, BMW `M Sport`; the main site writes the
     gearbox as `Spts Auto`, so only the abbreviation is a descriptor);
     `quattro`, `xDrive`, `4MATIC`, `AllGrip`; and every series/chassis code
     (`FG X`, `FG MkII`, `F32`, `PX MkIII`, `GUN126R`, `W205`) — the whole
     Falcon dataset is separated by exactly such codes.
   * **Also removed**, because each duplicates a column and otherwise splits
     one trim: `MY##` model-year codes (on either side of the gearbox), and
-    body styles carsales appends AFTER the gearbox on utes (`XR6 Turbo FG X
+    body styles a listing appends AFTER the gearbox on utes (`XR6 Turbo FG X
     Manual Super Cab`). A LEADING gearbox word means the badge field was
     blank (`Auto quattro MY23` → `quattro`), and a badge that is entirely
     descriptor (`Auto`, `Auto R`) stores **no** variant — a base-model card
@@ -536,7 +536,7 @@ rewrites the capture date on re-import.
     odometer is a reading rather than a whole thousand). No match is not a
     failure — the typed-car form is prefilled from the file instead.
   * `is_detail_page()` counts distinct `networkId`s **case-folded**. The real
-    file emits `SSE-AD-20672993` 15 times and `sse-ad-20672993` 10 times; a
+    file emits `EXA-AD-20672993` 15 times and `exa-ad-20672993` 10 times; a
     case-sensitive count reads that as two vehicles and rejects the page.
     A search page carries 5-10 genuinely different ids, so folding case
     cannot make one look like a details page. Verified against all 26 files
@@ -548,7 +548,7 @@ rewrites the capture date on re-import.
   ALL hold or the group is reported and left untouched — same source/make/
   model/variant, a shared EXACT price and odometer, that odometer not a whole
   thousand (150,000 km is what people type when they mean "about"), year and
-  state not conflicting, exactly one real site ad id (`SSE-AD-`/`OAG-AD-`,
+  state not conflicting, exactly one real site ad id (`EXA-AD-`/`EXB-AD-`,
   which becomes the surviving key), no two prices landing on one capture day,
   and **the combined odometer never running backwards through time** — a
   physical check no amount of matching metadata can fake.
@@ -694,7 +694,7 @@ chart and status together.
 All of the following is built **and** verified by an automated suite (see §7).
 
 * **Ingestion** — CSV, JSON, saved HTML (JSON-LD + text fallback), pasted
-  text (title-led and Facebook price-led), manual `vpa add`, and v2 import.
+  text (title-led and classified-ad price-led), manual `vpa add`, and v2 import.
   Messy input handled: `$18,990` / `Negotiable` / `98k` / `FORD` /
   `New South Wales` / DD-MM-YYYY.
 * **Store** — append + dedupe with price history preserved; idempotent
@@ -778,7 +778,7 @@ green; there is no half-finished branch or disabled code path. The items in
    **measurable at TRIM level as of 11/08/2026** (`vpa/turnover.py`); still
    not measurable at model-line level, and the reason is the interesting
    part. The original finding stands: identity breaks across capture eras
-   (v2 `BASE-`/`IMG-` ids → real `SSE/OAG` ids → the 28/07 batch which was
+   (v2 `BASE-`/`IMG-` ids → real `site` ids → the 28/07 batch which was
    pasted text with *no* ids), so a naive cross-day join fails. What changed
    is that the failure is **measurable per pair of captures** rather than
    global, so it can be gated instead of being a blanket refusal.
@@ -846,7 +846,7 @@ green; there is no half-finished branch or disabled code path. The items in
 5. **Windows-only launcher.** `Setup VPA.bat`, the `.lnk`, `pythonw`
    and `os.startfile` (used to open the workbook) are Windows-specific. The
    CLI and `python -m vpa import-ui` work anywhere.
-6. **Facebook rows carry no trim and no odometer**, so they land under the
+6. **Classifieds-site rows carry no trim and no odometer**, so they land under the
    plain model line and never contribute to mileage-adjusted stats.
 6b. **Early capture history is trim-narrow — a sparse trim view is not data
    loss.** (Reported as "a lot of historical data has been destroyed",
@@ -862,7 +862,7 @@ green; there is no half-finished branch or disabled code path. The items in
    which is why the backend looks fuller than the view. The capture-day
    header now prints "appears on N of M capture days" so a narrow selection
    is distinguishable from breakage at a glance.
-7. **Trim vocabulary is carsales-canonical** (decided 06/07/2026). Rows from
+7. **Trim vocabulary is main-site-canonical** (decided 06/07/2026). Rows from
    other sources with different variant text create separate trim entries.
    The Models sheet is where you spot near-duplicates.
 8. **Forecast coverage is thin** — real history is only a few monthly
@@ -1025,10 +1025,10 @@ Keep these — each one was a bug that took a while to find.
   changing one to `max-height` reintroduces both.
 
 **A site format change fails SILENTLY (found 27/09/2026)**
-* From 27/07/2026 no carsales capture stored a seller type or state: 3,264 of
-  3,564 carsales cars have neither. Carsales moved its per-listing analytics
+* From 27/07/2026 no main-site capture stored a seller type or state: 3,264 of
+  3,564 main-site cars have neither. The main site moved its per-listing analytics
   from prefixed keys with the fields after the ad id to flat objects with
-  the state BEFORE it (`{.."state":"VIC","networkId":"SSE-AD-1",..,
+  the state BEFORE it (`{.."state":"VIC","networkId":"EXA-AD-1",..,
   "adtype":"Private"}`). Nothing errored: the regex simply matched nothing,
   every listing still parsed, and the gap only showed as a thin "Who is
   selling" tab. `htmlpage._flat_tracking` reads the new shape from each
@@ -1038,10 +1038,10 @@ Keep these — each one was a bug that took a while to find.
   carries no ad id, so it is used only when the tiles provably line up (same
   count, same order, every odometer equal). Across the 61 saved pages:
   seller 12 -> 675 of 722 listings, state 9 -> 675, body 3 -> 619, and no
-  previously parsed value changed. The remaining gaps are SHRM-AD showroom
+  previously parsed value changed. The remaining gaps are EXCD-AD showroom
   "New car" entries, left blank rather than called dealer.
 * Worth a periodic check: parse the newest saved page and look at the
-  per-field fill (`tests/check_carsales.py` pins both formats).
+  per-field fill (`tests/check_sitepages.py` pins both formats).
 
 **Tailscale route (05/10/2026)**
 * The HTTPS address the phone app needs for offline use comes from
@@ -1077,6 +1077,38 @@ Keep these — each one was a bug that took a while to find.
 * The background listener restarts itself when VPA's code changes
   (phone._code_stamp: newest mtime of vpa/*.py/js/html/css): it stops
   listening first, then starts a fresh copy, so it never serves old code.
+
+**No site named in the code (12/10/2026)** - `vpa/sites.py`
+* So the code can be packaged and shared, it names no website. Everything
+  site-specific moved to one private file, `data/sites.json` (gitignored
+  with data/): source labels and the words that recognise a page or link
+  (`domains`, `link_words`, `links: false`), the address for bare advert
+  paths, `ad_paths`, the site ad-id prefixes, the "search for it" site, the
+  photo server and its size query, the label for a single saved advert
+  (`default_source`), the watch folder's own name (via inbox.json and
+  .git/info/exclude). `sites.example.json` shows the shape with fictional
+  sites. No file = neutral: 'other', no links, no photos, no site ids.
+* A label is part of every car's dedupe key, so the private file must
+  reproduce the old constants EXACTLY. Proven before commit by running the
+  old code (git HEAD) and the new side by side: all 238 kept pages -> the
+  same 4,459 records and keys and the same photos; ad/archive links for all
+  5,268 cars; 24,912 photo addresses; site ids, turnover cohort, duplicate
+  groups and identify-from-page all equal; the page script's photo/link
+  output and the phone's photo URL and worker check equal in node. Only
+  messages changed wording. Kept as-is: the id-prefix list deliberately
+  excludes the showroom-style prefix (its ids are not counted as site ids).
+* The phone gets link rules and the photo server in its copy (`links`,
+  `photos`, in the code signature with the site file, so a change rebuilds
+  it); the offline worker gets the server substituted at serve time like
+  BUILD. The listener's reach now includes `sites` (stdlib only).
+* Tests use fictional sites (tests/sites_test.json, set by
+  tests/__init__.py). Two fixtures had depended on key ORDER (which car is
+  "first by id"), which a label change moves: the workbook "teeth" check now
+  bumps a car's latest sighting, the trims tamper check a make no car has.
+* `tests/check_neutral.py` scans every tracked or addable file for each
+  private word; `tools/make_package.py` builds a zip from the committed tree
+  only (no data, no history) and refuses on the same scan. The git history
+  still holds the old names: share the zip, never the repository.
 
 **Trim names grouped on read (12/10/2026)** - `vpa/trims.py`
 * The database keeps every trim exactly as imported. `Store.frame()` adds
@@ -1136,7 +1168,7 @@ Keep these — each one was a bug that took a while to find.
   "LCI"/"LCI II") or `series` (codes with the years they were sold, one
   year's slack: every Falcon/Fairlane/LTD/Territory/Mustang series XK..FG X,
   ZA..NL, P5..DL, SX..SZ, FM..FO; FPV `same_as` Ford). The LAST code in a
-  name counts (carsales writes trim then series: "XT BF MkII"), and a series
+  name counts (the main site writes trim then series: "XT BF MkII"), and a series
   code only where the car's year fits - or the car has no year - because
   XT/XL are 1968/1962 Falcons AND later trims. New columns `generation`,
   `trim_base` (the name without it); `body_type` filled from a BMW chassis
@@ -1354,8 +1386,8 @@ Keep these — each one was a bug that took a while to find.
   (`<link rel=preload as=image>`, same seller folder as the main photo);
   the "similar listings" further down are never read.
 * NOTHING IS FETCHED BY VPA. Only addresses are stored; the browser showing
-  a car loads that one photo from `<site>.pxcrush.net` (CORS-enabled, served
-  `immutable` for a year, sized by `pxc_size`: 160x107 ~5 KB, 480x320
+  a car loads that one photo from `the site's photo server` (CORS-enabled, served
+  `immutable` for a year, sized by `the size query`: 160x107 ~5 KB, 480x320
   ~30 KB, 600x400 ~45 KB). Photos of ads gone since July still loaded on
   05/10/2026. Fetching listing PAGES to find photos would be scraping - ruled
   out; a car with no stored photo keeps its "open the advert" link.
@@ -1373,7 +1405,7 @@ Keep these — each one was a bug that took a while to find.
 * RECORDED BY every import path: bulk.run (Upload + watch folder), Import
   with preview (held in memory at Preview, stored at Commit for the
   committed rows only), `vpa ingest`. Backfill: `python -m vpa photos
-  --backfill` reads data/raw and "carsales inbox/imported"; the app runs it
+  --backfill` reads data/raw and the watch folder's imported/; the app runs it
   once on start when photos.json does not exist. On 05/10/2026: 196 kept
   pages -> 2,500 of 5,234 cars (the rest came through Upload before photos
   were kept, whose files were not kept, or from pasted text).
@@ -1482,7 +1514,7 @@ Keep these — each one was a bug that took a while to find.
 **Watch folder (29/09/2026)**
 * `vpa/inbox.py` + a "Watch a folder" card on Bulk. You still browse and
   save every page yourself (Ctrl+S) - a recorded mouse macro that paged
-  through carsales was asked for and declined, as automated collection is
+  through the site was asked for and declined, as automated collection is
   exactly what the no-scraping rule excludes. The watcher only reads files.
 * Each file that lands (and has stopped changing for 0.8 s) goes through
   `bulk.run` - same parser, same checks, its own undoable run - and is then
@@ -1494,7 +1526,7 @@ Keep these — each one was a bug that took a while to find.
   refused and not counted. Stops itself at the page count. Pace = median gap
   between saves (file mtimes). "Undo session" = bulk.undo per run, newest
   first. Folder + page count remembered in `data/inbox.json`.
-* Default folder: `carsales inbox/` in the project (gitignored, like
+* Default folder: `inbox/` in the project (gitignored, like
   data/raw). It is in OneDrive, so moving a just-saved file out is retried;
   a file that still cannot move is left, warned about, and never re-imported.
 * `tests/check_inbox.py` (17 checks) runs a real session incl. undo back to
@@ -1582,7 +1614,7 @@ Keep these — each one was a bug that took a while to find.
   evidence and not held against the pair. The stored values are unchanged.
 
 **Advert links (27/09/2026)**
-* carsales' own links are bare paths (`/cars/details/.../SSE-AD-1/`) and the
+* the main site's own links are bare paths (`/cars/details/.../EXA-AD-1/`) and the
   database stores them exactly as they came. Put in a page as they stood,
   they resolved against the app (127.0.0.1), so every "open" link in Explore
   went nowhere. `vpa/links.py` puts the site's address in front wherever a
@@ -1591,10 +1623,10 @@ Keep these — each one was a bug that took a while to find.
   value is never changed (`tests/check_links.py` pins that).
 * `vpaAdLinks(url, gone)` in the shared page script draws two links: the
   advert, and the Internet Archive's list of copies of the same address. A
-  car no longer listed gets the archive link first - carsales usually takes
+  car no longer listed gets the archive link first - a site usually takes
   a sold car's page down. The archive may hold no copy; its own page says so.
-* 3,118 carsales cars have a link. The rest (about 510 with no site ad id -
-  BASE-/IMG- keys, Facebook, early imports) cannot be tied to one advert
+* 3,118 main-site cars have a link. The rest (about 510 with no site ad id -
+  BASE-/IMG- keys, classifieds-site rows, early imports) cannot be tied to one advert
   and get no links rather than a guessed one.
 * A bare path from a site not listed in `links.SITES` gets no link. Adding
   a site is one line there.
@@ -1774,16 +1806,16 @@ Keep these — each one was a bug that took a while to find.
   the same file twice fires no `change` event.
 
 **Data**
-* Facebook Marketplace **saved HTML is an empty shell** — zero listings.
+* the classifieds site **saved HTML is an empty shell** — zero listings.
   Copy-paste is the only viable FB path.
-* Carsales saved pages hide seller and state in per-listing analytics blobs
+* The main site's saved pages hide seller and state in per-listing analytics blobs
   keyed by ad id, not in the JSON-LD.
 * **A saved DETAILS page put its full URL in JSON-LD `@id` and no `sku`.**
   Taking `@id` verbatim keyed that car by URL while every search-page capture
-  of the SAME car was keyed `SSE-AD-20672993` — one car, two identities,
+  of the SAME car was keyed `EXA-AD-20672993` — one car, two identities,
   silently. The ad id is now extracted from `sku`/`@id`/`identifier`/`url`
   before any of them is used raw.
-* **`vehicleConfiguration` is not a trim.** On a carsales details page it is
+* **`vehicleConfiguration` is not a trim.** On a details page it is
   the full spec string `FG X XR6 Turbo Sedan 4dr Spts Auto 6sp 4.0T`, which
   stored as a variant invents a trim nothing else will ever match. The title
   gives `XR6 Turbo FG X`, which is what every search capture already

@@ -32,12 +32,12 @@ from pathlib import Path
 
 from vpa import bulk, importui, inbox
 from vpa.store import Store
-from tests.check_carsales import flat, ld, tiles
+from tests.check_sitepages import flat, ld, tiles
 
 ROOT = Path(__file__).resolve().parent
 WORK = ROOT / "synthetic" / "savewarn_work"
 DB = WORK / "savewarn_test.db"
-FOLDER = WORK / "carsales inbox"
+FOLDER = WORK / "inbox"
 RESULTS: list[tuple[bool, str]] = []
 
 
@@ -47,15 +47,15 @@ def check(name: str, ok: bool, detail: str) -> None:
 
 
 def html(cars, pad: int = 0) -> str:
-    """A carsales results page, as saved. `pad` puts filler where the rest
+    """A examplecars results page, as saved. `pad` puts filler where the rest
     of a real page sits, so cutting it off leaves the listings readable."""
-    return ("<!DOCTYPE html><html><head><title>Ford Falcon cars for sale - carsales.com.au</title>"
+    return ("<!DOCTYPE html><html><head><title>Ford Falcon cars for sale - examplecars.example</title>"
             "</head><body>" + ld(cars) + tiles(cars) + "".join(flat(c, state="NSW") for c in cars)
             + "<div>" + "x" * pad + "</div></body></html>\n")
 
 
 def cars(*ids):
-    return [{"id": f"SSE-AD-{i}", "price": 20000 + i * 10, "km": 100000 + i * 100} for i in ids]
+    return [{"id": f"EXA-AD-{i}", "price": 20000 + i * 10, "km": 100000 + i * 100} for i in ids]
 
 
 def state():
@@ -137,7 +137,7 @@ def main() -> int:
     print("\n== the watch folder ==")
     def page_csv(n):
         return ("listing_id,make,model,variant,year,price,odometer,state,seller_type\n"
-                + "\n".join(f"SSE-AD-{900 + n * 10 + i},Ford,Falcon,XR6,2013,{15000 + n * 100 + i},"
+                + "\n".join(f"EXA-AD-{900 + n * 10 + i},Ford,Falcon,XR6,2013,{15000 + n * 100 + i},"
                             f"{120000 + i},NSW,private" for i in range(3)) + "\n")
 
     def save(name, text):
@@ -154,30 +154,30 @@ def main() -> int:
     st = inbox.start(DB, str(FOLDER), 3)
     assert st["ok"], st
     S = inbox._CUR["s"]
-    save("carsales.csv", page_csv(1))
-    wait(lambda: S.done == 1 and not (FOLDER / "carsales.csv").exists())
+    save("examplecars.csv", page_csv(1))
+    wait(lambda: S.done == 1 and not (FOLDER / "examplecars.csv").exists())
     # the same cars, saved again - different bytes (so not caught as an
     # identical file), same listings
     # the file leaves the folder a moment BEFORE its result is recorded
     # (inbox._take archives, then appends), so wait for the result itself
     n = len(S.events)
-    save("carsales.csv", page_csv(1).replace("\n", "\r\n"))
+    save("examplecars.csv", page_csv(1).replace("\n", "\r\n"))
     wait(lambda: len(S.events) > n)
     ev = S.events[-1]
     check("a page saved twice is not counted, and the page says the next may be missing",
           S.done == 1 and ev["kind"] == "refused" and ev["result"]["files"][0]["warn"] == "repeat",
           f"done {S.done}, {ev['kind']}: {ev['error'][:50]}")
-    big = html([{"id": "SSE-AD-777", "price": 20000, "km": 90000}], pad=40000)
+    big = html([{"id": "EXA-AD-777", "price": 20000, "km": 90000}], pad=40000)
     n = len(S.events)
-    save("carsales.htm", big[:len(big) // 2])
+    save("examplecars.htm", big[:len(big) // 2])
     wait(lambda: len(S.events) > n)
     ev = S.events[-1]
     check("a cut-off page is refused and not counted",
           S.done == 1 and ev["kind"] == "refused" and ev["result"]["files"][0]["warn"] == "cutoff",
           f"done {S.done}, {ev['error'][:50]}")
-    save("carsales.htm", big)
+    save("examplecars.htm", big)
     wait(lambda: S.done == 2)
-    save("carsales.csv", page_csv(3))
+    save("examplecars.csv", page_csv(3))
     # the count reaches 3 a moment before the session marks itself complete
     wait(lambda: S.done == 3 and S.status == "complete")
     check("...so the session waits for, and takes, the real pages",

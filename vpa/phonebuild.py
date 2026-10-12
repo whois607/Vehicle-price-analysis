@@ -35,12 +35,12 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from . import phonecfg
+from . import phonecfg, sites
 from .phonecfg import FORMAT
 KEEP_SNAPSHOTS = 2
 _CODE_FILES = ("explore.py", "compare.py", "turnover.py", "analyze.py", "forecast.py",
                "dupes.py", "importui.py", "segments.py", "links.py", "phonebuild.py",
-               "photos.py", "trims.py", "store.py", "trim_rules.json")
+               "photos.py", "trims.py", "store.py", "trim_rules.json", "sites.py")
 _COLS_V = ["k", "src", "id", "url", "make", "model", "variant", "year", "body",
            "type", "state", "seller", "title", "first", "last", "u0", "ph", "gear",
            "gen", "tb"]
@@ -57,6 +57,7 @@ def _code_sig() -> str:
     h = hashlib.sha1(FORMAT.encode())
     for f in _CODE_FILES:
         h.update((here / f).read_bytes())
+    h.update(json.dumps(sites.config(), sort_keys=True).encode())   # the private site file
     for pkg in ("pandas", "numpy", "scipy", "statsmodels"):
         try:
             h.update(f"{pkg}={metadata.version(pkg)}".encode())
@@ -390,6 +391,8 @@ def _build(db_path, out: Path, force: bool) -> dict:
             "dismissed": [k.split(",") for k in dismissed_raw],
             "picker": picker, "overview": overview, "sel": sels,
             "alias": _aliases(frame, sels),
+            # the site facts the phone needs, from the private site file
+            "links": sites.link_rules(), "photos": sites.photos(),
             "cmp": {"rows": _jsonable(compare._row_meta()), "basis": compare._BASIS,
                     "max": compare.MAX_SELECTIONS},
             "consts": {k: getattr(explore, k) for k in (

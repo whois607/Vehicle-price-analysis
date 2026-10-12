@@ -34,7 +34,7 @@ Pace and time left come from the gaps between your saves (their modified
 times), using the median gap so one long pause does not wreck the estimate.
 
 ------------------------------------------------------------- the pieces
-`Session` is the watcher and knows nothing about carsales - the importer is
+`Session` is the watcher and knows nothing about any site - the importer is
 passed in as a function (`ingest=`), so the same watcher works for any file
 the app can read. `start()/stop()/state()/undo_session()` are what the web
 routes call; there is at most one session per running app.
@@ -70,7 +70,7 @@ def _settings_path(db_path) -> Path:
 
 #: inside the project, beside data/ - and in .gitignore, because saved pages
 #: are copies of someone else's site and must never be committed
-INBOX_DIR = Path(__file__).resolve().parent.parent / "carsales inbox"
+INBOX_DIR = Path(__file__).resolve().parent.parent / "inbox"
 
 
 def default_folder() -> str:
@@ -128,7 +128,7 @@ def _unique(dest: Path) -> Path:
 def _check_folder(folder: Path, db_path) -> str | None:
     """Why this folder must not be watched, or None."""
     if not folder.is_absolute():
-        return "give the folder's full path, e.g. C:\\Users\\you\\Downloads\\carsales inbox"
+        return "give the folder's full path, e.g. C:\\Users\\you\\Downloads\\vpa inbox"
     db_dir = Path(db_path).resolve().parent
     here = Path(__file__).resolve().parent.parent
     f = folder.resolve()

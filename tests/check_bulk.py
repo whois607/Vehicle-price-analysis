@@ -57,14 +57,14 @@ def csv_file(name, day, rows):
 
 #: eight cars, first capture
 FILE_A = csv_file("week1.csv", D1, [
-    (f"SSE-AD-{700 + i}", "Ford", "Falcon", "XR6", 2013, 18000 + i * 500,
+    (f"EXA-AD-{700 + i}", "Ford", "Falcon", "XR6", 2013, 18000 + i * 500,
      120000 + i * 5000, "NSW", "private") for i in range(8)])
 #: the same eight a week later (two repriced) plus two genuinely new cars
 FILE_B = csv_file("week2.csv", D2,
-                  [(f"SSE-AD-{700 + i}", "Ford", "Falcon", "XR6", 2013,
+                  [(f"EXA-AD-{700 + i}", "Ford", "Falcon", "XR6", 2013,
                     18000 + i * 500 - (1000 if i < 2 else 0),
                     120000 + i * 5000, "NSW", "private") for i in range(8)]
-                  + [(f"SSE-AD-{900 + i}", "Ford", "Falcon", "XR6", 2014,
+                  + [(f"EXA-AD-{900 + i}", "Ford", "Falcon", "XR6", 2014,
                       21000 + i * 500, 90000, "VIC", "dealer")
                      for i in range(2)])
 
@@ -174,7 +174,7 @@ def run_checks() -> int:
         stored = s.conn.execute("SELECT files FROM bulk_runs WHERE id=?",
                                 (r3["run"],)).fetchone()[0]
     check("the car list is returned, never stored with the run",
-          '"cars"' not in stored and "SSE-AD-700" not in stored,
+          '"cars"' not in stored and "EXA-AD-700" not in stored,
           f"bulk_runs.files is {len(stored)} chars of per-file summary only")
     # the same cars a week on: new sightings of cars already stored (the
     # identical file on its own day would now be skipped as a page saved
@@ -230,10 +230,10 @@ def run_checks() -> int:
     # "removes exactly what the run added" is not true.
     fresh()
     thin = csv_file("thin.csv", D1,
-                    [("SSE-AD-555", "Ford", "Falcon", "", 2013, 17000,
+                    [("EXA-AD-555", "Ford", "Falcon", "", 2013, 17000,
                       100000, "", "")])
     fat = csv_file("fat.csv", D2,
-                   [("SSE-AD-555", "Ford", "Falcon", "XR6 Turbo", 2013, 17000,
+                   [("EXA-AD-555", "Ford", "Falcon", "XR6 Turbo", 2013, 17000,
                      100000, "QLD", "dealer")])
     bulk.run([thin], DB)
     with Store(DB) as s:
@@ -261,7 +261,7 @@ def run_checks() -> int:
         s.conn.execute(
             """INSERT INTO vehicles (key, source, vehicle_type, make, model,
                first_seen, last_seen) VALUES
-               ('ORPHAN','carsales','car','Holden','Commodore',?,?)""",
+               ('ORPHAN','examplecars','car','Holden','Commodore',?,?)""",
             (D1, D1))
         s.conn.commit()
     r6 = bulk.run([FILE_B], DB)

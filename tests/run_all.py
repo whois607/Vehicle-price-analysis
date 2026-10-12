@@ -3,7 +3,7 @@
     python -m tests.run_all        (from vehicle-price-analysis/)
 
 selfcheck (core pipeline), check_titles (make/model/variant splitting),
-check_carsales (seller/state/body from saved carsales pages, both formats),
+check_sitepages (seller/state/body from saved examplecars pages, both formats),
 check_links (full advert addresses from stored bare paths),
 check_importui (import UI + FB paste + overview),
 check_explore (Explore page, selection levels, merged identities, freshness),
@@ -23,7 +23,8 @@ app's numbers against the laptop's, every screen rendered), check_phone_stars
 (listing photo addresses: read from pages, every import path, never the
 database), check_savewarn (saves that went wrong: cut-off pages, a page saved
 twice), check_trims (trim names grouped on read:
-the stored names untouched, old links still found), check_viewer
+the stored names untouched, old links still found), check_neutral (the
+shared files name no site; the app works with no site file), check_viewer
 (Excel workbook via real Excel COM - needs Excel installed and viewer test
 files closed). Exit 0 = everything.
 """
@@ -34,14 +35,14 @@ import sys
 import time
 from pathlib import Path
 
-SUITES = ["tests.selfcheck", "tests.check_titles", "tests.check_carsales", "tests.check_links",
+SUITES = ["tests.selfcheck", "tests.check_titles", "tests.check_sitepages", "tests.check_links",
           "tests.check_importui",
           "tests.check_explore", "tests.check_car", "tests.check_compare",
           "tests.check_verify", "tests.check_repair", "tests.check_merge", "tests.check_dupes",
           "tests.check_edit", "tests.check_starred",
           "tests.check_turnover", "tests.check_bulk", "tests.check_inbox", "tests.check_perf",
           "tests.check_quickadd", "tests.check_workbook", "tests.check_phone",
-          "tests.check_phone_app", "tests.check_phone_stars", "tests.check_photos", "tests.check_savewarn", "tests.check_trims",
+          "tests.check_phone_app", "tests.check_phone_stars", "tests.check_photos", "tests.check_savewarn", "tests.check_trims", "tests.check_neutral",
           "tests.check_viewer"]
 
 

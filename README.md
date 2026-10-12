@@ -34,6 +34,32 @@ database, your backups, your saved pages and your exported reports. Saved
 listing pages in particular are copies of someone else's content and must not
 be redistributed — do not commit them, and do not commit your database.
 
+## Naming your sites (private)
+
+The code names no website. Which sites you capture from lives in one
+private file, `data/sites.json` (gitignored with the rest of `data/`):
+the label each site's pages are stored under, the words that recognise
+its saved pages and links, its address (for "open the advert" links),
+its ad-id prefixes, and its photo server. Copy `sites.example.json` to
+`data/sites.json` and fill it in. Without it the app still works: every
+import is labelled `other`, and there are no advert links or photos.
+
+A label becomes part of every stored car's identity, so once data is
+stored under one, never rename it.
+
+## Sharing the code
+
+```bash
+python tools/make_package.py
+```
+
+builds `output/vpa-<commit>.zip` from the committed code only - no
+database, no saved pages, no private site file, no git history - and
+refuses if any word from your private site file appears in it.
+`python -m tests.check_neutral` runs the same scan on the working tree.
+Share that zip, not the project folder (which holds your data) and not the
+git repository (whose history predates this).
+
 ## Install
 
 Needs Python 3.11 or newer.
@@ -71,7 +97,7 @@ starts with no console window; if it cannot start, a message box says why.
 ```bash
 python -m vpa status                       # what is in the dataset
 python -m vpa ingest saved_page.html       # a page you saved
-python -m vpa ingest listings.csv --source carsales
+python -m vpa ingest listings.csv --source mysite   # a label from data/sites.json
 python -m vpa add --make Ford --model Falcon --year 2012 --price "$18,990" --odo 145000
 python -m vpa report --segment "ford falcon"
 python -m vpa report --all                 # every segment
@@ -205,7 +231,7 @@ The database is the point of the tool, so writing to it is deliberately hard:
 python -m tests.run_all
 ```
 
-Twenty-three suites, ~700 checks: the core pipeline, title parsing, carsales
+Twenty-three suites, ~700 checks: the core pipeline, title parsing, saved
 pages, advert links, duplicates, building the workbook, the watch folder, phone sync and the phone
 app's numbers against the laptop's (needs node), the import UI
 over live HTTP, the analysis pages, manual editing, the watchlist, turnover
@@ -225,8 +251,8 @@ vpa/            the package - the only irreplaceable code
   bulk.py       direct upload: no preview, backup first, undo after
   starred.py    the watchlist
 tests/          verification suites
-tools/          Windows launcher
-data/           YOUR data - gitignored
+tools/          Windows launcher, make_package (a shareable zip)
+data/           YOUR data and your private sites.json - gitignored
 output/         generated reports and the workbook - gitignored
 ```
 

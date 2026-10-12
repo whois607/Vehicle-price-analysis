@@ -25,12 +25,12 @@ signal; they are not a sales ledger.
 ------------------------------------------------------- why this works now
 
 NOTES.md §5.3 recorded turnover as *not measurable*: identity broke across
-capture eras (v2 `BASE-`/`IMG-` ids, then real `SSE`/`OAG` ids, then a pasted
+capture eras (v2 `BASE-`/`IMG-` ids, then real site ad ids, then a pasted
 batch with no ids at all), so cross-day joins failed. That limitation was
 real and is now only partly true, which is what this module exploits:
 
   * the cohort is restricted to keys carrying a **site-issued ad id**
-    (`merge.SITE_ID_PREFIXES`). Derived ids — `IMG-` from an image URL,
+    (`merge.site_id_prefixes()`). Derived ids — `IMG-` from an image URL,
     `BASE-` from the v2 database, and the id-less odometer fingerprint —
     cannot be rejoined across days with any confidence, so they are excluded
     and counted out loud rather than quietly diluting the rate;
@@ -70,7 +70,7 @@ import numpy as np
 import pandas as pd
 
 from . import links
-from .merge import SITE_ID_PREFIXES
+from .merge import site_id_prefixes
 
 #: shared cars, as a fraction of the smaller capture, before two consecutive
 #: captures are treated as covering the same search. Chosen against the real
@@ -134,7 +134,8 @@ def cohort(df: pd.DataFrame) -> pd.DataFrame:
     # once per trim per page load, and pandas' string machinery cost ~4 ms a
     # call for a few hundred values. Missing ids are None/NaN, never str, so
     # they fall out exactly as the old fillna("") did.
-    mask = np.fromiter((isinstance(v, str) and v.startswith(SITE_ID_PREFIXES)
+    pre = site_id_prefixes()
+    mask = np.fromiter((isinstance(v, str) and bool(pre) and v.startswith(pre)
                         for v in df["listing_id"]), dtype=bool, count=len(df))
     return df[mask]
 

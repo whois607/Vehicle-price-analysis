@@ -6,16 +6,16 @@ Works on results-page dumps and single-listing pastes. The anchor is a
 listing's block; price, odometer, state, seller type are mined from the block.
 
 Two tile layouts are auto-detected:
-  title-led   title first, price below (carsales-style, hand-written notes)
-  price-led   price line ABOVE the title (Facebook Marketplace tiles:
+  title-led   title first, price below (results cards, hand-written notes)
+  price-led   price line ABOVE the title (classified-ad tiles:
               "AU$55,000" / "2010 Ford Falcon" / "Sydney, NSW"). When most
               titles have a lone price line directly above, each block is
               extended one line up so the price binds to the RIGHT vehicle.
-              Marketplace strikethrough deals ("AU$18,000AU$22,500") take
+              Strikethrough deals ("AU$18,000AU$22,500") take
               the first (current) price; tiles without a year-led title
               (wheels, parts) are skipped.
 
-A carsales card also puts the TRIM on its own line under the title:
+A results card may also put the TRIM on its own line under the title:
 
     2007 Lexus LS                       <- title line
     LS460 Version U I Package Auto R    <- badge line
@@ -38,7 +38,7 @@ from .titles import (TWO_WORD_MAKES as _TWO_WORD_MAKES, is_badge_line,
 _TITLE = re.compile(r"^\s*(19[5-9]\d|20[0-3]\d)\s+([A-Za-z][\w&.-]*(?:\s+\S+)*)\s*$")
 _PRICE = re.compile(r"\$[ ]*\d{1,3}(?:[ ,]?\d{3})*(?:\.\d+)?|\b\d{4,7}[ ]*(?:AUD|dollars)\b", re.I)
 # a line that is JUST a price (optionally 'AU$', optionally followed by a
-# struck-through previous price) - marketplace tiles put this above the title
+# struck-through previous price) - classified-ad tiles put this above the title
 _PRICE_LINE = re.compile(
     r"^\s*(?:AU\s?)?\$\s*\d{1,3}(?:,\d{3})*(?:\.\d+)?"
     r"(?:\s*(?:AU\s?)?\$\s*\d{1,3}(?:,\d{3})*(?:\.\d+)?)?\s*$", re.I)
@@ -91,7 +91,7 @@ def parse(text: str) -> list[dict]:
             if len(rest.split()) >= 2:      # need at least make + model
                 starts.append(i)
     # layout detection: when most titles have a lone price line directly
-    # above them, this is a price-led dump (Facebook Marketplace) - extend
+    # above them, this is a price-led dump (classified-ad tiles) - extend
     # each block one line up so the price binds to its own vehicle, not the
     # previous block's tail
     def price_above(i: int) -> bool:
@@ -107,8 +107,8 @@ def parse(text: str) -> list[dict]:
         block = "\n".join(lines[begins[n]:j])
         m = _TITLE.match(title)
         year, rest = m.group(1), m.group(2)
-        # The trim line sits directly under the title on a carsales card. It
-        # is only looked for in the title-led layout: a Marketplace tile puts
+        # The trim line sits directly under the title on a results card. It
+        # is only looked for in the title-led layout: a classified-ad tile puts
         # a LOCATION there ("Sydney, NSW"), and reading that as a trim would
         # invent one. `is_badge_line` refuses anything not clearly a badge,
         # so the worst case is the blank variant this produced before.

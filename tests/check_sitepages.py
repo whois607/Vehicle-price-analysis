@@ -1,12 +1,12 @@
-"""Carsales saved pages: seller type, state and body type, in both formats.
+"""Examplecars saved pages: seller type, state and body type, in both formats.
 
-    python -m tests.check_carsales
+    python -m tests.check_sitepages
 
-From 27/07/2026 every carsales capture stored no seller type and no state.
+From 27/07/2026 every examplecars capture stored no seller type and no state.
 The site had moved its per-listing analytics from prefixed keys with the
 fields AFTER the ad id ("tracking/item/networkId":..., "tracking/item/adtype")
 to flat objects with the state BEFORE it:
-    {..."state":"VIC","networkId":"SSE-AD-1","adtype":"Private",...}
+    {..."state":"VIC","networkId":"EXA-AD-1","adtype":"Private",...}
 and the parser matched none of it. Body type was never stored at all: the
 JSON-LD `bodyType` is blank, and the only per-car statement of it is each
 tile's key-details list, which carries no ad id.
@@ -69,7 +69,7 @@ def tiles(cars, body="Sedan", km_override=None) -> str:
 
 
 def page(*parts) -> Path:
-    html = ("<html><head><title>Ford Falcon cars for sale - carsales.com.au</title>"
+    html = ("<html><head><title>Ford Falcon cars for sale - examplecars.example</title>"
             "</head><body>" + "".join(parts) + "</body></html>")
     f = tempfile.NamedTemporaryFile("w", suffix=".htm", delete=False, encoding="utf-8")
     f.write(html)
@@ -86,13 +86,13 @@ def parse(*parts) -> dict:
     return {r["listing_id"]: r for r in raws}
 
 
-CARS = [{"id": "SSE-AD-101", "price": 31400, "km": 187000},
-        {"id": "OAG-AD-202", "price": 41990, "km": 125583},
-        {"id": "SSE-AD-303", "price": 46500, "km": 117600}]
+CARS = [{"id": "EXA-AD-101", "price": 31400, "km": 187000},
+        {"id": "EXB-AD-202", "price": 41990, "km": 125583},
+        {"id": "EXA-AD-303", "price": 46500, "km": 117600}]
 
 
 def main() -> int:
-    print("\n== the flat format carsales moved to ==")
+    print("\n== the flat format examplecars moved to ==")
     # each listing's object repeated, as the real page repeats it per event
     objs = "".join(flat(c, st, ad) * 3 for c, st, ad in
                    zip(CARS, ["VIC", "WA", "NSW"], ["Private", "Dealer used", "Private"]))
@@ -103,34 +103,34 @@ def main() -> int:
           str([(got[c['id']].get('state'), got[c['id']].get('seller_type')) for c in CARS]))
     got = parse(ld(CARS), flat(CARS[0], "VIC", "Private").replace('"adtype"', '"adType"'))
     check("the camel-case adType spelling is read too",
-          got["SSE-AD-101"].get("seller_type") == "private",
-          f"seller {got['SSE-AD-101'].get('seller_type')}")
+          got["EXA-AD-101"].get("seller_type") == "private",
+          f"seller {got['EXA-AD-101'].get('seller_type')}")
 
     print("\n== where attributing would be a guess, nothing is attributed ==")
-    got = parse(ld(CARS), flat(CARS[0], "VIC", "Private", extra_id="OAG-AD-202"))
+    got = parse(ld(CARS), flat(CARS[0], "VIC", "Private", extra_id="EXB-AD-202"))
     check("an object naming two cars is used for neither",
-          "state" not in got["SSE-AD-101"] and "state" not in got["OAG-AD-202"],
+          "state" not in got["EXA-AD-101"] and "state" not in got["EXB-AD-202"],
           "no neighbour's state or seller leaks across")
     got = parse(ld(CARS), flat(CARS[0], "VIC", "Private") + flat(CARS[0], "NSW", "Private"))
     check("copies that disagree leave that field empty, the agreeing one set",
-          "state" not in got["SSE-AD-101"]
-          and got["SSE-AD-101"].get("seller_type") == "private",
-          f"state {got['SSE-AD-101'].get('state')}, seller {got['SSE-AD-101'].get('seller_type')}")
+          "state" not in got["EXA-AD-101"]
+          and got["EXA-AD-101"].get("seller_type") == "private",
+          f"state {got['EXA-AD-101'].get('state')}, seller {got['EXA-AD-101'].get('seller_type')}")
     got = parse(ld(CARS), flat(CARS[0], None, "New car"))
     check("a showroom 'New car' is not called a dealer or private sale",
-          "seller_type" not in got["SSE-AD-101"], "left empty rather than guessed")
+          "seller_type" not in got["EXA-AD-101"], "left empty rather than guessed")
 
     print("\n== the old prefixed format still reads exactly as before ==")
-    old = ('"tracking/item/networkId":"SSE-AD-101","tracking/item/state":"QLD",'
+    old = ('"tracking/item/networkId":"EXA-AD-101","tracking/item/state":"QLD",'
            '"tracking/item/adtype":"Dealer used"')
     got = parse(ld(CARS), old)
     check("prefixed keys with the fields after the id",
-          got["SSE-AD-101"].get("state") == "QLD"
-          and got["SSE-AD-101"].get("seller_type") == "dealer",
-          f"{got['SSE-AD-101'].get('state')} / {got['SSE-AD-101'].get('seller_type')}")
+          got["EXA-AD-101"].get("state") == "QLD"
+          and got["EXA-AD-101"].get("seller_type") == "dealer",
+          f"{got['EXA-AD-101'].get('state')} / {got['EXA-AD-101'].get('seller_type')}")
     got = parse(ld(CARS), old, flat(CARS[0], "VIC", "Private"))
     check("when both formats are present, the old one's values stand",
-          got["SSE-AD-101"].get("state") == "QLD", "the flat format only fills gaps")
+          got["EXA-AD-101"].get("state") == "QLD", "the flat format only fills gaps")
 
     print("\n== body type from the tiles, only when provably lined up ==")
     got = parse(ld(CARS), tiles(CARS))

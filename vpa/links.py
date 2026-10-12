@@ -1,7 +1,7 @@
 """Links from a stored car to its advert, for display and export only.
 
-carsales writes its own links as a bare path:
-    /cars/details/2016-ford-falcon-g6e-turbo-fg-x-auto/SSE-AD-20616552/
+A site may write its own links as a bare path:
+    /cars/details/2016-ford-falcon-g6e-turbo-fg-x-auto/EXA-AD-20616552/
 and that path is what the database holds, unchanged. Put in a page as it
 stands, the browser resolves it against the app itself (127.0.0.1) and the
 "open" link goes nowhere. So wherever a link leaves the app, on a page or in
@@ -9,16 +9,18 @@ the workbook, the site's address goes in front here. The stored value is
 never touched.
 
 The archive link is the Internet Archive's list of copies of that same
-address. A car that has sold is usually taken down by carsales, and the
+address. A car that has sold is usually taken down by the site, and the
 archive is the only place an old copy might survive. It may hold none; the
 link then says so on the archive's own page.
+
+Which site a source's bare paths belong to is in your private site file
+(vpa/sites.py, `address`); a source without one gets no link.
 """
 from __future__ import annotations
 
 import math
 
-# the site each source's bare paths belong to
-SITES = {"carsales": "https://www.carsales.com.au"}
+from . import sites
 
 
 def ad_url(url, source=None) -> str | None:
@@ -37,7 +39,7 @@ def ad_url(url, source=None) -> str | None:
     if url.startswith("//"):
         return "https:" + url
     if url.startswith("/") and source is not None:
-        site = SITES.get(str(source))
+        site = sites.address(source)
         if site:
             return site + url
     return None

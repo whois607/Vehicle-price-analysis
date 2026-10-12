@@ -476,8 +476,8 @@ function carCard(DB, mk, mo, va, opts, now) {
     if (!own) return { ok: false, error: "that car is not in this selection" };
     const v = own.v;
     subject = { key, stored: true, price: num(own.p), odometer_km: num(own.km), year: v.year,
-      state: v.state, seller_type: v.seller, variant: v.variant, title: v.title, url: v.url,
-      source: v.src, day: own.d };
+      state: v.state, seller_type: v.seller, variant: v.variant, gearbox: v.gear == null ? null : v.gear,
+      title: v.title, url: v.url, source: v.src, day: own.d };
     subject.photos = (v.ph || []).slice();
     peers = pool.filter(r => r.v.k !== key);
     fitRows = prepped.filter(r => r.v.k !== key);
@@ -487,7 +487,7 @@ function carCard(DB, mk, mo, va, opts, now) {
     subject = { key: null, stored: false, price: num(p), price_note: note,
       odometer_km: num(parseOdometer(opts.odometer)), year: normYear(opts.year),
       state: normState(opts.state), seller_type: normSeller(opts.seller),
-      variant: null, title: null, url: null, source: null, day: null };
+      variant: null, gearbox: null, title: null, url: null, source: null, day: null };
     // no price: "what should it be asking?" - answered by `estimate`
     peers = pool; fitRows = prepped; fitT = K.fit;
   }
@@ -560,6 +560,7 @@ function carCard(DB, mk, mo, va, opts, now) {
     seller: splitMedian(peers, r => r.v.seller, subject.seller_type, C.CAR_SPLIT_MIN_N),
     state: splitMedian(peers, r => r.v.state, subject.state, C.CAR_SPLIT_MIN_N),
     year: splitMedian(peers, r => r.v.year, subject.year, C.CAR_YEAR_MIN_N),
+    gearbox: splitMedian(peers, r => r.v.gear, subject.gearbox, C.CAR_SPLIT_MIN_N),
   };
   let linePool = latestPerVehicle(prep(rowsOf(DB, mk, mo, null)));
   if (key) linePool = linePool.filter(r => r.v.k !== key);

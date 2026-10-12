@@ -40,9 +40,9 @@ from .phonecfg import FORMAT
 KEEP_SNAPSHOTS = 2
 _CODE_FILES = ("explore.py", "compare.py", "turnover.py", "analyze.py", "forecast.py",
                "dupes.py", "importui.py", "segments.py", "links.py", "phonebuild.py",
-               "photos.py")
+               "photos.py", "trims.py", "store.py")
 _COLS_V = ["k", "src", "id", "url", "make", "model", "variant", "year", "body",
-           "type", "state", "seller", "title", "first", "last", "u0", "ph"]
+           "type", "state", "seller", "title", "first", "last", "u0", "ph", "gear"]
 _COLS_S = ["v", "d", "p", "km"]
 
 
@@ -339,7 +339,8 @@ def _build(db_path, out: Path, force: bool) -> dict:
                 # its photo addresses; the phone asks the site's photo server
                 # for one only when that car is on screen
                 PH.get(photos.ad_id(row.listing_id if isinstance(row.listing_id, str) else None,
-                                    row.url if isinstance(row.url, str) else None) or "")])
+                                    row.url if isinstance(row.url, str) else None) or ""),
+                txt(row.gearbox)])
         # sightings in the frame's own order (capture_date, key): the phone's
         # "last sighting wins" must break ties exactly as the laptop does
         for row in raw.itertuples(index=False):

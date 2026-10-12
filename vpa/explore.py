@@ -654,6 +654,7 @@ def _subject_from_row(row) -> dict:
             "seller_type": (None if pd.isna(row["seller_type"])
                             else str(row["seller_type"])),
             "variant": None if pd.isna(row["variant"]) else str(row["variant"]),
+            "gearbox": None if pd.isna(row.get("gearbox")) else str(row["gearbox"]),
             "title": None if pd.isna(row["raw_title"]) else str(row["raw_title"]),
             "url": links.ad_url(row["url"], row.get("source")),
             "source": str(row["source"]),
@@ -673,7 +674,7 @@ def _subject_typed(price, odometer, year, seller, state) -> dict:
             "odometer_km": _num(parse_odometer(odometer)),
             "year": norm_year(year), "state": norm_state(state),
             "seller_type": norm_seller(seller),
-            "variant": None, "title": None, "url": None,
+            "variant": None, "gearbox": None, "title": None, "url": None,
             "source": None, "day": None}
 
 
@@ -1073,6 +1074,10 @@ def car_payload(db_path: str | Path = DEFAULT_DB, make: str | None = None,
         "state": _split_median(peers, "state", subject["state"],
                                CAR_SPLIT_MIN_N),
         "year": _split_median(peers, "year", subject["year"], CAR_YEAR_MIN_N),
+        # manual and auto share a trim group (the gearbox is its own column,
+        # trims.py), so a manual is judged against the other manuals here
+        "gearbox": _split_median(peers, "gearbox", subject.get("gearbox"),
+                                 CAR_SPLIT_MIN_N),
     }
 
     # ---- the same car ranked against its whole model line.
@@ -2245,6 +2250,8 @@ function estimateHtml(e,s,big){
       ${e.why_not_curve?esc(e.why_not_curve)+". ":""}Asking prices, not sale prices; the trim
       pools model years, so check the same-year figure below.</div></div>`;
 }
+/* the gearbox row only where this car's gearbox is known */
+function gearRow(o,splitRow){return o&&o.value?splitRow("same gearbox",o):"";}
 function likeHtml(d){
   const sp=d.splits;
   const splitRow=(lab,o)=>`<div><span class="k">${lab}${o.value?" ("+esc(o.value)+")":""}</span>`
@@ -2253,7 +2260,7 @@ function likeHtml(d){
   return `<div class="mini-h" style="margin-top:14px">like for like</div><div class="kv">
     <div><span class="k">all ${d.pool.n} of this trim</span><b>${money(d.pool.median)}</b></div>
     ${splitRow("same seller type",sp.seller)}${splitRow("same state",sp.state)}
-    ${splitRow("same model year",sp.year)}</div>`;
+    ${splitRow("same model year",sp.year)}${gearRow(sp.gearbox,splitRow)}</div>`;
 }
 function cmpHtml(d){
   if(!(d.comparables||[]).length)return "";
@@ -2363,6 +2370,7 @@ function renderCar(){
     ${splitRow("same seller type",sp.seller)}
     ${splitRow("same state",sp.state)}
     ${splitRow("same model year",sp.year)}
+    ${gearRow(sp.gearbox,splitRow)}
     <div><span class="k">every ${esc(d.line_check.label)}</span>
       <b>${money(d.line_check.median)}</b>
       ${d.line_check.rank.percentile!=null

@@ -1095,6 +1095,24 @@ Keep these — each one was a bug that took a while to find.
   (5,268 cars, 815 groups). Stage 1 had NO rules - 80 page fingerprints
   (pickers, details, 40 car checks, typed checks, Compare, watchlist) were
   identical before and after. `tests/check_trims.py`.
+* Stage 2 - wording fixes (`trims.clean`): titles.strip_tail (what the
+  importer already does) plus what older imports kept - MY codes anywhere
+  (MY13.5, MY22.25, MY24.50), gearbox words anywhere ("edition one Auto
+  quattro"), "Mk II"/"MK II" -> "MkII". Then names equal but for capitals or
+  a hyphen are one trim, shown in their most common spelling (by cars, ties
+  alphabetical). Spaces are NOT ignored: the only effect on real data was
+  merging Corvette "Sting Ray" (1963-67) with "Stingray" (1968-76).
+  Drive words leave a name only where they trail a gearbox word, so
+  "quattro"/"xDrive" stay (A4 vs A4 quattro are different cars).
+  Real data: 815 stored names -> 602 groups, 1,101 cars moved, every move
+  reviewed (Audi "Auto quattro MYxx" -> "quattro" 90 -> 21; BMW "Auto
+  MY13.5" tails; Falcon/Territory "Mk II"; ute "Auto Super Cab"; Mustang
+  "Auto RWD MY21.5"; Corvette/Ford LTD "Auto"/"Manual" -> no trim, as the
+  importer already treats a gearbox-only badge). No stored data changed.
+* `gearbox` / `drive` / `model_year` columns, read from the stored trim then
+  the title. Manual and auto share a trim group, so the car check (laptop
+  and phone, column "gear" in the copy) adds a "same gearbox" like-for-like
+  row - only when the car's gearbox is known.
 
 **Saves that went wrong - the 09/10/2026 Falcon sweep (12/10/2026)**
 * WHAT HAPPENED (poor connection): the watch folder took "page 13" from a

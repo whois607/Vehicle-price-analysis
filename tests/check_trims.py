@@ -7,6 +7,12 @@ them under a derived name, worked out on read. Checked here:
 
   * the frame keeps every row, key, price and odometer, and `variant_stored`
     is exactly what the database holds - read independently through SQL;
+  * the wording fixes: gearbox, model-year and trailing drive/body words
+    and "Mk II" spellings are folded away, capitals/hyphens are one trim
+    under its most common spelling - and nothing else merges (spaces count:
+    "Sting Ray" is not "Stingray"); applying them twice changes nothing;
+  * gearbox / drive / model year land in their own columns, and the car
+    check compares a manual with the other manuals;
   * a trim asked for by its STORED name (an old link, a saved comparison)
     finds the trim it is grouped under, on Explore, the car check and
     Compare - and Compare's list of selections gains no duplicate rows;
@@ -62,7 +68,27 @@ FLEET = [
     ("Skoda", "Superb", "206TSI SportLine", 2021, 2),
     ("Skoda", "Superb", "206TSI Sportline", 2021, 1),
     ("Toyota", "86", None, 2017, 2),
+    ("Ford", "Mustang", "GT FN Auto RWD MY21.5", 2021, 9),
+    ("Ford", "Mustang", "GT FN Manual RWD MY22.25", 2022, 9),
 ]
+
+#: stored name -> the name it must be grouped under (None: no trim)
+CLEAN = {
+    "Auto quattro MY18": "quattro", "Manual quattro": "quattro",
+    "edition one Auto quattro MY25": "edition one quattro",
+    "320i F30 Auto MY13.5": "320i F30", "420i M Sport Auto R": "420i M Sport",
+    "XR6 Turbo BA Mk II": "XR6 Turbo BA MkII", "GT F 351 FG MK II": "GT F 351 FG MkII",
+    "XR8 FG Manual Super Cab": "XR8 FG", "GT FN Auto RWD MY22.25": "GT FN",
+    "Dark Horse FO Manual MY24.50": "Dark Horse FO",
+    "206TSI SportLine Auto 4x4 MY18.5": "206TSI SportLine",
+    "Stingray 3LT R Auto MY26": "Stingray 3LT R", "E-Ray 3LZ Auto AWD MY24": "E-Ray 3LZ",
+    "Sting Ray Manual MY66": "Sting Ray", "Auto MY86": None, "Auto": None, "  ": None,
+    # left exactly as they are
+    "Golf R": "Golf R", "XR6 FG MkII": "XR6 FG MkII", "FG X": "FG X",
+    "M340i xDrive G20 LCI II": "M340i xDrive G20 LCI II",
+    "LS460 Version U I Package": "LS460 Version U I Package", "330i M Sport G20 LCI II":
+    "330i M Sport G20 LCI II", "XR6 50th Anniversary FG": "XR6 50th Anniversary FG",
+}
 
 
 def seed() -> None:
@@ -112,10 +138,61 @@ def main() -> int:
             else r.variant_stored) for r in df.itertuples(index=False)]
     check("every row, key, price, km, make and model, and the stored trim, as SQL reads them",
           got == sql, f"{len(got)} rows vs {len(sql)}")
-    check("the derived trim is the clean() of the stored one, car by car",
-          all((trims.clean(a) == b) or (trims.clean(a) is None and b != b)
-              for a, b in zip(df["variant_stored"], df["variant"])),
-          f"{df['variant'].nunique()} grouped names from {df['variant_stored'].nunique()} stored")
+    print("\n== the wording fixes ==")
+    bad = {k: trims.clean(k) for k, v in CLEAN.items() if trims.clean(k) != v}
+    check("each stored name -> the trim it belongs to (and the ones to leave alone are left)",
+          not bad, f"{len(CLEAN)} names" + (f"; WRONG {bad}" if bad else ""))
+    names = [n for n in df["variant_stored"].dropna().unique()] + list(CLEAN)
+    check("applying the fixes twice changes nothing",
+          all(trims.clean(trims.clean(n)) == trims.clean(n) for n in names), f"{len(names)} names")
+    def grouped(mk, mo, va):
+        return set(df[(df["make"] == mk) & (df["model"] == mo)
+                      & (df["variant"] == va)]["variant_stored"].unique())
+    groups = df.drop_duplicates("key").groupby(["make", "model", "variant"])["key"].nunique()
+    check("Audi S5: 'quattro' and 'Auto quattro MY18' are one trim of 10 cars",
+          grouped("Audi", "S5", "quattro") == {"quattro", "Auto quattro MY18"}
+          and groups[("Audi", "S5", "quattro")] == 10
+          and groups[("Audi", "S5", "edition one quattro")] == 2, f"{dict(groups['Audi'])}")
+    check("Falcon: 'Mk II' and 'MkII' are one trim; FG MkII untouched",
+          groups[("Ford", "Falcon", "XR6 Turbo BA MkII")] == 5
+          and grouped("Ford", "Falcon", "XR6 FG MkII") == {"XR6 FG MkII"}
+          and groups[("Ford", "Falcon", "XR6 FG MkII")] == 10, f"{dict(groups['Ford']['Falcon'])}")
+    check("capitals: 'SportLine' + 'Sportline' shown as the more common spelling",
+          groups.get(("Skoda", "Superb", "206TSI SportLine")) == 3
+          and ("Skoda", "Superb", "206TSI Sportline") not in groups, f"{dict(groups['Skoda'])}")
+    vette = df[df["model"] == "Corvette"].drop_duplicates("key")
+    check("Corvette: 'Sting Ray' (1960s) and 'Stingray' stay apart; 'Auto MY86' has no trim",
+          {"Sting Ray", "Stingray", "Stingray 3LT"} <= set(vette["variant"].dropna())
+          and vette[vette["variant_stored"] == "Auto MY86"]["variant"].isna().all(),
+          f"{sorted(vette['variant'].dropna().unique())}")
+    two = df.drop_duplicates("key").groupby(["make", "model", "variant"])["variant_stored"].nunique()
+    expected_merges = {("Audi", "S5", "quattro"), ("BMW", "4 Series", "420i M Sport"),
+                       ("BMW", "3 Series", "320i F30"), ("Ford", "Falcon", "XR6 Turbo BA MkII"),
+                       ("Skoda", "Superb", "206TSI SportLine"), ("Ford", "Mustang", "GT FN")}
+    check("nothing else merged", set(two[two > 1].index) == expected_merges,
+          f"{sorted(set(two[two > 1].index) ^ expected_merges) or 'only the six expected'}")
+
+    print("\n== gearbox, drive and model year in their own columns ==")
+    one = df.drop_duplicates("key").set_index("variant_stored")
+    s5 = one.loc["Auto quattro MY18"].iloc[0]
+    st = one.loc["GT FN Manual RWD MY22.25"].iloc[0]
+    check("read from the stored trim and the title",
+          (s5["gearbox"], s5["drive"], s5["model_year"]) == ("auto", "awd", 2018)
+          and (st["gearbox"], st["drive"], st["model_year"]) == ("manual", "rwd", 2022.25),
+          f"S5 {s5['gearbox']}/{s5['drive']}/{s5['model_year']}, Mustang "
+          f"{st['gearbox']}/{st['drive']}/{st['model_year']}")
+    man = df[(df["variant_stored"] == "GT FN Manual RWD MY22.25")].iloc[-1]
+    cp = explore.car_payload(DB, "Ford", "Mustang", "GT FN", key=man["key"])
+    g = cp["splits"]["gearbox"]
+    want = df[(df["model"] == "Mustang") & (df["gearbox"] == "manual") & (df["key"] != man["key"])]
+    want = want.sort_values("capture_date", kind="stable").drop_duplicates("key", keep="last")
+    check("the car check judges a manual against the other manuals of its trim",
+          cp["usable"] and cp["pool"]["n"] == 17 and g["value"] == "manual" and g["n"] == 8
+          and g["median"] == float(want["price_aud"].median()),
+          f"trim pool {cp['pool']['n']}, manuals {g['n']} at {g['median']}")
+    typed = explore.car_payload(DB, "Ford", "Mustang", "GT FN", price="30000")
+    check("...and a typed car, whose gearbox is not known, gets no gearbox row",
+          typed["splits"]["gearbox"]["value"] is None, typed["splits"]["gearbox"]["reason"])
 
     print("\n== a trim asked for by its stored name ==")
     moved = df.dropna(subset=["variant_stored"])
@@ -130,8 +207,8 @@ def main() -> int:
         a = explore.detail_payload(DB, r["make"], r["model"], r["variant_stored"])
         b = explore.detail_payload(DB, r["make"], r["model"], derived)
         check("Explore: the old name opens the trim it is grouped under",
-              derived == r["variant"] and a["label"] == b["label"]
-              and a.get("stats") == b.get("stats"), f"{r['variant_stored']!r} -> {derived!r}")
+              derived == r["variant"] and a["head"] == b["head"]
+              and a["vehicles"] == b["vehicles"], f"{r['variant_stored']!r} -> {derived!r}")
         c1 = explore.car_payload(DB, r["make"], r["model"], r["variant_stored"], key=r["key"])
         c2 = explore.car_payload(DB, r["make"], r["model"], derived, key=r["key"])
         check("the car check too", c1 == c2, c1.get("label", "")[:60])

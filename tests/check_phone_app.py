@@ -91,7 +91,10 @@ def seed() -> None:
                         "listing_id": lid, "make": mk, "model": mo, "variant": va,
                         "year": year, "price": p, "odometer": odo, "state": state,
                         "seller_type": seller, "url": f"/cars/details/x-{mo.lower()}/{lid}/",
-                        "title": f"{year or ''} {mk} {mo} {va or ''}".strip(),
+                        # a gearbox in two titles of three, so the car check's
+                        # same-gearbox split is compared too (trims.py)
+                        "title": (f"{year or ''} {mk} {mo} {va or ''}".strip()
+                                  + ("", " Manual", " Auto")[i % 3]),
                         "capture_date": d}, source="carsales"))
     # a car with two prices on one day (two cars merged into one identity)
     for p in (21000, 23500):

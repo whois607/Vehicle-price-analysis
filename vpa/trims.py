@@ -12,6 +12,17 @@ phone copy all see one set of names and cannot disagree. Columns:
 
     variant         the trim the analysis groups by (derived)
     variant_stored  the trim exactly as the database holds it
+    gearbox         'manual' / 'auto', from the stored trim or the title
+    drive           'awd' / '4wd' / '2wd' / 'rwd' / 'fwd', likewise
+    model_year      the MY code as a year (MY13.5 -> 2013.5), likewise
+
+The wording fixes (`clean`) only ever remove or respell words that do not
+name a different car: gearbox, model-year and trailing drive/body words,
+and the spelling of "Mk II". Same-trim names that differ only in capitals
+or a hyphen ("SportLine"/"Sportline") are then grouped together, shown
+under their most common spelling. Spaces are NOT ignored: the only real
+case was Corvette "Sting Ray" (1963-67) vs "Stingray" (1968-76) - two eras,
+not one spelling.
 
 Anything that WRITES a trim (editing a car, renaming a trim, quick add)
 reads and writes the stored name through SQL, never through this frame.
@@ -19,31 +30,134 @@ reads and writes the stored name through SQL, never through this frame.
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
 
+from .adapters.titles import strip_tail
+
+#: Gearbox words removed from ANYWHERE in a trim, not just its end - carsales
+#: writes "edition one Auto quattro" with the gearbox before a badge word.
+#: Deliberately a narrower list than titles._TRANSMISSION: "man" and "seq"
+#: are left alone mid-name.
+GEARBOX = {"auto": "auto", "automatic": "auto", "manual": "manual", "cvt": "auto",
+           "dct": "auto", "dsg": "auto", "tiptronic": "auto", "steptronic": "auto",
+           "multitronic": "auto", "powershift": "auto", "smg": "auto"}
+#: Drive words, read into the `drive` column. Only REMOVED from a trim when
+#: they trail a gearbox word (strip_tail's rule) - "quattro" and "xDrive"
+#: stay in the name, since an A4 and an A4 quattro are different cars.
+DRIVE = {"awd": "awd", "quattro": "awd", "xdrive": "awd", "4matic": "awd",
+         "4motion": "awd", "allgrip": "awd", "4wd": "4wd", "4x4": "4wd",
+         "2wd": "2wd", "4x2": "2wd", "rwd": "rwd", "fwd": "fwd"}
+_SPEED = re.compile(r"^\d{1,2}sp$", re.I)
+#: MY18, MY13.5, MY22.25, MY24.50
+_MY = re.compile(r"^my(\d{2})(?:\.(\d{1,2}))?$", re.I)
+_MK = re.compile(r"\bmk\.?\s*(iv|v|i{1,3})\b", re.I)
+
 
 def clean(variant) -> str | None:
-    """One stored trim name -> the name it is grouped under. No rules yet:
-    the derived name is the stored name."""
+    """One stored trim name -> the name it is grouped under.
+
+        'Auto quattro MY18'               -> 'quattro'
+        'edition one Auto quattro MY25'   -> 'edition one quattro'
+        '320i F30 Auto MY13.5'            -> '320i F30'
+        'XR6 Turbo BA Mk II'              -> 'XR6 Turbo BA MkII'
+        'XR8 FG Manual Super Cab'         -> 'XR8 FG'
+        'GT FN Auto RWD MY22.25'          -> 'GT FN'
+        'Stingray 3LT R Auto MY26'        -> 'Stingray 3LT R'
+        'Auto MY86'                       -> None   (no trim: a base car)
+
+    The same steps the importer takes (titles.strip_tail), plus what older
+    imports kept: model-year codes anywhere, gearbox words anywhere.
+    Applying it twice changes nothing."""
     if variant is None or (isinstance(variant, float) and pd.isna(variant)):
         return None
-    s = str(variant)
-    return s if s.strip() else None
+    s = " ".join(str(variant).split())
+    if not s:
+        return None
+    s = _MK.sub(lambda m: "Mk" + m.group(1).upper(), s)
+    toks = [t for t in s.split() if not _MY.match(t)]
+    toks = strip_tail(" ".join(toks)).split()
+    out: list[str] = []
+    after_gear = False
+    for t in toks:
+        if t.casefold() in GEARBOX or (after_gear and _SPEED.match(t)):
+            after_gear = True
+            continue
+        after_gear = False
+        out.append(t)
+    s = strip_tail(" ".join(out)) if out else ""
+    return s or None
+
+
+def fold(name: str) -> str:
+    """Names that differ only in capitals or a hyphen are one trim."""
+    return " ".join(name.casefold().replace("-", "").split())
+
+
+def _words(*texts) -> list[str]:
+    out = []
+    for t in texts:
+        if isinstance(t, str):
+            out.extend(w.strip(",()").casefold() for w in t.split())
+    return out
+
+
+def details(variant, title) -> tuple:
+    """(gearbox, drive, model_year) read from the stored trim, then the
+    title. None where neither says."""
+    words = _words(variant, title)
+    gear = next((GEARBOX[w] for w in words if w in GEARBOX), None)
+    drive = next((DRIVE[w] for w in words if w in DRIVE), None)
+    my = None
+    for w in words:
+        m = _MY.match(w)
+        if m:
+            yy = int(m.group(1))
+            year = (2000 + yy) if yy <= (datetime.now().year % 100) + 2 else (1900 + yy)
+            frac = m.group(2)
+            my = year + (int(frac) / (10 ** len(frac)) if frac else 0)
+            break
+    return gear, drive, my
 
 
 def add_trim_cols(df: pd.DataFrame) -> pd.DataFrame:
-    """The analysis frame with `variant` derived and `variant_stored` kept.
-    Rows, keys, prices and every other column are untouched."""
+    """The analysis frame with `variant` derived and `variant_stored` kept,
+    plus gearbox / drive / model_year. Rows, keys, prices and every other
+    column are untouched."""
     df["variant_stored"] = df["variant"] if "variant" in df else None
+    for c in ("gearbox", "drive", "model_year"):
+        df[c] = None
     if df.empty:
         return df
     stored = df["variant"].astype(object)
-    names = {v: clean(v) for v in stored.dropna().unique()}
-    df["variant"] = stored.map(lambda v: None if v is None or
-                               (isinstance(v, float) and pd.isna(v)) else names[v])
+    nan = lambda v: v is None or (isinstance(v, float) and pd.isna(v))
+    # clean each distinct stored name once; then, within one make + model,
+    # names equal but for capitals/hyphens take their most common spelling
+    # (by cars; ties alphabetically) so the choice is the same every load
+    combos = (df.assign(_v=stored.map(lambda v: None if nan(v) else str(v)))
+              .dropna(subset=["_v"]).groupby(["make", "model", "_v"])["key"].nunique())
+    spelt: dict[tuple, dict[str, int]] = {}
+    cleaned: dict[tuple, str | None] = {}
+    for (mk, mo, v), n in combos.items():
+        c = clean(v)
+        cleaned[(mk, mo, v)] = c
+        if c:
+            d = spelt.setdefault((mk, mo, fold(c)), {})
+            d[c] = d.get(c, 0) + int(n)
+    shown = {k: sorted(d.items(), key=lambda x: (-x[1], x[0]))[0][0] for k, d in spelt.items()}
+    df["variant"] = [None if nan(v) or not cleaned.get((mk, mo, str(v)))
+                     else shown[(mk, mo, fold(cleaned[(mk, mo, str(v))]))]
+                     for mk, mo, v in zip(df["make"], df["model"], stored)]
+    titles = df["raw_title"] if "raw_title" in df else pd.Series([None] * len(df))
+    got = {}
+    trip = [got.setdefault((v, t), details(None if nan(v) else v, None if nan(t) else t))
+            for v, t in zip(stored, titles)]
+    df["gearbox"] = [x[0] for x in trip]
+    df["drive"] = [x[1] for x in trip]
+    df["model_year"] = [x[2] for x in trip]
     return df
 
 
@@ -63,6 +177,12 @@ def resolve(df: pd.DataFrame, make, model, variant):
     hit = line.loc[line["variant_stored"] == variant, "variant"].dropna()
     if not hit.empty:
         return str(hit.iloc[0])
+    # a name never stored, e.g. read from a page just saved: its clean form
+    c = clean(variant)
+    if c:
+        hit = [n for n in line["variant"].dropna().unique() if fold(str(n)) == fold(c)]
+        if hit:
+            return str(hit[0])
     return variant
 
 

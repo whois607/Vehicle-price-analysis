@@ -782,7 +782,7 @@ function cardHtml(c, v) {
       ${c.band.median ? `<div class="note">Their median is ${money(c.band.median)}${c.band.vs != null ? `; this car is <b>${pct(c.band.vs, true)}</b> against it` : ""}.</div>` : ""}</div>`;
   }
   const sp = c.splits, spRow = (t, s) => `<tr><td>${t}${s.value ? ` <span class="muted">(${esc(s.value)})</span>` : ""}</td><td>${s.median != null ? `<b>${money(s.median)}</b>` : `<span class="muted" style="white-space:normal">${esc(s.reason)}</span>`}</td><td>${s.n || ""}</td></tr>`;
-  h += `<div class="card"><h2>Like for like</h2><table class="tbl"><tr><th>same</th><th>median</th><th>n</th></tr>${spRow("Seller", sp.seller)}${spRow("State", sp.state)}${spRow("Year", sp.year)}</table></div>`;
+  h += `<div class="card"><h2>Like for like</h2><table class="tbl"><tr><th>same</th><th>median</th><th>n</th></tr>${spRow("Seller", sp.seller)}${spRow("State", sp.state)}${spRow("Year", sp.year)}${sp.gearbox && sp.gearbox.value ? spRow("Gearbox", sp.gearbox) : ""}</table></div>`;
   const fit = c.fit;
   h += `<div class="card flat"><h2>How this was worked out</h2><ul class="notes">${fit.usable ? `<li>Mileage: about ${pct(Math.abs(fit.pct_per_10k_km))} per 10,000 km, fitted on ${n0(fit.n)} other listings${fit.covers ? `, valid ${kmK(fit.covers[0])}–${kmK(fit.covers[1])}` : ""}.</li>` : ""}${
     (c.unavailable || []).map(u => `<li>${esc(u)}</li>`).join("")}${(c.caveats || []).map(u => `<li>${esc(u)}</li>`).join("")}

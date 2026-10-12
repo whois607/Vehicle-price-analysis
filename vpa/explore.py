@@ -33,6 +33,7 @@ import pandas as pd
 
 from . import dupes, links
 from . import photos as _photos
+from . import trims as _trims
 from .store import Store, DEFAULT_DB
 
 MAX_VEHICLES = 400          # table rows sent to the page; total is reported
@@ -75,7 +76,7 @@ def _select(df: pd.DataFrame, make, model, variant) -> pd.DataFrame:
     if model:
         sub = sub[sub["model"] == model]
     if variant:
-        sub = sub[sub["variant"] == variant]
+        sub = sub[sub["variant"] == _trims.resolve(df, make, model, variant)]
     return sub
 
 
@@ -95,7 +96,7 @@ def _select_multi(df: pd.DataFrame, make, model, variants) -> pd.DataFrame:
     if not variants:
         return _select(df, make, model, None)
     sub = _select(df, make, model, None)
-    return sub[sub["variant"].isin(variants)]
+    return sub[sub["variant"].isin([_trims.resolve(df, make, model, v) for v in variants])]
 
 
 #: Columns a keyword is matched against. `variant` is the trim as stored;
@@ -243,7 +244,8 @@ def detail_payload(db_path: str | Path = DEFAULT_DB, make: str | None = None,
     from . import analyze, forecast
 
     df = _frame(db_path)
-    picked = [v for v in ([variant] if variant else []) + list(variants or [])
+    picked = [_trims.resolve(df, make, model, v)
+              for v in ([variant] if variant else []) + list(variants or [])
               if v and str(v).strip()]
     picked = list(dict.fromkeys(picked))          # de-dupe, keep order
     if len(picked) == 1:
@@ -884,6 +886,7 @@ def car_payload(db_path: str | Path = DEFAULT_DB, make: str | None = None,
     from . import analyze
 
     df = _frame(db_path)
+    variant = _trims.resolve(df, make, model, variant)
     label = " ".join(x for x in (make, model, variant) if x) or "everything"
     base = {"ok": True, "label": label, "gates": {
         "min_peers": CAR_MIN_PEERS, "percentile_min": CAR_PERCENTILE_MIN}}
@@ -1224,7 +1227,8 @@ def identify_payload(db_path: str | Path = DEFAULT_DB, html: str = "") -> dict:
         if key is None and rec.price_aud and rec.odometer_km \
                 and rec.odometer_km % ROUND_KM != 0:
             hit = df[(df["make"] == rec.make) & (df["model"] == rec.model)
-                     & (df["variant"] == rec.variant)
+                     & (df["variant"] == _trims.resolve(df, rec.make, rec.model,
+                                                        rec.variant))
                      & (df["price_aud"] == rec.price_aud)
                      & (df["odometer_km"] == rec.odometer_km)]
             if not hit.empty:

@@ -114,16 +114,37 @@ def selection_index(df: pd.DataFrame) -> dict:
     return index
 
 
-def resolve(label: str, index: dict) -> tuple | None:
+def stored_aliases(df: pd.DataFrame) -> dict:
+    """label -> selection for trims asked for by their STORED name (an old
+    link, a saved comparison), pointing at the trim each is now grouped
+    under. Kept out of selection_index, which is iterated as the list of
+    selections that exist - an alias there would be a duplicate row."""
+    out: dict[str, tuple] = {}
+    if df.empty or "variant_stored" not in df:
+        return out
+    alias = (df.dropna(subset=["make", "model", "variant", "variant_stored"])
+             [["make", "model", "variant", "variant_stored"]].drop_duplicates())
+    alias = alias[alias["variant"] != alias["variant_stored"]]
+    for mk, mo, va, st in alias.itertuples(index=False):
+        out.setdefault(f"{mk} {mo} {' '.join(str(st).split())}",
+                       (str(mk), str(mo), str(va), "trim"))
+    return out
+
+
+def resolve(label: str, index: dict, aliases: dict | None = None) -> tuple | None:
     """A label the user typed -> a selection, or None if it matches nothing.
-    Case-insensitive and whitespace-tolerant, because these get typed."""
+    Case-insensitive and whitespace-tolerant, because these get typed. A
+    real selection always wins over a stored-name alias."""
     label = " ".join(str(label or "").split())
     if not label:
         return None
-    if label in index:
-        return index[label]
-    folded = {k.casefold(): v for k, v in index.items()}
-    return folded.get(label.casefold())
+    for table in (index, aliases or {}):
+        if label in table:
+            return table[label]
+        folded = {k.casefold(): v for k, v in table.items()}
+        if label.casefold() in folded:
+            return folded[label.casefold()]
+    return None
 
 
 # --------------------------------------------------------------- catalogue
@@ -319,10 +340,10 @@ def compare_payload(db_path: str | Path = DEFAULT_DB,
                 "unknown": [], "basis": _BASIS, "rows": _row_meta(),
                 "live_only": bool(live_only), "max": MAX_SELECTIONS}
 
-    index = selection_index(df)
+    index, aliases = selection_index(df), stored_aliases(df)
     cols, unknown = [], []
     for raw in (labels or [])[:MAX_SELECTIONS]:
-        sel = resolve(raw, index)
+        sel = resolve(raw, index, aliases)
         if sel is None:
             unknown.append(str(raw))
             continue

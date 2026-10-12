@@ -205,6 +205,13 @@ def build_parser() -> argparse.ArgumentParser:
     q = sub.add_parser("status", help="dataset overview")
     q.set_defaults(fn=_cmd_status)
 
+    q = sub.add_parser("trims", help="how stored trim names are grouped; save or "
+                                     "compare a record of it (read-only)")
+    q.add_argument("--save", default=None, help="write a record of every car's group")
+    q.add_argument("--against", default=None, help="compare with a saved record")
+    q.set_defaults(fn=lambda a: __import__("vpa.trims", fromlist=["cli"]).cli(
+        a.db, a.save, a.against))
+
     q = sub.add_parser("backup", help="snapshot the database to data/backups/")
     q.add_argument("--out", default=None, help="destination directory")
     q.set_defaults(fn=_cmd_backup)

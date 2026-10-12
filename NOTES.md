@@ -86,6 +86,7 @@ promise ("what preview says is what commit does") holds by construction.
 | field | where | meaning |
 |---|---|---|
 | `detail_level` | `Store.frame()` (vpa/store.py) | `brief` if `source=='quick_add'` else `full` |
+| `variant` (grouped), `variant_stored` | `trims.add_trim_cols()`, called by `Store.frame()` | the trim the analysis groups by; the trim exactly as stored |
 | `model_line`, `year_band`, `segment`, `body_segment` | `segments.add_segment_cols()` | analysis groupings |
 | `sel_key` | `viewer_xlsx.generate()` | `"Make Model Variant"`, or `"-"` when trimless |
 
@@ -1076,6 +1077,24 @@ Keep these — each one was a bug that took a while to find.
 * The background listener restarts itself when VPA's code changes
   (phone._code_stamp: newest mtime of vpa/*.py/js/html/css): it stops
   listening first, then starts a fresh copy, so it never serves old code.
+
+**Trim names grouped on read (12/10/2026)** - `vpa/trims.py`
+* The database keeps every trim exactly as imported. `Store.frame()` adds
+  `variant_stored` (as stored) and replaces `variant` with the name the
+  analysis GROUPS by, so every page, the workbook and the phone copy share one
+  set of names. Nothing is written: a wrong rule is fixed in trims.py and
+  every past car regroups at once. Everything that WRITES a trim (edit,
+  rename, quick add, import) goes through SQL on the stored name.
+* A trim asked for by a stored name (old link, saved comparison) resolves to
+  its group: `trims.resolve` in explore._select/_select_multi/detail/car,
+  `compare.stored_aliases` (kept OUT of selection_index, which is iterated
+  as the list of selections - an alias there is a duplicate row).
+* `python -m vpa trims [--save F] [--against F]`: per make, stored names ->
+  groups; save a record of every car's group, or list which cars moved
+  since one. Baseline before any rule: data/trim_record_2026-10-12_before.json
+  (5,268 cars, 815 groups). Stage 1 had NO rules - 80 page fingerprints
+  (pickers, details, 40 car checks, typed checks, Compare, watchlist) were
+  identical before and after. `tests/check_trims.py`.
 
 **Saves that went wrong - the 09/10/2026 Falcon sweep (12/10/2026)**
 * WHAT HAPPENED (poor connection): the watch folder took "page 13" from a

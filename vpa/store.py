@@ -152,7 +152,10 @@ def _frame_from(conn) -> pd.DataFrame:
     # model+price+date accept both; richer stats restrict to 'full'.
     df["detail_level"] = (df["source"] == "quick_add").map(
         {True: "brief", False: "full"})
-    return df
+    # The trim the analysis groups by, worked out on read; the stored name
+    # stays alongside as variant_stored (see trims.py)
+    from .trims import add_trim_cols
+    return add_trim_cols(df)
 
 
 def connect_readonly(path: str | Path = DEFAULT_DB) -> sqlite3.Connection:

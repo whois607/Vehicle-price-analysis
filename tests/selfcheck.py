@@ -2,7 +2,7 @@
 
     python -m tests.selfcheck      (from the vehicle-price-analysis directory)
 
-Regenerates tests/synthetic/, ingests every format through the real
+Regenerates tests/synthetic/selfcheck/, ingests every format through the real
 pipeline into a throwaway database, then asserts parsing, normalisation,
 dedupe, price history, aggregation, mileage adjustment, forecasting and the
 too-little-data refusal — each check printed with the actual numbers.
@@ -26,7 +26,7 @@ from vpa.store import Store
 from . import make_synthetic
 
 ROOT = Path(__file__).resolve().parent
-SYN = ROOT / "synthetic"
+SYN = ROOT / "synthetic" / "selfcheck"   # only its own folder - other suites run beside it
 DB = SYN / "test.db"
 OUTDIR = SYN / "out"
 
@@ -170,6 +170,32 @@ def main() -> int:
           f"reason: '{sparse_fit.get('reason', '')}'")
 
     # ---- 6. forecasting ladder ------------------------------------------------
+    print("\n== Theil-Sen: numpy against scipy.stats.theilslopes ==")
+    import warnings
+    import numpy as np
+    from scipy.stats import theilslopes
+    rng = np.random.default_rng(7)
+    same = total = 0
+    for t in range(5000):
+        n = int(rng.integers(2, 13))
+        x = (np.sort(rng.integers(0, 6, n)).astype(float) if t % 3 == 0
+             else np.arange(n, dtype=float))
+        y = np.round(rng.normal(30000, 9000, n)) if t % 2 else rng.normal(0, 1, n)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            s1, c1, _, _ = theilslopes(y, x)
+        s2, c2 = forecast._theil_sen(x, y)
+        total += 1
+        same += (np.isnan(s1) and np.isnan(s2)) or (s1 == s2 and c1 == c2)
+    check("our Theil-Sen equals scipy's bit for bit, including tied x values", same == total,
+          f"{same}/{total} identical (every third input has repeated months)")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        s1, _, _, _ = theilslopes(np.array([1.0, 2.0, 3.0]), np.array([4.0, 4.0, 4.0]))
+        s2, _ = forecast._theil_sen(np.array([4.0, 4.0, 4.0]), np.array([1.0, 2.0, 3.0]))
+    check("all x equal gives no slope in both, rather than a number",
+          np.isnan(s1) and np.isnan(s2), f"scipy {s1}, ours {s2}")
+
     print("\n== forecasting ==")
     prepped_adj = analyze.apply_mileage_adjustment(prepped, mfit)
     pcol = "price_adj" if mfit.get("usable") else "price_aud"

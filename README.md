@@ -228,16 +228,44 @@ The database is the point of the tool, so writing to it is deliberately hard:
 ## Tests
 
 ```bash
-python -m tests.run_all
+python -m tests.run_all            # every suite, six at a time (~1.5 min)
+python -m tests.run_all --quick    # without the real-Excel suite (~45 s)
+python -m tests.run_all --real     # then the phone app against a read-only copy
+                                   # of YOUR data, database proven untouched (~3.5 min)
 ```
 
-Twenty-three suites, ~700 checks: the core pipeline, title parsing, saved
-pages, advert links, duplicates, building the workbook, the watch folder, phone sync and the phone
-app's numbers against the laptop's (needs node), the import UI
-over live HTTP, the analysis pages, manual editing, the watchlist, turnover
-(and every case where it must refuse), bulk upload and its undo, identity
-repair and merge, and the Excel workbook driven through real Excel via COM (that last one needs Excel
-installed, and is the slow one).
+26 suites, about 820 checks: the core pipeline, title parsing, saved
+pages and advert links, duplicates, building the workbook, the watch folder,
+phone sync and the phone app's numbers against the laptop's (needs node),
+the import UI over live HTTP, the analysis pages, manual editing, the
+watchlist, turnover (and every case where it must refuse), bulk upload and
+its undo, identity repair and merge, trim grouping, that no shared file
+names a site, and the Excel workbook driven through real Excel via COM
+(needs Excel; it runs alone, after the rest). Each suite's full output is
+kept in `tests/synthetic/logs/`.
+
+## Changing the code safely
+
+The data is the one thing that cannot be rebuilt, so every change follows
+the same steps:
+
+1. **Commit first**, so there is a clean point to compare against and go
+   back to.
+2. `python tools/dbguard.py --save` - a fingerprint of every row in the
+   database (read-only).
+3. Make the change, with a test that fails without it.
+4. `python -m tests.run_all --real` - every suite, then the phone app on
+   your real data.
+5. `python tools/equiv.py` - the committed code and the working tree, side
+   by side on a copy of your data: every kept page's records and keys,
+   links, photos, duplicates, Explore, car cards, Compare. Every difference
+   it reports should be one you meant.
+6. `python tools/scratch_app.py` - try it by hand on a throwaway copy.
+7. `python tools/dbguard.py --check` - the data is exactly as it was.
+
+`python tools/linecov.py` and `tools/suite_overlap.py` show which lines
+each suite runs and what only it covers - the evidence for folding or
+retiring a suite.
 
 ## Layout
 
@@ -251,7 +279,7 @@ vpa/            the package - the only irreplaceable code
   bulk.py       direct upload: no preview, backup first, undo after
   starred.py    the watchlist
 tests/          verification suites
-tools/          Windows launcher, make_package (a shareable zip)
+tools/          launcher, make_package, and the safety tools above
 data/           YOUR data and your private sites.json - gitignored
 output/         generated reports and the workbook - gitignored
 ```

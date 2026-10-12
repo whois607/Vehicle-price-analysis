@@ -32,7 +32,7 @@ import random
 import statistics
 from pathlib import Path
 
-OUT = Path(__file__).resolve().parent / "synthetic"
+OUT = Path(__file__).resolve().parent / "synthetic" / "selfcheck"   # its own folder: suites run side by side
 
 START_LEVEL = 17_000.0
 SLOPE_PER_MONTH = -150.0

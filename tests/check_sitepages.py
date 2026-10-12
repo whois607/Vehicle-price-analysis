@@ -1,4 +1,5 @@
-"""Examplecars saved pages: seller type, state and body type, in both formats.
+"""Saved site pages: seller type, state and body type, in both formats - and
+the advert links built from what they stored.
 
     python -m tests.check_sitepages
 
@@ -22,7 +23,11 @@ import sys
 import tempfile
 from pathlib import Path
 
+import sqlite3
+
+from vpa import links
 from vpa.adapters import htmlpage
+from vpa.store import Store
 
 RESULTS: list[tuple[bool, str]] = []
 
@@ -91,6 +96,51 @@ CARS = [{"id": "EXA-AD-101", "price": 31400, "km": 187000},
         {"id": "EXA-AD-303", "price": 46500, "km": 117600}]
 
 
+PATH = "/cars/details/2016-ford-falcon-g6e-turbo-fg-x-auto/EXA-AD-20616552/"
+FULL = "https://www.examplecars.example" + PATH
+
+
+def link_checks() -> None:
+    """Links from a stored car to its advert (vpa/links.py): a bare path
+    gets its site's address in front, nothing is guessed for a path of
+    unknown origin, and the stored value is never touched."""
+    print("\n== the full address of an advert ==")
+    check("a examplecars bare path gets the site in front",
+          links.ad_url(PATH, "examplecars") == FULL, links.ad_url(PATH, "examplecars"))
+    check("a full address is left exactly as it is",
+          links.ad_url("https://example.com/ad/1", "exampleads") == "https://example.com/ad/1",
+          "unchanged")
+    check("a protocol-relative address gets https",
+          links.ad_url("//www.examplecars.example" + PATH, None) == FULL, "https: added")
+    check("a bare path from a site with no known address is not guessed",
+          links.ad_url(PATH, "exampleads") is None and links.ad_url(PATH, None) is None,
+          "no link rather than a wrong one")
+    check("no link, an empty link and a NaN all give None",
+          all(links.ad_url(v, "examplecars") is None for v in (None, "", "  ", float("nan"))),
+          "nothing to open")
+    check("the archive link lists copies of the full address",
+          links.archive_url(FULL) == "https://web.archive.org/web/*/" + FULL
+          and links.archive_url(None) is None, links.archive_url(FULL))
+
+    print("\n== the stored value is never touched ==")
+    with tempfile.TemporaryDirectory() as tmp:
+        db = Path(tmp) / "t.db"
+        store = Store(db)
+        from vpa.schema import make_record
+        rec = make_record({"make": "Ford", "model": "Falcon", "variant": "XR6 Turbo",
+                           "year": 2016, "price": 31400, "odometer": 187000,
+                           "listing_id": "EXA-AD-20616552", "url": PATH,
+                           "capture_date": "2026-09-01"}, source="examplecars")
+        store.ingest([rec], source_file="t", adapter="t")
+        links.ad_url(store.frame()["url"].iloc[0], "examplecars")
+        store.close()
+        con = sqlite3.connect(db)
+        stored = con.execute("SELECT url FROM vehicles").fetchone()[0]
+        con.close()
+        check("the database still holds the bare path it was given",
+              stored == PATH, stored)
+
+
 def main() -> int:
     print("\n== the flat format examplecars moved to ==")
     # each listing's object repeated, as the real page repeats it per event
@@ -147,6 +197,8 @@ def main() -> int:
     got = parse(ld(CARS), tiles(CARS, body="6cyl"))
     check("a tile with no recognisable body word gives no body type",
           all("body_type" not in got[c["id"]] for c in CARS), "not invented from other text")
+
+    link_checks()
 
     fails = [n for ok, n in RESULTS if not ok]
     print(f"\n== {len(RESULTS) - len(fails)}/{len(RESULTS)} checks passed ==")

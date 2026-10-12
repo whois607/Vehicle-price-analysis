@@ -957,9 +957,15 @@ In the order I'd do them:
 ## 7. Verification
 
 ```powershell
-& $py -m tests.run_all          # all fourteen suites, ~120s
+& $py -m tests.run_all          # all 26 suites, six at a time, ~1.5 min
+& $py -m tests.run_all --real   # + the phone app on a read-only copy of the real data
+& $py tools/equiv.py            # committed code vs working tree, on the real data
 & $py -m vpa verify             # cross-check the real database (seconds)
 ```
+
+The table below is the original core; `tests/run_all.py` lists every
+suite in one line each, and README "Changing the code safely" is the
+procedure.
 
 | suite | what it proves |
 |---|---|
@@ -973,7 +979,6 @@ In the order I'd do them:
 | `tests/check_importui.py` (74) | live HTTP: preview writes nothing, commit matches preview, FB price-led paste binds prices correctly, empty-HTML hint, `/api/overview` totals agree with `/api/status`, and `_mix_scenario_db()` proves a changed pool (pooled median −61.5%) still reports the true same-cars +10%; the workbook rebuilds into a throwaway file with `os.startfile` watched, proving `/api/viewer/build` opens nothing while `/api/viewer/open` opens exactly once; the data check card precedes 'dataset at a glance'; `/`, `/?v=1` and `/index.html` all serve, with the module run in a SUBPROCESS because importing it hides the `NameError: PAGE` this catches; and all five pages share one header, one stylesheet (placed first, never re-declared) and unique element ids |
 | `tests/check_turnover.py` (30) | seeds four trims, one per failure mode, because the value of `turnover.py` is its refusals: a clean weekly run rates correctly (exits, arrivals, and car-days asserted as a PROPERTY of the intervals rather than a hand-computed constant, so a reseed cannot silently break it); a trim with `IMG-` ids is refused and its untrackable cars counted; two captures sharing NO car break the span instead of reporting a 100% clearance; a capture a sixth the size of its predecessor has its ten 'exits' shown but never rated, and `_scope()` is asserted to treat widening and narrowing OPPOSITELY; a car that repriced out of a page filter is vetoed rather than counted as a delisting; time on market is bracketed with the floor strictly below the ceiling, asserted on a car seeded to both arrive AND leave inside the window so the check cannot pass vacuously; and the word "sold" is asserted absent from every verdict and note |
 | `tests/check_bulk.py` (24) | writing with no preview, and undoing it: the backup is proved to hold the state from BEFORE the run (a copy taken after would restore the very thing you are undoing); one file through the preview path and the bulk path produces an identical key set, so the fast path cannot drift into being a second importer; a bot-protection page and an empty file are refused by name while the good files in the same run land; undo returns the counts exactly, keeps pre-existing cars WITH their earlier sightings, empties a column the run filled by COALESCE, and leaves an unrelated observation-less car alone; a forced failure in the restore step rolls back byte-identical and the run is still undoable afterwards |
-| `tests/check_perf.py` (19) | every speed-up against the code it replaced, kept verbatim in the test: numpy Theil-Sen equals `scipy.stats.theilslopes` bit for bit on 5,000 random, tied and all-x-equal inputs; the forecast bootstrap gives identical intervals to the old `rng.choice` loop; `cohort`/`_day_sets` equal the old pandas versions on None/NaN/pd.NA/int/derived ids and a missing day; the `by_variant` cache computes once for two requests, applies the highlighted trim per request, hands out copies, and MISSES after a one-dollar price edit that changes no count; Explore and Compare fetch latest-wins and show a busy state |
 | `tests/check_quickadd.py` (16) | stats/percentage maths, mode edge cases, commit into the shared store |
 | `tests/check_viewer.py` (45) | opens the workbook in **real Excel via COM** and reads what the formulas compute; styling preservation, MyView untouched, block sizing, layout migration, and an error scan that separates intentional `#N/A` chart gaps from real `#REF!`/`#VALUE!` |
 
@@ -1077,6 +1082,38 @@ Keep these — each one was a bug that took a while to find.
 * The background listener restarts itself when VPA's code changes
   (phone._code_stamp: newest mtime of vpa/*.py/js/html/css): it stops
   listening first, then starts a fresh copy, so it never serves old code.
+
+**Workflow and tests streamlined (12/10/2026)**
+* `run_all` runs suites six at a time (each already worked in its own
+  folder; `selfcheck` used to delete ALL of tests/synthetic/ and now owns
+  tests/synthetic/selfcheck/ only - that was the one thing stopping
+  parallel runs, and it also killed a real-data parity run started beside
+  it). The Excel COM suite runs alone after the rest. 187 s -> ~80 s;
+  `--quick` (no Excel) ~45 s. Logs: tests/synthetic/logs/.
+* Real-data phone parity 12+ min -> 2.5 min with every selection and card
+  still checked: its laptop side re-read the database for each of ~2,400
+  calls (0.58 s a selection, ~0.5 s a card); now each worker reads the
+  frame once (the memo phonebuild uses), 4 workers, overlapping the phone
+  build. Proven: the expected answers are byte-identical to before apart
+  from the fixture's seed time. Its own folder (phone_app_real) so it can
+  run beside the fixture suite. `run_all --real` runs it with the private
+  site file and checks the real database fingerprint before and after.
+* Retired `check_perf`: its core was today's code against verbatim copies
+  of the code it replaced (bootstrap loop, pandas cohort, groupby day sets)
+  - one-time proofs from 27/09. Kept, moved: Theil-Sen vs scipy (selfcheck),
+  the cohort/day-set awkward inputs as fixed expected values and the
+  by_variant cache (check_turnover), latest-wins loading (check_explore).
+  `check_links` folded into `check_sitepages`. Each moved check was shown
+  to fail on a planted fault.
+* Found with tools/linecov.py (sys.monitoring, no package) +
+  tools/suite_overlap.py: unique lines per suite. Low unique coverage is a
+  prompt to read the suite, not a verdict: sitepages/titles cover few
+  unique lines but pin real page formats.
+* New tools: `dbguard.py` (row-level fingerprint, read-only, --save /
+  --check), `equiv.py` (git archive of a commit vs the working tree, both
+  run on copies of the real data; proven by running it against the stage 7
+  commit: only the duplicates section differs, 0 -> 8 proven, 0 -> 8
+  review), `scratch_app.py` (the app on a throwaway copy, port 8873).
 
 **No site named in the code (12/10/2026)** - `vpa/sites.py`
 * So the code can be packaged and shared, it names no website. Everything
@@ -1620,7 +1657,7 @@ Keep these — each one was a bug that took a while to find.
   went nowhere. `vpa/links.py` puts the site's address in front wherever a
   link leaves the app (Explore payloads, watchlist, turnover, the Bulk
   session list, the workbook's `_Data` url column, report CSVs). The stored
-  value is never changed (`tests/check_links.py` pins that).
+  value is never changed (`tests/check_sitepages.py` pins that).
 * `vpaAdLinks(url, gone)` in the shared page script draws two links: the
   advert, and the Internet Archive's list of copies of the same address. A
   car no longer listed gets the archive link first - a site usually takes

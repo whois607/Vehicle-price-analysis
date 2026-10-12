@@ -294,12 +294,115 @@ def run_checks() -> int:
           not one["usable"] and one["reason"],
           one["reason"][:50])
 
+    cohort_and_cache_checks()
+
     fails = [n for ok, n in RESULTS if not ok]
     print(f"\n== {len(RESULTS) - len(fails)}/{len(RESULTS)} checks passed ==")
     if fails:
         print("FAILED: " + "; ".join(fails))
         return 1
     return 0
+
+
+def line_frame(n_trims=6, cars=10, days=("2026-03-01", "2026-03-08",
+                                         "2026-03-15", "2026-03-22")):
+    """A model line whose trims each lose a car per week."""
+    import pandas as pd
+    rows = []
+    for t in range(n_trims):
+        for c in range(cars):
+            for di, d in enumerate(days):
+                if c < di:                 # car c has left by capture c+1
+                    continue
+                rows.append({"key": f"k{t}-{c}", "listing_id": f"EXA-AD-{t}{c:03d}",
+                             "day": d, "variant": f"T{t}",
+                             "price_aud": 20000.0 + 500 * c + 1000 * t,
+                             "odometer_km": 100000.0 + c, "year": 2014,
+                             "state": "NSW", "seller_type": "dealer",
+                             "raw_title": f"car {t}-{c}", "url": None})
+    return pd.DataFrame(rows)
+
+
+def cohort_and_cache_checks() -> None:
+    """The cohort and day sets on awkward values (pinned when they were
+    rewritten as single passes, 27/09/2026), and the by_variant cache."""
+    import numpy as np
+    import pandas as pd
+    print("\n== cohort and day sets on awkward values ==")
+    awkward = pd.DataFrame({
+        "key": ["a", "b", "c", "d", "e", "f", "g", "h", 5],
+        "listing_id": ["EXA-AD-1", "EXB-AD-9", None, np.nan, "IMG-abc", "BASE-1",
+                       12345, "exa-ad-lower", "EXA-AD-2"],
+        "day": ["2026-03-01", "2026-03-01", "2026-03-08", None, "2026-03-08",
+                "2026-03-01", "2026-03-08", "2026-03-01", "2026-03-08"],
+    })
+    awkward_na = awkward.astype({"listing_id": "object"})
+    awkward_na.loc[3, "listing_id"] = pd.NA
+    for label, frame in (("None/NaN/int/derived ids", awkward),
+                         ("pd.NA in the id column", awkward_na)):
+        kept = list(turnover.cohort(frame).index)
+        check(f"the cohort keeps only site ids, exact case ({label})",
+              kept == [0, 1, 8], f"kept rows {kept}")
+    days = turnover._day_sets(awkward)
+    check("day sets: a missing day skipped, days in order, keys as text",
+          {d: sorted(v) for d, v in days.items()}
+          == {"2026-03-01": ["a", "b", "f", "h"], "2026-03-08": ["5", "c", "e", "g"]}
+          and list(days) == ["2026-03-01", "2026-03-08"],
+          f"{ {d: sorted(v) for d, v in days.items()} }")
+    line = line_frame()
+    check("day sets on a whole model line",
+          {d: len(v) for d, v in turnover._day_sets(line).items()}
+          == {"2026-03-01": 60, "2026-03-08": 54, "2026-03-15": 48, "2026-03-22": 42},
+          "60, 54, 48, 42 cars")
+
+    print("\n== by_variant cache: keyed on content, never shared by reference ==")
+    turnover._BV_CACHE.clear()
+    calls = {"n": 0}
+    real = turnover.by_variant_uncached
+
+    def counting(*a, **k):
+        calls["n"] += 1
+        return real(*a, **k)
+    turnover.by_variant_uncached = counting
+    try:
+        first = turnover.by_variant(line, selected=["T1"], full_line=line)
+        second = turnover.by_variant(line, selected=["T2"], full_line=line)
+        check("the same rows asked twice are computed once",
+              calls["n"] == 1, f"{calls['n']} computation(s) for two requests")
+        sel1 = [r["variant"] for r in first["rows"] if r["selected"]]
+        sel2 = [r["variant"] for r in second["rows"] if r["selected"]]
+        check("the highlighted trim is per request, not cached",
+              sel1 == ["T1"] and sel2 == ["T2"], f"first {sel1}, second {sel2}")
+        ref = real(line, ["T2"], line)
+        check("a cached answer equals a fresh computation",
+              second == ref, f"{len(ref['rows'])} rows, pooled {ref['pooled']}")
+        second["rows"][0]["rate30"] = -1
+        second["pooled"]["exits"] = -1
+        third = turnover.by_variant(line, selected=["T2"], full_line=line)
+        check("altering a returned answer does not reach the next caller",
+              third == ref, "the cache hands out copies")
+        edited = line.copy()                  # a manual correction: same counts
+        edited.loc[edited.index[0], "price_aud"] += 1
+        before = calls["n"]
+        turnover.by_variant(edited, selected=["T2"], full_line=edited)
+        check("one corrected price, with every count unchanged, is a new key",
+              calls["n"] == before + 1,
+              "recomputed after a one-dollar edit that no count would notice")
+        renamed = line.copy()
+        renamed.loc[renamed.index[0], "state"] = "VIC"
+        before = calls["n"]
+        turnover.by_variant(renamed, selected=None, full_line=renamed)
+        check("a change to a column the maths ignores still misses, never hits",
+              calls["n"] == before + 1, "any cell counts; a stale hit is not possible")
+        for i in range(turnover._BV_MAX + 5):
+            other = line.copy()
+            other["price_aud"] += i + 10
+            turnover.by_variant(other, None, other)
+        check("the cache is bounded", len(turnover._BV_CACHE) <= turnover._BV_MAX,
+              f"{len(turnover._BV_CACHE)} entries, limit {turnover._BV_MAX}")
+    finally:
+        turnover.by_variant_uncached = real
+        turnover._BV_CACHE.clear()
 
 
 def main() -> int:

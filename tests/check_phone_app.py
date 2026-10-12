@@ -53,6 +53,13 @@ ROOT = Path(__file__).resolve().parent
 WORK = ROOT / "synthetic" / "phone_app_work"
 DB = WORK / "app_test.db"
 OUT = WORK / "phone_out"
+
+
+def _use_work(folder: Path) -> None:
+    """The real-data mode works in its own folder, so it can run beside the
+    fixture suite without either deleting the other's files."""
+    global WORK, DB, OUT
+    WORK, DB, OUT = folder, folder / "app_test.db", folder / "phone_out"
 STATS = ROOT.parent / "vpa" / "phone_app" / "stats.js"
 RUNNER = ROOT / "phone_js_check.js"
 
@@ -155,6 +162,8 @@ def seed() -> None:
 def main(argv=None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     source = Path(argv[argv.index("--db") + 1]) if "--db" in argv else None
+    if source:
+        _use_work(ROOT / "synthetic" / "phone_app_real")
     if WORK.exists():
         shutil.rmtree(WORK)
     WORK.mkdir(parents=True)
@@ -181,9 +190,20 @@ def main(argv=None) -> int:
                         "2026-08-20")
     before = hashlib.sha256(DB.read_bytes()).hexdigest()
 
+    # the phone copy builds in its own process while this one works out the
+    # laptop's answers - neither waits for the other
+    build = subprocess.Popen([sys.executable, "-m", "vpa", "--db", str(DB), "phone-copy", "--out", str(OUT)],
+                             cwd=str(ROOT.parent), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                             text=True, encoding="utf-8")
+    try:
+        exp, counts = laptop_answers(source)
+    except BaseException:
+        build.kill()
+        raise
+    out, err = build.communicate()
+
     print("\n== building the phone copy (separate process) ==")
-    r = subprocess.run([sys.executable, "-m", "vpa", "--db", str(DB), "phone-copy", "--out", str(OUT)],
-                       cwd=str(ROOT.parent), capture_output=True, text=True, encoding="utf-8")
+    r = subprocess.CompletedProcess(build.args, build.returncode, out, err)
     meta = json.loads((OUT / "meta.json").read_text(encoding="utf-8")) if (OUT / "meta.json").exists() else {}
     check("the copy builds, every selection through the laptop's page code",
           r.returncode == 0 and meta.get("counts", {}).get("selections", 0) > 10,
@@ -202,24 +222,49 @@ def main(argv=None) -> int:
               photos.PATH.match(p) for r in snap["vehicles"]["rows"] for p in (r[ph_i] or [])),
           f"{with_ph} of {len(snap['vehicles']['rows'])} cars")
     (WORK / "snapshot.json").write_text(json.dumps(snap), encoding="utf-8")
-
+    (WORK / "expect.json").write_text(json.dumps(exp), encoding="utf-8")
     print("\n== the laptop's answers ==")
+    print(f"  {counts}")
+
+    print("\n== the phone's answers (stats.js under node) ==")
+    node = shutil.which("node")
+    if not node:
+        check("node is installed to run the phone's code", False, "node not found on PATH")
+        return 1
+    r = subprocess.run([node, str(RUNNER), str(STATS), str(WORK / "snapshot.json"),
+                        str(WORK / "expect.json")], capture_output=True, text=True, encoding="utf-8")
+    if r.returncode != 0:
+        check("stats.js runs", False, r.stderr.strip()[-400:])
+        return 1
+    res = json.loads(r.stdout.strip().splitlines()[-1])
+    for cat, v in res.items():
+        name = ("every screen renders cleanly (no errors, NaN or undefined)"
+                if cat == "screens render" else f"{cat} match the laptop")
+        check(name, v["bad_total"] == 0,
+              f"{v['n'] - v['bad_total']} of {v['n']}" + (" | " + " | ".join(v["bad"][:3]) if v["bad"] else ""))
+
+    passed = sum(ok for ok, _ in RESULTS)
+    print(f"\n== {passed}/{len(RESULTS)} checks passed ==")
+    return 0 if passed == len(RESULTS) else 1
+
+
+def laptop_answers(source) -> tuple[dict, str]:
+    """What the laptop's own page code answers, for stats.js to match:
+    every selection (and some filtered), car cards, links, parsing,
+    rounding, compare ranks. The page calls run in parallel workers
+    (tests/_phone_laptop.py), each reading the frame once."""
     from vpa import compare, explore
+    from tests import _phone_laptop
     df = explore._frame(DB)
     index = compare.selection_index(df)
-    details = []
-    for label, (mk, mo, va, lv) in index.items():
-        details.append({"label": label, "mk": mk, "mo": mo, "va": va, "filters": None,
-                        "payload": explore.detail_payload(DB, mk, mo, va)})
+    dspec = [(label, mk, mo, va, None) for label, (mk, mo, va, lv) in index.items()]
     for label in ("Ford Falcon", "Ford Falcon XR6", "Holden Commodore", "Ford"):
         if label not in index:
             continue
         mk, mo, va, lv = index[label]
         for f in ({"year_min": 2010, "year_max": 2014}, {"price_max": "30,000"},
                   {"price_min": 20000}, {"keyword": "xr"}, {"year_max": 2012, "price_min": 15000}):
-            p = explore.detail_payload(DB, mk, mo, va, **f)
-            if not p.get("empty"):
-                details.append({"label": label, "mk": mk, "mo": mo, "va": va, "filters": f, "payload": p})
+            dspec.append((label, mk, mo, va, f))
     cards = []
     trims = [(label, sel) for label, sel in index.items() if sel[3] == "trim"]
     if source:                      # real data: the 20 largest trims, sampled
@@ -228,8 +273,7 @@ def main(argv=None) -> int:
     for label, (mk, mo, va, lv) in trims:
         pool = df[(df["make"] == mk) & (df["model"] == mo) & (df["variant"] == va)]
         for key in sorted(pool["key"].unique())[:60 if source else None]:
-            p = explore.car_payload(DB, mk, mo, va, key=key)
-            cards.append({"mk": mk, "mo": mo, "va": va, "opts": {"key": key}, "payload": p})
+            cards.append({"mk": mk, "mo": mo, "va": va, "opts": {"key": key}})
         for typed in ({"price": "$18,990", "odometer": "98k", "year": "2012", "seller": "Private seller",
                        "state": "New South Wales"},
                       {"price": "25000", "odometer": "", "year": "2014"},
@@ -240,8 +284,7 @@ def main(argv=None) -> int:
                       # no price: the expected range on its own, on each basis
                       {"odometer": "120000"}, {"odometer": "900,000 km"}, {"odometer": "3000"},
                       {"year": "2013", "seller": "dealer"}, {"odometer": "75k", "state": "VIC"}):
-            p = explore.car_payload(DB, mk, mo, va, **typed)
-            cards.append({"mk": mk, "mo": mo, "va": va, "opts": typed, "payload": p})
+            cards.append({"mk": mk, "mo": mo, "va": va, "opts": typed})
     # a model with no trim picked: stored cars captured without a trim, and
     # typed cars with and without a year (explore.CAR_NEAR_YEARS fallback)
     for label, (mk, mo, va, lv) in index.items():
@@ -249,13 +292,19 @@ def main(argv=None) -> int:
             continue
         line = df[(df["make"] == mk) & (df["model"] == mo)]
         for key in sorted(line[line["variant"].isna()]["key"].unique())[:12 if source else None]:
-            cards.append({"mk": mk, "mo": mo, "va": None, "opts": {"key": key},
-                          "payload": explore.car_payload(DB, mk, mo, None, key=key)})
+            cards.append({"mk": mk, "mo": mo, "va": None, "opts": {"key": key}})
         for typed in ({"price": "20000", "year": "2012"}, {"odometer": "100000", "year": "2014"},
                       {"price": "20000"}, {"year": "1990", "price": "5000"},
                       {"year": "1971", "odometer": "50000"}, {"year": "1972", "price": "60000"}):
-            cards.append({"mk": mk, "mo": mo, "va": None, "opts": typed,
-                          "payload": explore.car_payload(DB, mk, mo, None, **typed)})
+            cards.append({"mk": mk, "mo": mo, "va": None, "opts": typed})
+    dpay, cpay = _phone_laptop.answers(DB, [s[1:] for s in dspec],
+                                       [(c["mk"], c["mo"], c["va"], c["opts"]) for c in cards])
+    details = [{"label": label, "mk": mk, "mo": mo, "va": va, "filters": f, "payload": p}
+               for (label, mk, mo, va, f), p in zip(dspec, dpay)
+               if f is None or not p.get("empty")]       # a filter that empties the view is skipped
+    for c, p in zip(cards, cpay):
+        c["payload"] = p
+    _phone_laptop._init(str(DB))                         # the rest, in this process, read it once too
     links = []
     with sqlite3.connect(DB) as c:
         ids = [r[0] for r in c.execute("SELECT listing_id FROM vehicles WHERE listing_id IS NOT NULL LIMIT 6")]
@@ -284,34 +333,11 @@ def main(argv=None) -> int:
         compare_exp.append({"labels": labels, "want": [
             {k: c.get(k) for k in ("label", "rank", "vs_cheapest", "median")} for c in cp["columns"]]})
 
-    def plain(o):
-        return json.loads(json.dumps(o, default=lambda v: v.item() if hasattr(v, "item") else str(v)))
+    plain = _phone_laptop.plain
     exp = {"now": datetime.now().isoformat(timespec="seconds"), "details": plain(details),
            "cards": plain(cards), "links": plain(link_exp), "parse": parse,
            "rounding": rounding, "compare": plain(compare_exp)}
-    (WORK / "expect.json").write_text(json.dumps(exp), encoding="utf-8")
-    print(f"  {len(details)} selection views, {len(cards)} car cards, {len(links)} links")
-
-    print("\n== the phone's answers (stats.js under node) ==")
-    node = shutil.which("node")
-    if not node:
-        check("node is installed to run the phone's code", False, "node not found on PATH")
-        return 1
-    r = subprocess.run([node, str(RUNNER), str(STATS), str(WORK / "snapshot.json"),
-                        str(WORK / "expect.json")], capture_output=True, text=True, encoding="utf-8")
-    if r.returncode != 0:
-        check("stats.js runs", False, r.stderr.strip()[-400:])
-        return 1
-    res = json.loads(r.stdout.strip().splitlines()[-1])
-    for cat, v in res.items():
-        name = ("every screen renders cleanly (no errors, NaN or undefined)"
-                if cat == "screens render" else f"{cat} match the laptop")
-        check(name, v["bad_total"] == 0,
-              f"{v['n'] - v['bad_total']} of {v['n']}" + (" | " + " | ".join(v["bad"][:3]) if v["bad"] else ""))
-
-    passed = sum(ok for ok, _ in RESULTS)
-    print(f"\n== {passed}/{len(RESULTS)} checks passed ==")
-    return 0 if passed == len(RESULTS) else 1
+    return exp, f"{len(details)} selection views, {len(cards)} car cards, {len(links)} links"
 
 
 if __name__ == "__main__":

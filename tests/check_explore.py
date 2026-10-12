@@ -354,6 +354,27 @@ def run_checks() -> int:
           and "stale" in later["workbook"] and "built" in later["workbook"],
           f"workbook={later['workbook']}")
 
+    print("\n== the pages: latest click wins, and they show they are working ==")
+    from vpa import compare, explore
+    from vpa.ui import CHROME_JS, CHROME_CSS
+    check("the shared chrome has a busy bar and a latest-wins fetch",
+          "function vpaLatest" in CHROME_JS and "function vpaBusy" in CHROME_JS
+          and "#vpaload" in CHROME_CSS and "AbortController" in CHROME_JS,
+          "vpaBusy, vpaLatest, #vpaload")
+    check("Explore loads a selection and a car through it",
+          'vpaLatest("detail"' in explore.PAGE and 'vpaLatest("car"' in explore.PAGE
+          and 'fetch("/api/explore/detail' not in explore.PAGE,
+          "no bare fetch left for either")
+    check("Explore says what it is loading",
+          "loading ${selLabel()}" in explore.PAGE, "selection line reads 'loading …'")
+    check("Compare loads through it too",
+          'vpaLatest("compare"' in compare.PAGE
+          and 'fetch("/api/compare?' not in compare.PAGE, "no bare fetch left")
+    check("the controls stay usable while results are faded",
+          explore.PAGE.count('class="card keep"') >= 2
+          and 'class="card keep"' in compare.PAGE,
+          "picker cards are exempt from the fade")
+
     fails = [n for ok, n in RESULTS if not ok]
     print(f"\n== {len(RESULTS) - len(fails)}/{len(RESULTS)} checks passed ==")
     if fails:

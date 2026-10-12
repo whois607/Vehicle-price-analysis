@@ -147,6 +147,10 @@ dates is three observations sharing one identity, not three cars.
   typical figure and the wider spread, with the basis named. With a price,
   the same range sits under the verdict. The phone works it out offline and
   matches the laptop exactly.
+- **Bad saves are caught**: a page cut off by a stalled download is
+  refused, and a page saved twice (so the next one was probably skipped) is
+  skipped with a warning - on every import path. Neither counts as a page in
+  the watch folder.
 - **Star from the phone**: tap ☆ on a car's screen on the phone, with or
   without signal. The change reaches the laptop's watchlist on the next sync
   — the only change a phone can make. Switch it off, and see what phones

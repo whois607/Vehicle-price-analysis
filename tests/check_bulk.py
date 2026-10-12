@@ -176,7 +176,10 @@ def run_checks() -> int:
     check("the car list is returned, never stored with the run",
           '"cars"' not in stored and "SSE-AD-700" not in stored,
           f"bulk_runs.files is {len(stored)} chars of per-file summary only")
-    r_pre = bulk.run([FILE_A], DB)
+    # the same cars a week on: new sightings of cars already stored (the
+    # identical file on its own day would now be skipped as a page saved
+    # twice - tests/check_savewarn.py)
+    r_pre = bulk.run([dict(FILE_A, name="week3.csv", capture_date="2026-05-18")], DB)
     check("a car already in the database before the run is 'seen before'",
           r_pre["cars"] and all(c["known"] for c in r_pre["cars"]),
           f"{sum(c['known'] for c in r_pre['cars'])}/{len(r_pre['cars'])} known")

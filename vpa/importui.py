@@ -66,6 +66,12 @@ def parse_payload(payload: dict, db_path: str | Path) -> dict:
     blocked = _challenge(text, name)
     if blocked:
         return {"ok": False, "error": blocked, "challenge": True}
+    # a download that stopped partway: refused here exactly as Bulk upload
+    # and the watch folder refuse it (bulk.cut_off)
+    from .bulk import cut_off, repeat_message
+    cut = cut_off(text, name)
+    if cut:
+        return {"ok": False, "error": cut, "cutoff": True}
 
     suffix = _SUFFIXES.get(fmt or "", Path(name).suffix or ".txt")
     tmp = tempfile.NamedTemporaryFile("w", suffix=suffix, delete=False,
@@ -123,6 +129,9 @@ def parse_payload(payload: dict, db_path: str | Path) -> dict:
                 "saved pages are empty shells (the listings never reach the "
                 "file) - on Facebook, select the results text (Ctrl+A, "
                 "Ctrl+C) and use the paste box instead.")
+    elif rows and all(r["status"] == "duplicate" for r in rows):
+        # every car already recorded for its day: a page saved twice
+        note = repeat_message(", ".join(sorted({str(r["capture_date"]) for r in rows})))
     return {"ok": True, "note": note,
             "format": used_fmt, "raw_count": raw_count,
             "dropped": raw_count - len(rows), "rows": rows,

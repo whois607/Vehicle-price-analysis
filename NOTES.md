@@ -1077,6 +1077,31 @@ Keep these — each one was a bug that took a while to find.
   (phone._code_stamp: newest mtime of vpa/*.py/js/html/css): it stops
   listening first, then starts a fresh copy, so it never serves old code.
 
+**Saves that went wrong - the 09/10/2026 Falcon sweep (12/10/2026)**
+* WHAT HAPPENED (poor connection): the watch folder took "page 13" from a
+  re-save of page 12 (every car already recorded; 0 written) - the real next
+  page was never saved, so ~18 cars "vanished" that day (FG X G6E Turbo
+  median of 4 cars jumped). Then a download stalled at exactly 655,360
+  bytes, the size stayed still 0.8 s, and it was imported as page 20: prices
+  and km right (the listings JSON is near the top), body type / state /
+  seller missing - one new car stored with no body type. The clock was
+  right: the pages' own server times (2026-10-08T23:15Z) = 10:15 AEDT,
+  matching the laptop. The FG MkII XR6 rise is real (two cheap cars gone,
+  two dearer new ones; median of 16).
+* FIXED (12/10/2026) with the app's own tools, rehearsed on a copy first:
+  bulk.undo(360) (the re-save; nothing written, only its run), bulk.undo(367)
+  (the cut-off file), then the complete copy of that page re-imported as run
+  368, dated 2026-10-09. Afterwards every (key, day, price, note, km) was
+  identical; the one change was that car's body type None -> sedan.
+  Backups: data/backups/vpa_backup_20261012_1153*.db.
+* PREVENTED: `bulk.cut_off` refuses a saved web page with no `</html>` in
+  its last 8 KB (all 236 good kept pages pass; only the two cut copies
+  fail) - on Bulk upload, the watch folder and Import with preview. A page
+  whose EVERY car is already recorded for its day (Store.preview's rule)
+  is skipped in bulk.run - no run, nothing written - with "the page after
+  the previous one was probably skipped"; the preview says the same. In the
+  watch folder neither counts towards the page total. `tests/check_savewarn.py`.
+
 **Expected asking price (05/10/2026)**
 * `explore._estimate` / stats.js `estimate`, returned as `estimate` by
   car_payload / carCard for TYPED cars (stored cars: null). car_payload no

@@ -58,6 +58,7 @@ it is counted and reported afterwards instead of before.
 from __future__ import annotations
 
 import json
+import re
 import tempfile
 from datetime import datetime
 from pathlib import Path
@@ -90,6 +91,42 @@ class _Rich(ValueError):
     """
 
 
+class _Warn(ValueError):
+    """A refusal about how the page was SAVED, not a broken file: `kind` is
+    "cutoff" (the download stopped partway) or "repeat" (a page saved twice).
+    The pages show it as a warning to act on - save the page again."""
+
+    def __init__(self, msg: str, kind: str):
+        super().__init__(msg)
+        self.kind = kind
+
+
+def cut_off(text: str, name: str = "") -> str | None:
+    """A saved web page that ends before the page does - a download that
+    stalled on a poor connection. Seen on 2026-10-09: two copies of a results
+    page stopped at exactly 640 KB. The listings' prices sit near the top of
+    a carsales page, so it still parsed - but body type, state and seller
+    sit further down, and came out empty. Refused, with the reason; None if
+    the file is fine or is not a web page at all."""
+    head = (text or "").lstrip()[:400].lower()
+    if not (Path(name).suffix.lower() in (".htm", ".html")
+            or head.startswith(("<!doctype html", "<html"))):
+        return None
+    if re.search(r"</html\s*>", text[-8192:], re.I):
+        return None
+    return (f"this saved page is cut off - it stops partway through "
+            f"({len(text.encode('utf-8', 'replace')) // 1024:,} KB, with no end of page), "
+            f"which happens when a download stalls on a poor connection. Listings in it "
+            f"can be missing details, so it was not imported. Save the page again.")
+
+
+def repeat_message(day: str | None) -> str:
+    return (f"every car on this page is already recorded{' for ' + day if day else ''} - it is "
+            f"a page you had already saved, so nothing was written. If you were saving "
+            f"pages in order, the page AFTER the previous one was probably skipped: go "
+            f"back and save it.")
+
+
 def _parse_one(name: str, text: str, source=None, fmt=None, capture_date=None):
     """One file -> (records, format, raw_count) or raise ValueError(reason).
 
@@ -105,6 +142,9 @@ def _parse_one(name: str, text: str, source=None, fmt=None, capture_date=None):
         # the other end: the browser must not have to guess which of these
         # strings is markup and which is a raw exception message.
         raise _Rich(blocked)
+    cut = cut_off(text, name)
+    if cut:
+        raise _Warn(cut, "cutoff")
     suffix = _SUFFIXES.get(fmt or "", Path(name).suffix or ".txt")
     tmp = tempfile.NamedTemporaryFile("w", suffix=suffix, delete=False,
                                       encoding="utf-8")
@@ -185,6 +225,7 @@ def run(files: list[dict], db_path: str | Path = DEFAULT_DB,
         except ValueError as exc:
             reports.append({"name": name, "ok": False, "error": str(exc),
                             "html": isinstance(exc, _Rich),
+                            "warn": getattr(exc, "kind", None),
                             "records": 0, "obs_new": 0, "vehicles_new": 0,
                             "duplicates": 0})
             continue
@@ -216,7 +257,23 @@ def run(files: list[dict], db_path: str | Path = DEFAULT_DB,
         # each file lists them - the page keeps a running list per session.
         # Returned to the page only; never stored in bulk_runs.
         cars, seen = [], set()
+        written = 0
         for p in parsed:
+            # A page whose EVERY car is already recorded for its day (the
+            # same rule ingest() and the preview use) is a page saved twice -
+            # on 2026-10-09 the watch folder took such a copy as "page 13"
+            # and the real next page was never saved. Skipped, not written,
+            # and said plainly.
+            verdicts = store.preview(p["records"])
+            if verdicts and all(v["status"] == "duplicate" for v in verdicts):
+                days = sorted({str(r.capture_date) for r in p["records"]})
+                reports.append({"name": p["name"], "ok": False, "html": False,
+                                "warn": "repeat", "error": repeat_message(", ".join(days)),
+                                "records": len(p["records"]), "obs_new": 0,
+                                "vehicles_new": 0, "duplicates": len(p["records"])})
+                p["skip"] = True
+                continue
+            written += 1
             # the ingest_log row this ingest is about to create; ingest()
             # returns counts but not its own batch id, and the run must be
             # able to name its batches to undo them
@@ -257,6 +314,15 @@ def run(files: list[dict], db_path: str | Path = DEFAULT_DB,
                 "days": sorted({r.capture_date for r in p["records"]}),
             })
 
+        if not written:
+            # nothing new in any file: no run to record, nothing to undo
+            store.conn.commit()
+            order = {str(f.get("name") or "pasted.txt"): i for i, f in enumerate(files)}
+            reports.sort(key=lambda r: order.get(r["name"], 0))
+            return {"ok": True, "wrote": False, "run": None, "backup": backup,
+                    "files": reports, "totals": _totals(reports), "cars": [],
+                    "reason": "every car in these files is already recorded, so nothing "
+                              "was written"}
         cur = store.conn.execute(
             """INSERT INTO bulk_runs (ts, label, backup_path, batches, before,
                files, rows_parsed, vehicles_new, obs_new, obs_duplicate)
@@ -274,7 +340,7 @@ def run(files: list[dict], db_path: str | Path = DEFAULT_DB,
     # never the import
     from . import photos
     for p in parsed:
-        if p["format"] == "html":
+        if p["format"] == "html" and not p.get("skip"):
             photos.remember_html(db_path, p["text"],
                                  max((str(r.capture_date) for r in p["records"]), default=None))
         p["text"] = ""
@@ -518,6 +584,7 @@ __CHROME_CSS__
  #runsBox td{vertical-align:middle;padding-top:4px;padding-bottom:4px}
  td.num{white-space:nowrap}
  tr.bad td{background:var(--bad-row)}
+ tr.savewarn td{background:var(--warn-soft)}
  /* a refusal explains itself in full - it can afford to, because the box
     it lives in scrolls rather than growing the page */
  .why{margin-top:3px;font-size:11.5px;color:var(--warn);max-width:460px}
@@ -822,7 +889,7 @@ function render(res){
   const run=res.run;
   // file by file, in drop order; a refused file keeps its place in the list
   res.files.forEach(f=>{
-    if(!f.ok){SESSION.push({run,refused:true,file:f.name,error:f.error,html:f.html});return;}
+    if(!f.ok){SESSION.push({run,refused:true,file:f.name,error:f.error,html:f.html,warn:f.warn});return;}
     (res.cars||[]).filter(c=>c.file===f.name).forEach(c=>SESSION.push({...c,run}));
   });
   RUNTOTALS.push({run,t:res.totals,undone:false});
@@ -856,9 +923,9 @@ function renderSession(){
   // compared with the live, priced car before it.
   let prev=null,prevN=0,n=0;const drops=[];
   const rows=SESSION.map(c=>{
-    if(c.refused)return `<tr class="bad"><td class="num">—</td><td colspan="6">
-      <b>${esc(c.file)}</b> refused<div class="why">${c.html?c.error:esc(c.error)}</div></td>
-      <td><span class="tag warn">refused</span></td></tr>`;
+    if(c.refused)return `<tr class="${c.warn?"savewarn":"bad"}"><td class="num">—</td><td colspan="6">
+      <b>${esc(c.file)}</b> ${c.warn?"not imported":"refused"}<div class="why">${c.html?c.error:esc(c.error)}</div></td>
+      <td><span class="tag warn">${{repeat:"saved twice",cutoff:"cut off"}[c.warn]||"refused"}</span></td></tr>`;
     n++;
     const gone=isUndone(c);
     let drop=false;
@@ -989,7 +1056,13 @@ function wshow(st){
 function wtake(evs){
   let any=false;
   evs.forEach(ev=>{
-    if(ev.result){render(ev.result);any=true;}
+    if(ev.result){render(ev.result);any=true;
+      // a page saved twice, or cut off: said where you are looking, and kept
+      // up long enough to go back and save the page again
+      const w=(ev.result.files||[]).find(f=>f.warn);
+      if(w){$("wnote").innerHTML=`<b style="color:var(--warn)">${w.warn==="repeat"
+          ?"Page saved twice - the next page may have been skipped":"Cut-off page - save it again"}:</b> ${esc(w.error)}`;
+        $("wnote").title=w.error;WHOLD=Date.now()+30000;}}
     if(ev.run&&!WRUNS.includes(ev.run))WRUNS.push(ev.run);
     if(ev.archive_error){$("wnote").innerHTML=`<b style="color:var(--warn)">${esc(ev.name)}</b>: ${esc(ev.archive_error)}`;
       WHOLD=Date.now()+15000;}

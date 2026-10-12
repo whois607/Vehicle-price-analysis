@@ -161,6 +161,9 @@ dates is three observations sharing one identity, not three cars.
   and suggests shorthand (FG2 = FG MkII) to approve - which writes only
   `vpa/trim_rules.json`, backed up first. Uploads worded unlike your data are
   flagged, never refused.
+- **Duplicates across wordings**: the Duplicates page compares trims as they
+  are grouped, so one car stored as "XT BF MkII" and later as "XT BF Mk II" is
+  found; it shows how each was stored, and still merges only when you say so.
 - **Bad saves are caught**: a page cut off by a stalled download is
   refused, and a page saved twice (so the next one was probably skipped) is
   skipped with a warning - on every import path. Neither counts as a page in

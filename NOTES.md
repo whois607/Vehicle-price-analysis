@@ -1223,6 +1223,20 @@ Keep these — each one was a bug that took a while to find.
   Check, so a link saved on the phone before a regrouping still opens.
 * tests/check_savewarn: also waits for the session to say "complete" (it
   read "3 of 3, watching" once - the count lands a moment first).
+* Stage 8 - duplicates on the grouped trim (merge._rows adds `group`, the
+  grouped name, and `named`; _components links on `group`; rule 1 needs a
+  REAL trim: words beyond the generation, or a generation the stored name
+  wrote itself ("FG X") - never one the year supplied, so a trimless "C4"
+  pair is "no variant", not offered). Everything else unchanged: the
+  seven rules, proven / your judgement / not offered, one transaction,
+  backup, exact undo. The page shows each car's trim as stored and a
+  neutral "trim worded: XT BF Mk II / XT BF MkII" tag. Real data (copy,
+  nothing merged by me): 0 -> 8 proven and 0 -> 8 for judgement - all the
+  same story: the 28/07/2026 captures (no ad id) stored Falcon trims as
+  "MkII", the 17/08 saved pages (site ad id) as "Mk II", so each such car
+  looked like it left the market on 28/07; proven ones share an exact odd
+  odometer (143,700 / 352,833 / 400,544 km), year and state. One more group
+  refused as a relisted advert (two ad ids).
 * tests/check_savewarn: the watch-folder checks now wait for the RESULT
   (inbox._take archives the file a moment before recording it - reading
   on "file gone" raced and failed once in a full run).

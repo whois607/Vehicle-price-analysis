@@ -32,6 +32,11 @@ them under a derived name, worked out on read. Checked here:
     where the data holds the long form - never BMW's "M"; approving writes
     ONLY the rules file (a copy here - the real one is checked unchanged),
     backed up first, and the cars join their group; removing undoes it;
+  * duplicates are found on the GROUPED trim: one car stored once as
+    "XT BF MkII" (no ad id) and once as "XT BF Mk II" (site ad id) is offered
+    as proven, says how each was worded, merges and undoes exactly - while a
+    pair whose only trim is a generation from the year (a trimless "C4") is
+    never offered;
   * every search finds the grouped names: Explore's keyword, Compare and
     old links, quick add's list and prices, the phone's old labels;
   * the car check falls back, when a trim has fewer than 8 priced cars (or
@@ -51,7 +56,8 @@ import sqlite3
 import sys
 from pathlib import Path
 
-from vpa import bulk, compare, explore, importui, phonebuild, quickadd, trims, trimspage
+from vpa import (bulk, compare, dupes, explore, importui, merge, phonebuild, quickadd, trims,
+                 trimspage)
 from vpa.schema import make_record
 from vpa.store import Store, read_frame
 
@@ -547,6 +553,65 @@ def main() -> int:
     check("Compare finds old labels too", not cp["unknown"]
           and [c["label"] for c in cp["columns"]] == ["Audi S5 quattro B9", "Chevrolet Corvette C4"],
           f"{[c['label'] for c in cp['columns']]}")
+
+    print("\n== duplicates on the grouped trim ==")
+    dd = WORK / "dupes.db"
+    shutil.copy(DB, dd)
+    pairs = [  # (stored trim, listing id, year, price, km, day)
+        ("XT BF MkII", None, 2008, 4900, 218740, "2026-07-28"),
+        ("XT BF Mk II", "SSE-AD-555001", 2008, 4900, 218740, "2026-08-17"),
+        ("Auto", None, 1986, 21000, 98123, "2026-07-28"),          # a trimless C4
+        ("Auto MY86", "SSE-AD-555002", 1986, 21000, 98123, "2026-08-17"),
+        ("FG X", None, 2015, 30500, 77321, "2026-07-28"),          # trim = the code it wrote
+        ("FG X", "SSE-AD-555003", 2015, 30500, 77321, "2026-08-17")]
+    recs = []
+    for i, (va, lid, yr, pr, km, day) in enumerate(pairs):
+        mk, mo = (("Chevrolet", "Corvette") if yr == 1986 else ("Ford", "Falcon"))
+        recs.append(make_record({"listing_id": lid, "make": mk, "model": mo, "variant": "x",
+                                 "year": yr, "price": pr, "odometer": km, "state": "NSW",
+                                 "capture_date": day, "raw_title": f"{yr} {mk} {mo} pair{i}"},
+                                "carsales"))
+    with Store(dd) as st:
+        st.ingest(recs)
+        for i, (va, *_rest) in enumerate(pairs):
+            st.conn.execute("UPDATE vehicles SET variant = ? WHERE raw_title LIKE ?", (va, f"% pair{i}"))
+        st.conn.commit()
+    with Store(dd) as st:
+        g = dupes._groups(st)
+    lab = {x["label"]: x for x in g["proven"] + g["review"]}
+    check("one car stored as 'XT BF MkII' and 'XT BF Mk II' is offered as proven",
+          "Ford Falcon XT BF MkII" in {x["label"] for x in g["proven"]}
+          and "Ford Falcon FG X" in {x["label"] for x in g["proven"]},
+          f"proven: {sorted(x['label'] for x in g['proven'])}")
+    check("a pair whose only 'trim' is the year's generation (C4) is never offered",
+          not any("Corvette" in x["label"] for x in g["proven"] + g["review"]) and g["refused"].get("no variant", 0) >= 1,
+          f"refused: {g['refused']}")
+    pl = dupes.payload(dd)
+    xt = next(x for x in pl["proven"] if x["label"] == "Ford Falcon XT BF MkII")
+    check("the page says how each was stored", any(f["field"] == "trim" and f["is"] == "worded"
+          and f["value"] == "XT BF Mk II / XT BF MkII" for f in xt["facts"])
+          and {c["stored_trim"] for c in xt["cars"]} == {"XT BF MkII", "XT BF Mk II"},
+          next(f["value"] for f in xt["facts"] if f["field"] == "trim"))
+    with Store(dd) as st:
+        fp0 = merge._fingerprint(st)
+        n0 = st.conn.execute("SELECT COUNT(*) FROM vehicles").fetchone()[0]
+    r = dupes.merge(dd, [xt["id"]])
+    with Store(dd) as st:
+        fp1 = merge._fingerprint(st)
+        n1 = st.conn.execute("SELECT COUNT(*) FROM vehicles").fetchone()[0]
+        kept = st.conn.execute("SELECT variant, listing_id FROM vehicles WHERE key = ?",
+                               (xt["winner"],)).fetchone()
+    check("merging it keeps every price, folds one identity into the site-id one",
+          r["ok"] and fp1 == fp0 and n1 == n0 - 1 and tuple(kept) == ("XT BF Mk II", "SSE-AD-555001"),
+          f"vehicles {n0} -> {n1}; kept {tuple(kept)}; backup {Path(r['backup']).name}")
+    u = dupes.undo(dd, r["batch"])
+    with Store(dd) as st:
+        back = st.conn.execute("SELECT key, variant FROM vehicles WHERE key IN (%s) ORDER BY key"
+                               % ",".join("?" * len(xt["keys"])), xt["keys"]).fetchall()
+        fp2 = merge._fingerprint(st)
+    check("...and undoing it puts both back exactly as they were stored",
+          u["ok"] and fp2 == fp0 and sorted(v for _, v in back) == ["XT BF Mk II", "XT BF MkII"],
+          f"{[tuple(b) for b in back]}")
 
     check("reading wrote nothing", db_hash() == h0, h0)
     passed = sum(ok for ok, _ in RESULTS)

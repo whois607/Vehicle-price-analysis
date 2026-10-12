@@ -19,7 +19,12 @@ inspection. So the bar here is not "probably the same car" - it is a set of
 conditions under which two different cars essentially cannot qualify.
 
 THE RULE - every condition must hold, or the group is reported and LEFT ALONE
-  1. Same source, make, model and variant, and the variant must be recorded.
+  1. Same source, make, model and trim AS THE ANALYSIS GROUPS IT (trims.py:
+     "quattro" and "Auto quattro MY18" of one model year are one trim -
+     since 12/10/2026; before, the stored text had to match exactly), and a
+     trim must be recorded: a name the rules built from the year alone
+     (a trimless Corvette is "C4") does not count, so a match never rests
+     on make, model and year.
   2. Some observation of each shares an EXACT price and an EXACT odometer.
   3. That odometer is not a whole thousand. 150,000 km is what people type
      when they mean "about 150k"; 267,999 km is a reading. Only readings
@@ -64,12 +69,33 @@ SITE_ID_PREFIXES = ("SSE-AD-", "OAG-AD-")
 
 
 def _rows(store: Store) -> list[dict]:
-    return [dict(r) for r in store.conn.execute("""
+    """Every observation with its vehicle, plus how the analysis groups the
+    trim: `group` (the grouped name, generation included) and `named`
+    (a real trim is recorded - see rule 1). `variant` stays the stored text."""
+    from . import trims
+    rows = [dict(r) for r in store.conn.execute("""
         SELECT o.id AS obs_id, o.key, o.capture_date, o.price_aud,
                o.price_note, o.odometer_km,
                v.source, v.listing_id, v.make, v.model, v.variant,
                v.year, v.state, v.first_seen, v.last_seen
         FROM observations o JOIN vehicles v ON v.key = o.key""").fetchall()]
+    df = store.frame()
+    grouped = {}
+    if not df.empty:
+        one = df.drop_duplicates("key")
+        txt = lambda v: v if isinstance(v, str) and v else None
+        for k, mk, mo, st, va, tb, gen in zip(one["key"], one["make"], one["model"],
+                                               one["variant_stored"], one["variant"],
+                                               one["trim_base"], one["generation"]):
+            va, tb, gen = txt(va), txt(tb), txt(gen)
+            # a real trim: words beyond the generation, or a generation the
+            # stored name itself wrote ("FG X") - not one the year supplied
+            written = trims.clean(trims.expand(mk, mo, st)) or ""
+            named = bool(va and (tb or (gen and gen in written)))
+            grouped[str(k)] = (va, named)
+    for r in rows:
+        r["group"], r["named"] = grouped.get(str(r["key"]), (r["variant"], bool(r["variant"])))
+    return rows
 
 
 def _is_site_id(listing_id) -> bool:
@@ -108,7 +134,7 @@ def _components(rows: list[dict]) -> tuple[list[list[str]], dict]:
     for r in rows:
         if r["price_aud"] is None or r["odometer_km"] is None:
             continue
-        sigs[(r["source"], r["make"], r["model"], r["variant"],
+        sigs[(r["source"], r["make"], r["model"], r["group"],
               r["price_aud"], r["odometer_km"])].add(r["key"])
 
     parent: dict[str, str] = {}
@@ -153,9 +179,10 @@ def _failures(comp: list[str], by_key: dict, evidence: dict) -> list[tuple[str, 
     obs = [r for k in comp for r in by_key[k]]
     sig = evidence.get(comp[0]) or evidence.get(comp[-1])
 
-    # -- 1. the trim must be recorded, or "same car" rests on make+model
-    if not by_key[comp[0]][0]["variant"]:
-        out.append(("no variant", "no variant recorded, so make and model "
+    # -- 1. a trim must be recorded, or "same car" rests on make+model (and
+    # perhaps the generation the year gave it)
+    if not all(by_key[k][0]["named"] for k in comp):
+        out.append(("no variant", "no trim recorded, so make, model and year "
                     "alone would have to carry the match"))
 
     # -- 2. the linking odometer must be a reading, not an approximation
@@ -207,7 +234,8 @@ def _failures(comp: list[str], by_key: dict, evidence: dict) -> list[tuple[str, 
 
 def _label(rows: list[dict]) -> str:
     v = rows[0]
-    return " ".join(str(x) for x in (v["make"], v["model"], v["variant"]))
+    return " ".join(str(x) for x in (v["make"], v["model"], v.get("group") or v["variant"])
+                    if x)
 
 
 def plan(store: Store) -> dict:

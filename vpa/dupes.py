@@ -19,8 +19,13 @@ THREE KINDS OF GROUP, and what this page does with each
     and "different cars" is remembered so the same group is not asked again.
   * NOT OFFERED - the data says they are different, or cannot be one car:
     two prices on one day, an odometer running backwards, a year or state
-    conflict, no variant, or two different site ad ids (a relisted advert
+    conflict, no trim, or two different site ad ids (a relisted advert
     is a new listing, not a lost one). Counted, never merged here.
+
+The trim is compared as the analysis GROUPS it (trims.py), so a car stored
+once as "quattro" and once as "Auto quattro MY18" can be found; each car's
+trim exactly as stored is shown beside it, and a group whose stored names
+differ says so.
 
 SAFETY - the same net as merge.py, plus undo
   * A backup before every merge and every undo.
@@ -170,6 +175,7 @@ def _car(store: Store, key: str, rows: list[dict]) -> dict:
                   for s in seen})
     return {
         "key": key, "listing_id": v["listing_id"], "source": v["source"],
+        "stored_trim": v["variant"],
         "url": links.ad_url(v["url"], v["source"]), "title": v["raw_title"],
         "year": v["year"], "state": v["state"], "seller_type": v["seller_type"],
         "body_type": v["body_type"], "odometer_km": rows[-1]["odometer_km"] if rows else None,
@@ -210,6 +216,11 @@ def payload(db_path: str | Path = DEFAULT_DB) -> dict:
             # per field as same / differs / not recorded on one, because
             # "no conflict" and "confirmed" are very different evidence.
             facts = []
+            # the trim as each was STORED: the same group, possibly worded
+            # differently ("quattro" / "Auto quattro MY18") - said, neutrally
+            worded = sorted({str(c["stored_trim"]) for c in cars if c["stored_trim"]})
+            if len(worded) > 1:
+                facts.append({"field": "trim", "is": "worded", "value": " / ".join(worded)})
             for f, name in (("year", "year"), ("state", "state"),
                             ("seller_type", "seller"), ("body_type", "body")):
                 vals = [c[f] for c in cars]
@@ -507,7 +518,8 @@ function carRows(g){
     const keep=c.key===g.winner;
     return `<tr><td>${keep?'<span class="tag good" title="this identity is kept; the others fold into it">keep</span>'
                         :'<span class="tag">fold in</span>'}</td>
-      <td>${vpaAdLinks(c.url,false,c)}<div class="cap" title="${esc(c.listing_id||"")}">${esc(c.listing_id||"no id")}</div></td>
+      <td>${vpaAdLinks(c.url,false,c)}<div class="cap" title="${esc(c.listing_id||"")}">${esc(c.listing_id||"no id")}</div>
+        <div class="cap" title="the trim exactly as stored">${esc(c.stored_trim||"no trim")}</div></td>
       <td>${esc(c.year||"")}</td><td>${esc(c.state||"")}</td><td>${esc(c.seller_type||"")}</td>
       <td class="sights">${c.sightings.map(s=>`${s.day} &nbsp;<b>${money(s.price)}</b> &middot; ${km(s.odometer_km)}`).join("<br>")}</td>
       <td>${c.captured.map(x=>`<div class="cap" title="${esc(x.file)}">${esc(x.adapter)} &middot; ${esc(x.at)}</div>`).join("")}</td></tr>`;
@@ -518,6 +530,7 @@ function facts(g){
   const f=(g.facts||[]).map(x=>x.is==="same"?`<span class="tag good">same ${x.field}: ${esc(x.value)}</span>`
     :x.is==="differs"?`<span class="tag warn">${x.field} differs: ${esc(x.value)}</span>`
     :x.is==="weak"?`<span class="tag unk" title="${esc(x.value)} - the May 2026 v2 captures record almost every car as a dealer sale (84 of 90), so this mismatch is weak evidence">${x.field} differs (weak)</span>`
+    :x.is==="worded"?`<span class="tag unk" title="the same trim, stored in different words - grouped as one by the trim rules (Trims page)">trim worded: ${esc(x.value)}</span>`
     :`<span class="tag unk" title="not recorded on at least one of them">${x.field} ${x.value?esc(x.value)+" on one only":"not recorded"}</span>`);
   (g.why_codes||[]).forEach((c,i)=>f.push(`<span class="tag unk" title="not proven: ${esc((g.why||[])[i]||c)}">`
     +`not proven: ${esc(WHY_SHORT[c]||c)}</span>`));

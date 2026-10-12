@@ -1,76 +1,95 @@
-# Vehicle Price Analysis (AU)
+# Vehicle Price Analysis
 
-A local, single-user price-analysis tool for the Australian used car and
-motorbike market. You collect listings by hand; it normalises them, keeps
-price history in SQLite, and tells you what a given trim is worth, which
-individual cars are cheap for their kilometres, and where your own shortlist
-sits — **with explicit uncertainty**. It says "not enough data" rather than
-inventing a curve.
+A local app for tracking used car and motorbike prices in Australia. You save
+listing pages as you browse, drop them into the app, and over a few weeks it
+builds up a price history: what a trim is worth, which cars are cheap for
+their kilometres, how fast each trim sells, and where prices are heading.
 
-Everything runs on your own machine. Nothing is uploaded anywhere.
+It runs on your own computer with a SQLite database. There is also a phone
+app that syncs a read-only copy over your home Wi-Fi.
 
-## What this is not
+![Explore page, light theme](docs/screenshots/laptop-explore-light.png)
 
-**It is not a scraper.** It has no fetching code, makes no requests to any
-listing site, logs into nothing, and cannot get past bot protection. It reads
-files *you* already have: pages you saved yourself with Ctrl+S, text you
-copied, or CSV/JSON you exported.
+*All screenshots use made-up demo data (`tools/demo_data.py`).*
 
-That is a deliberate design constraint, not an oversight. The major Australian
-listing sites have no public price API and their terms prohibit automated
-collection, so this tool stays on the other side of that line and always
-will. If you were hoping for something that harvests listings automatically,
-this is the wrong repository.
+## Screenshots
 
-It does include a detector for the case where a site served you a
-bot-protection page instead of results (`vpa/adapters/challenge.py`). That
-exists so the app can *tell you the file is not a listings page* and stop —
-it does nothing to circumvent the challenge.
+| Light | Dark |
+|---|---|
+| ![Explore, light](docs/screenshots/laptop-explore-light.png) | ![Explore, dark](docs/screenshots/laptop-explore-dark.png) |
+| ![Car check, light](docs/screenshots/laptop-car-light.png) | ![Car check, dark](docs/screenshots/laptop-car-dark.png) |
+| ![Compare, light](docs/screenshots/laptop-compare-light.png) | ![Compare, dark](docs/screenshots/laptop-compare-dark.png) |
 
-## Your data stays yours
+The phone app (home, a trim, one car):
 
-`.gitignore` excludes `data/` and `output/` entirely. That covers your
-database, your backups, your saved pages and your exported reports. Saved
-listing pages in particular are copies of someone else's content and must not
-be redistributed — do not commit them, and do not commit your database.
+![Phone app, light](docs/screenshots/phone-light.png)
+![Phone app, dark](docs/screenshots/phone-dark.png)
 
-## Naming your sites (private)
+## How it gets its data
 
-The code names no website. Which sites you capture from lives in one
-private file, `data/sites.json` (gitignored with the rest of `data/`):
-the label each site's pages are stored under, the words that recognise
-its saved pages and links, its address (for "open the advert" links),
-its ad-id prefixes, and its photo server. Copy `sites.example.json` to
-`data/sites.json` and fill it in. Without it the app still works: every
-import is labelled `other`, and there are no advert links or photos.
+You collect the listings yourself. The app has no scraper, makes no network
+requests to listing sites and doesn't log in anywhere. It only reads files
+you give it:
 
-A label becomes part of every stored car's identity, so once data is
-stored under one, never rename it.
+- web pages you saved with Ctrl+S
+- text you copied from a results page
+- CSV or JSON exports
 
-## Sharing the code
+Most listing sites don't offer a price API and don't allow automated
+collection, so this is the only way it works. If a site shows you a
+"checking your browser" page and you save that by mistake, the app tells
+you the file isn't a listings page and skips it.
 
-```bash
-python tools/make_package.py
-```
+## Features
 
-builds `output/vpa-<commit>.zip` from the committed code only - no
-database, no saved pages, no private site file, no git history - and
-refuses if any word from your private site file appears in it.
-`python -m tests.check_neutral` runs the same scan on the working tree.
-Share that zip, not the project folder (which holds your data) and not the
-git repository (whose history predates this).
+- **Explore**: median, quartiles and spread for any make, model or trim,
+  with a chart per capture day, supply over time, a monthly trend and a
+  forecast.
+- **Car check**: pick one car (or type in one you've seen) and see where it
+  sits against its trim, what cars like it ask for its kilometres, and
+  like-for-like comparisons by seller, state, year and gearbox.
+- **Price check**: enter kilometres and year and get the range similar cars
+  are asking.
+- **Mileage adjustment**: a robust fit of price against odometer, so cars
+  with different kilometres can be compared fairly.
+- **Turnover**: how many cars arrived and left between captures, how fast a
+  trim clears, and how long cars stay listed. It never claims a car sold;
+  it only knows the listing disappeared.
+- **Compare**: up to six selections side by side on the same statistics.
+- **Watchlist**: star cars and see how their prices move against their trim.
+- **Trim grouping**: "Auto quattro MY18" and "quattro", or "Mk II" and
+  "MkII", count as the same trim. Stored names are never changed. BMW,
+  Ford, Audi, Lexus and Corvette generations are recognised from codes and
+  model years.
+- **Duplicates**: finds the same car captured twice under different ids and
+  merges it only when you confirm. Every merge can be undone.
+- **Phone app**: a read-only copy of your data that works offline, with the
+  same numbers as the laptop. You can star cars from the phone.
+- **Light and dark themes** on both the laptop and the phone.
+- **Excel workbook** with pivots and charts, if you prefer spreadsheets.
+
+When there isn't enough data for a statistic, the app says so instead of
+showing a number.
 
 ## Install
 
-Needs Python 3.11 or newer.
+Python 3.11 or newer.
 
 ```bash
 python -m pip install -r requirements.txt
 ```
 
-Only `pandas`, `numpy` and `openpyxl` are needed for the core. The rest cover
-forecasting and the CLI report charts; the app degrades gracefully without
-them and says which method it used.
+Only `pandas`, `numpy` and `openpyxl` are required. The rest add
+forecasting and charts, and the app works without them.
+
+## Try it with demo data
+
+```bash
+python tools/demo_data.py
+```
+
+This builds a database of about 400 made-up cars and opens the app on it at
+`http://127.0.0.1:8873`. Nothing is written to your own `data/` folder.
 
 ## Run
 
@@ -78,215 +97,130 @@ them and says which method it used.
 python -m vpa import-ui
 ```
 
-That opens the app at `http://127.0.0.1:8765` — four pages, all local:
+The app opens at `http://127.0.0.1:8765`. On Windows, `Setup VPA.bat` adds
+a VPA shortcut to the Desktop and Start menu.
 
-| page | what it answers |
+| Page | What it's for |
 |---|---|
-| **Overview** | what you have collected, when, and whether the numbers add up (the data check) |
-| **Add data** | three modes: **Import with preview** (preview → edit → commit; nothing is written until you say so), **Bulk upload** (many files, no preview, backed up and undoable), **Quick add** (type a price you saw) |
-| **Explore** | what is one trim worth, where it is heading, and how one specific car compares to it |
-| **Compare** | several trims or models side by side, on identical statistics — including how fast each one clears |
-| **Phone** (nav button) | turn phone sync on and pair a phone: it then carries a read-only copy and shows the same Explore, car card, Price check and Compare figures with no signal |
+| Overview | what you've collected, and a check that the numbers add up |
+| Add data | import with preview, bulk upload, or quick add of a single price |
+| Explore | one trim in detail, and one car against its trim |
+| Compare | several trims or models side by side |
+| Duplicates | the same car captured twice |
+| Trims | how trim names are grouped, and the rules behind it |
+| Phone | turn on phone sync and pair a phone |
 
-On Windows, `Setup VPA.bat` puts a **VPA** shortcut (with the app's icon) on
-the Desktop and in the Start menu, so you can double-click it instead. It
-starts with no console window; if it cannot start, a message box says why.
+## Collecting listings
 
-### Command line
+1. Search on a listing site in your browser as usual.
+2. Save the results page (Ctrl+S), or select the results and copy them.
+3. Drop the files onto **Add data**. Each file keeps the date you saved it.
+4. Check the preview and commit.
+
+Once a search parses cleanly, you can switch to **Bulk upload** and drop a
+week's worth of files at once. It takes a backup first and each run can be
+undone. There is also a watch folder: anything you save into it is imported
+automatically.
+
+Do this every week or so and you get a price history. The same listing seen
+on three dates is stored as one car with three prices.
+
+## Your sites file
+
+The code doesn't name any website. The sites you collect from are listed in
+a private file, `data/sites.json`, which is never committed. It holds each
+site's label, the words that identify its pages and links, its address (for
+"open advert" links), its ad id format and its photo server. Copy
+`sites.example.json` to `data/sites.json` and fill it in.
+
+Without the file the app still works. Imports are labelled `other`, and
+there are no advert links or photos.
+
+The label is part of each stored car's identity, so don't rename a label
+once you have data under it.
+
+## Keeping the data safe
+
+- Imports show a preview and write nothing until you commit.
+- Bulk uploads take a backup first and can be undone completely.
+- Manual corrections run in a single transaction, check the totals before
+  saving, and record the old value so they can be undone.
+- `python -m vpa verify` recomputes the totals two independent ways and
+  compares them.
+
+`data/` and `output/` are in `.gitignore`. Saved pages are copies of other
+people's listings, so don't share them or your database.
+
+## Command line
 
 ```bash
-python -m vpa status                       # what is in the dataset
-python -m vpa ingest saved_page.html       # a page you saved
-python -m vpa ingest listings.csv --source mysite   # a label from data/sites.json
+python -m vpa status                       # what's in the database
+python -m vpa ingest saved_page.html       # import a saved page
+python -m vpa ingest listings.csv --source mysite
 python -m vpa add --make Ford --model Falcon --year 2012 --price "$18,990" --odo 145000
 python -m vpa report --segment "ford falcon"
-python -m vpa report --all                 # every segment
-python -m vpa export                       # dataset + summaries to CSV
+python -m vpa export                       # everything to CSV
 python -m vpa viewer                       # build the Excel workbook
-python -m vpa verify                       # cross-check the data against itself
-python -m vpa merge-duplicates             # dry run; --apply to act (proven only;
-                                           # the app's Duplicates page does the rest)
+python -m vpa verify                       # check the data against itself
+python -m vpa merge-duplicates             # dry run; --apply for proven ones only
 python -m vpa edit --history               # manual corrections, and undo
-python -m vpa photos                       # how many cars have a photo
+python -m vpa trims                        # how trim names are grouped
 python -m vpa photos --backfill            # read photo addresses from kept pages
 ```
-
-## How to collect listings
-
-1. Search on the listing site as you normally would, in your own browser.
-2. **Ctrl+S** the results page, or select the results and copy them.
-3. Drop the file(s) onto **Add data** — several at once is fine. Each
-   file keeps its own capture date, taken from when you saved it.
-4. Check the preview, fix anything wrong, commit.
-
-Once a make, model or trim parses cleanly and you have checked it a few
-times, switch Add data to **Bulk upload**: drop the whole week's files and they land with
-no preview. It backs up first and any run can be undone in full.
-
-Repeat weekly and you have price history. The same listing seen on three
-dates is three observations sharing one identity, not three cars.
-
-## What it works out
-
-- **Per trim**: median, quartiles, spread, supply, and how each moves per
-  capture day.
-- **Mileage adjustment**: a robust (Huber) fit of log price against odometer,
-  so every car can be restated at the same kilometres. Refused, with the
-  reason printed, when the odometer spread is too narrow to support it.
-- **One car vs its trim**: rank, percentile, expected price for its
-  kilometres, nearest comparables, and like-for-like splits by seller, state
-  and model year. Every panel is gated — below eight comparable vehicles it
-  declines to rank rather than guessing.
-- **Forecasts**: a ladder from robust trend to exponential smoothing, with
-  intervals, and a stated refusal when there is not enough history.
-- **Turnover**: what happened *between* the captures. Each capture is split
-  into cars carried over, cars back in view, brand-new listings, and cars
-  that cannot be tracked at all; cars last seen on a day hang below the line.
-  From that: how fast a trim clears (as a rate per 30 days and a half-life),
-  roughly how long a car sits before it goes, how old the standing stock is,
-  whether the cars that left were the cheap ones for their day, and how every
-  trim in the model line compares on the same measures. The Compare page
-  carries the same thing across *different* vehicles: the stats side by side,
-  plus a chart of what arrived and what left between each pair of captures.
-
-  It refuses rather than guesses, which is most of the work: listings with no
-  site ad id cannot be recognised across days, two captures that share no
-  cars are two different searches rather than a market that emptied, and a
-  capture much bigger than the one before inflates arrivals while one much
-  smaller inflates exits — so those two get opposite treatment. **It never
-  says "sold."** A listing can vanish by selling, being withdrawn, expiring,
-  or being re-listed under a new id.
-- **A watchlist**: star specific cars and see what each new import did to
-  them, including the figure that matters — how a car moved *relative to its
-  own trim*.
-- **Photos**: each car's photos from the advert, on the car card (a gallery),
-  beside every car in the lists, and on the phone. Only the photo
-  *addresses* are kept — read from the pages you saved, into
-  `data/photos.json`, never the database. A photo loads when you look at
-  that car, the way it would on the advert; nothing is downloaded ahead.
-  Cars captured from pasted text, or from uploads made before photos were
-  kept, have none.
-- **Expected asking price**: Price check (Explore → *Type one I've seen* on
-  the laptop, the Price check tab on the phone) works without a price: pick
-  the trim, enter kilometres (and year, seller, state if you know them),
-  press Enter, and get the range cars like it ask — the middle half, the
-  typical figure and the wider spread, with the basis named. With a price,
-  the same range sits under the verdict. The phone works it out offline and
-  matches the laptop exactly.
-- **Trim names grouped consistently**: stored trims stay exactly as imported,
-  but are grouped on read so "Auto quattro MY18" and "quattro", or "Mk II"
-  and "MkII", count as one trim (`python -m vpa trims` shows how). Gearbox
-  is its own column, and a car in a trim too small to judge is compared with
-  its model's cars of nearby years instead - said plainly on the card.
-- **Generations and the Trims page**: BMW chassis codes, Ford series codes and
-  year tables (Audi, Lexus, Corvette, early Mustangs) place each car in its
-  generation ("quattro B9"), and a thin trim is compared with the same trim of
-  any generation, then its generation, before nearby years. Classics (35+
-  years) get no expected price. The Trims page (nav: Trims) shows what is
-  placed, lays the year tables out to be checked, lists names the rules miss,
-  and suggests shorthand (FG2 = FG MkII) to approve - which writes only
-  `vpa/trim_rules.json`, backed up first. Uploads worded unlike your data are
-  flagged, never refused.
-- **Duplicates across wordings**: the Duplicates page compares trims as they
-  are grouped, so one car stored as "XT BF MkII" and later as "XT BF Mk II" is
-  found; it shows how each was stored, and still merges only when you say so.
-- **Bad saves are caught**: a page cut off by a stalled download is
-  refused, and a page saved twice (so the next one was probably skipped) is
-  skipped with a warning - on every import path. Neither counts as a page in
-  the watch folder.
-- **Star from the phone**: tap ☆ on a car's screen on the phone, with or
-  without signal. The change reaches the laptop's watchlist on the next sync
-  — the only change a phone can make. Switch it off, and see what phones
-  changed, on the laptop's Phone page.
-- **Light and dark**: every page, laptop and phone. On the laptop, the
-  screen / sun / moon button in the header (Match Windows, Light, Dark); on
-  the phone, *Sync & settings* → Appearance (Auto, Light, Dark). Auto
-  follows the system's own setting as it changes. The choice is kept in
-  that browser only.
-- **Excel workbook**: a full pivot-and-chart view, rebuilt on demand (a few
-  seconds, with progress on the button; the button shows a dot when the
-  workbook no longer matches the database).
-
-## Data integrity
-
-The database is the point of the tool, so writing to it is deliberately hard:
-
-- Import is preview-first; nothing is stored until you commit.
-- **Bulk** deliberately is not - that is what it is for - so it takes a backup
-  before every run, refuses anything that is not a listings page, and records
-  each run so it can be undone in full: exactly the sightings it added, only
-  the cars it introduced, and every car that already existed put back.
-- Manual corrections (`vpa/edit.py`) take a backup, run in one transaction,
-  check invariants before committing, roll back completely on any failure,
-  and record every change with its old value so it can be undone.
-- Identity migrations (`repair.py`) and identity merges (`merge.py`) each have
-  their own conditions and only act on what they can prove.
-- `python -m vpa verify` re-computes the totals two independent ways and
-  compares them, checks the Excel workbook against the live database, and
-  reports duplicates and split trim names.
 
 ## Tests
 
 ```bash
-python -m tests.run_all            # every suite, six at a time (~1.5 min)
-python -m tests.run_all --quick    # without the real-Excel suite (~45 s)
-python -m tests.run_all --real     # then the phone app against a read-only copy
-                                   # of YOUR data, database proven untouched (~3.5 min)
+python -m tests.run_all            # all 26 suites, six at a time (~1.5 min)
+python -m tests.run_all --quick    # skip the Excel suite (~45 s)
+python -m tests.run_all --real     # also check the phone app on a read-only
+                                   # copy of your own data (~3.5 min)
 ```
 
-26 suites, about 820 checks: the core pipeline, title parsing, saved
-pages and advert links, duplicates, building the workbook, the watch folder,
-phone sync and the phone app's numbers against the laptop's (needs node),
-the import UI over live HTTP, the analysis pages, manual editing, the
-watchlist, turnover (and every case where it must refuse), bulk upload and
-its undo, identity repair and merge, trim grouping, that no shared file
-names a site, and the Excel workbook driven through real Excel via COM
-(needs Excel; it runs alone, after the rest). Each suite's full output is
-kept in `tests/synthetic/logs/`.
+About 820 checks covering parsing, the statistics, every page over HTTP,
+duplicates and undo, phone sync, and the phone app's numbers against the
+laptop's (needs Node.js). The Excel suite opens the workbook in real Excel
+and needs Excel installed. Logs go to `tests/synthetic/logs/`.
 
-## Changing the code safely
+## Making changes
 
-The data is the one thing that cannot be rebuilt, so every change follows
-the same steps:
+The database can't be rebuilt, so changes follow the same routine:
 
-1. **Commit first**, so there is a clean point to compare against and go
-   back to.
-2. `python tools/dbguard.py --save` - a fingerprint of every row in the
-   database (read-only).
+1. Commit first.
+2. `python tools/dbguard.py --save` records a fingerprint of every row.
 3. Make the change, with a test that fails without it.
-4. `python -m tests.run_all --real` - every suite, then the phone app on
-   your real data.
-5. `python tools/equiv.py` - the committed code and the working tree, side
-   by side on a copy of your data: every kept page's records and keys,
-   links, photos, duplicates, Explore, car cards, Compare. Every difference
-   it reports should be one you meant.
-6. `python tools/scratch_app.py` - try it by hand on a throwaway copy.
-7. `python tools/dbguard.py --check` - the data is exactly as it was.
+4. `python -m tests.run_all --real`
+5. `python tools/equiv.py` runs the last commit and your working copy on a
+   copy of your data and lists every difference: imported records, links,
+   photos, duplicates, Explore, car checks and Compare.
+6. `python tools/scratch_app.py` opens the app on a throwaway copy to try
+   things by hand.
+7. `python tools/dbguard.py --check` confirms the data hasn't changed.
 
-`python tools/linecov.py` and `tools/suite_overlap.py` show which lines
-each suite runs and what only it covers - the evidence for folding or
-retiring a suite.
+To share the code, `python tools/make_package.py` builds a zip of the
+committed files only (no data, no history) and refuses if any name from
+your sites file appears in it.
 
 ## Layout
 
 ```
-vpa/            the package - the only irreplaceable code
-  adapters/     one module per input shape (saved HTML, pasted text, CSV/JSON)
-  analyze.py    the shared statistics engine
-  explore.py    the Explore page and one-car analysis
-  edit.py       manual corrections, with backup / transaction / undo
-  turnover.py   what left, what arrived, and when it refuses to say
-  bulk.py       direct upload: no preview, backup first, undo after
-  starred.py    the watchlist
-tests/          verification suites
-tools/          launcher, make_package, and the safety tools above
-data/           YOUR data and your private sites.json - gitignored
-output/         generated reports and the workbook - gitignored
+vpa/            the app
+  adapters/     readers for saved pages, pasted text, CSV and JSON
+  analyze.py    statistics
+  explore.py    Explore page and the car check
+  trims.py      trim grouping and generations
+  turnover.py   arrivals, exits and time listed
+  phone_app/    the phone app
+tests/          test suites
+tools/          demo data, packaging and the safety tools
+docs/           screenshots
+data/           your database and sites file (not committed)
+output/         reports and the workbook (not committed)
 ```
 
-`NOTES.md` is the engineering log: why things are built the way they are,
-what was tried and rejected, and the bugs that cost real time.
+`NOTES.md` is the development log: design decisions, things that were tried
+and dropped, and bugs worth remembering.
 
 ## Licence
 
-MIT — see `LICENSE`.
+MIT, see `LICENSE`.

@@ -89,6 +89,7 @@ def parse_payload(payload: dict, db_path: str | Path) -> dict:
         verdicts = store.preview(records)
     if used_fmt == "html":
         _hold_photos(text, max((str(r.capture_date) for r in records), default=None))
+        _hold_search(text, records)
 
     seen: set[tuple] = set()
     rows = []
@@ -167,6 +168,41 @@ def _hold_photos(text: str, day) -> None:
         pass
 
 
+# The search each previewed results page came from, by car: noted (sweeps.py)
+# only for pages whose cars are committed, like the photos above.
+_SEARCH_HELD: dict[str, tuple] = {}
+
+
+def _hold_search(text: str, records) -> None:
+    from . import sweeps
+    try:
+        total = sweeps.stated_total(text, records[0].source if records else None)
+        if total is None or total < len(records):
+            return
+        ref = (sweeps.page_title(text), total)
+        for r in records:
+            _SEARCH_HELD.pop(r.dedupe_key(), None)
+            _SEARCH_HELD[r.dedupe_key()] = ref
+        while len(_SEARCH_HELD) > 20000:
+            _SEARCH_HELD.pop(next(iter(_SEARCH_HELD)))
+    except Exception:
+        pass
+
+
+def _store_held_search(records, db_path) -> None:
+    from . import sweeps
+    groups: dict = {}
+    for r in records:
+        ref = _SEARCH_HELD.get(r.dedupe_key())
+        if ref:
+            groups.setdefault(ref, []).append(r)
+    for (title, total), recs in groups.items():
+        try:
+            sweeps.note_page(db_path, title, total, recs)
+        except Exception:
+            pass
+
+
 def _store_held_photos(records, db_path) -> None:
     from . import photos
     by_day: dict = {}
@@ -202,6 +238,7 @@ def commit_payload(payload: dict, db_path: str | Path) -> dict:
         with Store(db_path) as store:
             counts = store.ingest(records, source_file="(import-ui)", adapter="ui")
         _store_held_photos(records, db_path)
+        _store_held_search(records, db_path)
     return {"ok": True, "committed": counts["obs_new"],
             "new_vehicles": counts["vehicles_new"],
             "duplicates_skipped": counts["obs_duplicate"],
@@ -734,6 +771,23 @@ class _Handler(BaseHTTPRequestHandler):
             q = parse_qs(urlparse(self.path).query)
             self._json(_edit_row_payload(
                 self.db_path, (q.get("key") or [""])[0]))
+        elif bare == "/api/sweeps":
+            from . import sweeps
+            self._json(sweeps.coverage(self.db_path))
+        elif bare == "/api/sweeps/plan":
+            from urllib.parse import parse_qs, urlparse
+            from . import sweeps
+            q = parse_qs(urlparse(self.path).query)
+            one = lambda k: (q.get(k) or [""])[0].strip() or None
+            try:
+                tot = int(one("total")) if one("total") else None
+            except ValueError:
+                tot = None
+            if not one("make"):
+                self._json({"ok": False, "error": "pick a make"})
+            else:
+                self._json(sweeps.plan(self.db_path, one("make"), one("model"),
+                                       one("variant"), tot))
         elif self.path == "/api/heatmap":
             self._json(heatmap_payload(self.db_path))
         elif self.path.startswith("/api/overview"):
@@ -956,6 +1010,11 @@ def serve(db_path: str | Path = DEFAULT_DB, port: int = DEFAULT_PORT,
     if not photos.store_path(db_path).exists():
         threading.Thread(target=lambda: photos.backfill(db_path), daemon=True,
                          name="photo-backfill").start()
+    # likewise the searches those pages came from (sweeps.json only)
+    from . import sweeps
+    if not sweeps.store_path(db_path).exists():
+        threading.Thread(target=lambda: sweeps.backfill(db_path), daemon=True,
+                         name="sweep-backfill").start()
     print("Ctrl+C to stop.")
     if open_browser:
         webbrowser.open(url)
@@ -1553,6 +1612,11 @@ __NAV__
  <div class="hint" id="tophint"></div>
 </div>
 
+<div class="card" id="sweepCard">
+ <div class="ptitle">searches saved <span id="sweepspan">&mdash; what each search stated, against what was saved</span></div>
+ <div id="sweeps"></div>
+</div>
+
 <div class="card">
  <div class="act">
   <div class="panel">
@@ -1776,6 +1840,22 @@ $("vfBtn").onclick=()=>{
 
 drawHeatmap();
 loadOverview();
+/* searches saved (sweeps.coverage): a search that stated more listings than
+   were saved was cut short - its missing cars are not counted as gone */
+fetch("/api/sweeps").then(r=>r.json()).then(c=>{
+  if(!c.ok||!c.days.length){$("sweeps").innerHTML='<div class="hint">No results pages with a stated total yet. '
+    +'Each saved results page that says how many listings its search found is recorded here.</div>';return;}
+  const n=v=>Number(v).toLocaleString();
+  $("sweeps").innerHTML=`<table class="ov"><thead><tr><th>day</th><th>search</th><th class="num">stated</th>
+    <th class="num">saved</th><th class="num">pages</th><th></th></tr></thead><tbody>`
+    +c.days.map(d=>d.searches.map((s,i)=>`<tr><td>${i?"":esc(d.day)}</td><td>${esc(s.title||"(untitled)")}</td>
+      <td class="num">${n(s.total)}</td><td class="num">${n(s.saved)}</td><td class="num">${s.pages}</td>
+      <td>${s.short?`<span class="tag warn" title="${n(s.missing)} listing(s) were not saved${s.set_aside?" - turnover sets this capture aside":""}">${s.set_aside?"cut short":"a few short"}</span>`
+                    :'<span class="tag good">complete</span>'}</td></tr>`).join("")).join("")
+    +`</tbody></table><div class="hint">One search shows ${esc(c.capacity.note)}. When a search missed more than 5% of `
+    +`what it stated, turnover does not count the cars missing from it as gone. To fit a big search, split it: `
+    +`Add data &rarr; Bulk upload &rarr; Plan a sweep.</div>`;
+}).catch(()=>{});
 refreshStatus();
 
 /* Two buttons, one rebuild. `open` also launches Excel; `build` does not,

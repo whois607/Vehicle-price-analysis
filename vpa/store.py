@@ -152,10 +152,36 @@ def _frame_from(conn) -> pd.DataFrame:
     # model+price+date accept both; richer stats restrict to 'full'.
     df["detail_level"] = (df["source"] == "quick_add").map(
         {True: "brief", False: "full"})
+    # A sighting saved from a search that was cut short (sweeps.py: the page
+    # stated more listings than were saved). Read from data/sweeps.json beside
+    # the database, never stored in it; turnover will not count a car missing
+    # from such a capture as gone.
+    df["cut"] = _cut_flags(conn, df)
     # The trim the analysis groups by, worked out on read; the stored name
     # stays alongside as variant_stored (see trims.py)
     from .trims import add_trim_cols
     return add_trim_cols(df)
+
+
+def _cut_flags(conn, df: pd.DataFrame):
+    """True for each row whose (capture day, car) a short search saved."""
+    if df.empty:
+        return pd.Series([], dtype=bool)
+    try:
+        path = conn.execute("PRAGMA database_list").fetchone()[2]
+    except Exception:
+        path = ""
+    if not path:
+        return False
+    from . import sweeps
+    try:
+        cut = sweeps.cut_keys(path)
+    except Exception:            # a damaged notes file costs the flag, never the frame
+        cut = {}
+    if not cut:
+        return False
+    days = df["capture_date"].dt.strftime("%Y-%m-%d")
+    return [k in cut.get(d, ()) for d, k in zip(days, df["key"].astype(str))]
 
 
 def connect_readonly(path: str | Path = DEFAULT_DB) -> sqlite3.Connection:

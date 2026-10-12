@@ -9,6 +9,7 @@
  "default_source": "examplecars",
  "id_prefixes": ["EXA-AD-", "EXB-AD-"],
  "search_site": "examplecars.example",
+ "max_results": 400,
  "photos": {"server": "photos.example", "size": "w={w}&h={h}&fit=pad"},
  "private_words": []
 }

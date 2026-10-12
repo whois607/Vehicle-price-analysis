@@ -56,6 +56,11 @@ you the file isn't a listings page and skips it.
   trim clears, and how long cars stay listed. It never claims a car sold;
   it only knows the listing disappeared.
 - **Compare**: up to six selections side by side on the same statistics.
+- **Searches saved**: results pages usually say how many listings their
+  search found. The app compares that with what you saved, flags a search
+  that was cut short, and doesn't count its missing cars as sold. **Plan a
+  sweep** (on Bulk upload) splits a big search into price bands that each
+  fit within the pages a site shows.
 - **Watchlist**: star cars and see how their prices move against their trim.
 - **Trim grouping**: "Auto quattro MY18" and "quattro", or "Mk II" and
   "MkII", count as the same trim. Stored names are never changed. BMW,

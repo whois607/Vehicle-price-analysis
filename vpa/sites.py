@@ -13,7 +13,9 @@ VPA_SITES environment variable), which is never committed or packaged:
 * the path starts of an advert address (`ad_paths`), the site ad-id
   prefixes (`id_prefixes`), the photo server (`photos`), the site a
   "search for it" link searches (`search_site`), and the label a single
-  saved advert is stored under (`default_source`).
+  saved advert is stored under (`default_source`), and the most listings
+  one search shows (`max_results`, for planning searches that fit -
+  sweeps.py; a site may also get a `total_pattern` there).
 
 Without the file the app still works: every import is labelled `other`,
 there are no advert links, searches or photos, and no id counts as a site

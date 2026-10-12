@@ -243,7 +243,7 @@ def turnover(sub: pd.DataFrame, full: pd.DataFrame | None = None,
         "median_days_listed": None, "median_days_est": None,
         "median_stock_age": None, "censored_share": 0, "resolution": None,
         "departed": [], "departed_total": 0, "latest": {},
-        "price_signal": {}, "notes": [], "verdict": "",
+        "price_signal": {}, "notes": [], "verdict": "", "cut_days": [],
     }
     if sub is None or sub.empty:
         out["reason"] = "nothing in this selection"
@@ -258,6 +258,11 @@ def turnover(sub: pd.DataFrame, full: pd.DataFrame | None = None,
         return out
 
     days = _day_sets(coh)
+    # captures saved from a search that was cut short (sweeps.py): cars
+    # missing from them may simply have been past the last page saved
+    cut_days = (set(str(d) for d in coh.loc[coh["cut"].astype(bool), "day"].dropna())
+                if "cut" in coh.columns else set())
+    out["cut_days"] = sorted(cut_days)
     runs, breaks = spans(days)
     out["captures"] = len(days)
     out["breaks"] = breaks
@@ -282,7 +287,7 @@ def turnover(sub: pd.DataFrame, full: pd.DataFrame | None = None,
             "new": None if prev is None else len(D - seen_before),
             "exits": 0, "rated": False,
             "break_before": bool(prev and (prev, d) in broke),
-            "inspan": d in inspan,
+            "inspan": d in inspan, "cut": d in cut_days,
         })
         seen_before |= D
     out["daily"] = daily
@@ -328,14 +333,16 @@ def turnover(sub: pd.DataFrame, full: pd.DataFrame | None = None,
     for a, b in zip(span, span[1:]):
         A, B = days[a], days[b]
         elapsed = max(1, _gap(a, b))
-        scope = _scope(len(A), len(B))
+        # a capture cut short is treated like a narrowed one: the cars it
+        # lacks were not looked at, so they are shown but never counted gone
+        scope = "cut short" if b in cut_days else _scope(len(A), len(B))
         gone = {k for k in A - later[b] if not still_visible_after(k, a)}
         vetoed += len(A - later[b]) - len(gone)
         arrived = B - earlier[b]
         # a narrowed pair's "exits" are cars the smaller search never looked
         # for, so they are shown but never rated; a widened pair's arrivals
         # likewise. Both stay visible in the table with their scope named.
-        counts_exits = scope != "narrowed"
+        counts_exits = scope not in ("narrowed", "cut short")
         counts_arrivals = scope != "widened"
         exits_by_day[a] = gone if counts_exits else set()
         if counts_exits:
@@ -361,9 +368,14 @@ def turnover(sub: pd.DataFrame, full: pd.DataFrame | None = None,
 
     rated = [i for i in intervals if i["counts_exits"]]
     if not rated:
-        out["reason"] = ("every pair of captures here changed size too much "
-                         "to compare — the searches got narrower, so cars "
-                         "missing from the smaller one were never looked for")
+        out["reason"] = (
+            "every capture after the first came from a search that showed more "
+            "cars than were saved, so cars missing from them may simply have "
+            "been past the last page"
+            if all(i["scope"] == "cut short" for i in intervals) else
+            "every pair of captures here changed size too much to compare — the "
+            "searches got narrower, so cars missing from the smaller one were "
+            "never looked for")
         out["span"] = {"start": span[0], "end": span[-1],
                        "captures": len(span), "days": _gap(span[0], span[-1])}
         return out
@@ -535,6 +547,11 @@ def _notes(t: dict) -> list[str]:
         n.append(f"{len(narrow)} capture(s) were much smaller than the one "
                  f"before, so cars 'missing' from them were never looked for "
                  f"— those exits are shown but not rated")
+    cut = [i for i in t.get("intervals", []) if i["scope"] == "cut short"]
+    if cut:
+        n.append(f"{len(cut)} capture(s) came from a search that showed more cars "
+                 f"than were saved, so cars missing from them may simply have been "
+                 f"past the last page — those exits are shown but not rated")
     res = t.get("resolution")
     if res:
         n.append(f"an exit is located to within about {res} day(s) — the usual "

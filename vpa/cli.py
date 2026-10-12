@@ -38,13 +38,20 @@ def _cmd_ingest(args) -> int:
         return 1
     with Store(args.db) as store:
         counts = store.ingest(records, source_file=str(path), adapter=fmt)
+    sweep = None
     if fmt == "html":
-        from . import photos
-        photos.remember_html(args.db, path.read_text(encoding="utf-8", errors="replace"),
-                             max((str(r.capture_date) for r in records), default=None))
+        from . import photos, sweeps
+        html = path.read_text(encoding="utf-8", errors="replace")
+        photos.remember_html(args.db, html, max((str(r.capture_date) for r in records), default=None))
+        sweep = sweeps.note_html(args.db, html, records)
     print(f"Ingested {path.name} [{fmt}]: parsed {counts['rows_parsed']}, "
           f"new vehicles {counts['vehicles_new']}, new observations "
           f"{counts['obs_new']}, duplicates skipped {counts['obs_duplicate']}")
+    if sweep:
+        from .dates import au
+        print(au(f"Search ({sweep['day']}): it stated {sweep['total']:,}; "
+                 f"{sweep['saved']:,} saved so far over {sweep['pages']} page(s)"
+                 + (" - not all of it yet" if sweep["short"] else " - complete")))
     _warn_unpriced(records)
     return 0
 

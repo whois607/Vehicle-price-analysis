@@ -346,11 +346,16 @@ def run(files: list[dict], db_path: str | Path = DEFAULT_DB,
     # the photo addresses in each page (data/photos.json, never vpa.db) -
     # only now, after the run is committed; a failure here costs pictures,
     # never the import
-    from . import photos
+    from . import photos, sweeps
+    by_name = {r["name"]: r for r in reports if r.get("ok")}
     for p in parsed:
         if p["format"] == "html" and not p.get("skip"):
             photos.remember_html(db_path, p["text"],
                                  max((str(r.capture_date) for r in p["records"]), default=None))
+            # the page's search: how many it stated, how many are saved so far
+            s = sweeps.note_html(db_path, p["text"], p["records"])
+            if s and p["name"] in by_name:
+                by_name[p["name"]]["search"] = s
         p["text"] = ""
 
     # keep the per-file rows in the order they were dropped
@@ -724,9 +729,23 @@ __MODES__
  </div>
  <div id="wstatus"><span class="wdot"></span><span id="wtext">not watching</span>
   <span class="wnums" id="wnums"></span><span class="bar"><i id="wbar"></i></span></div>
+ <div class="hint" id="wsearch" style="margin-top:6px"></div>
  <div class="wfoot"><span id="wnote">Each saved page is imported, then moved into
   <code>imported\</code> so the next save needs no new name. One backup is taken when you start.</span>
   <button class="danger mini" id="wUndo" disabled title="undo every page this session imported">Undo session</button></div>
+</div>
+
+<div class="card" id="planCard">
+ <div class="ptitle">plan a sweep <span>&mdash; when a search has more listings than its pages show, split it into price bands that each fit</span></div>
+ <div class="controls">
+  <div><label for="pMk">make</label><select id="pMk"></select></div>
+  <div><label for="pMo">model</label><select id="pMo"></select></div>
+  <div><label for="pVa">trim (optional)</label><select id="pVa"></select></div>
+  <div style="width:150px"><label for="pTot">listings it states (optional)</label>
+   <input type="number" min="1" id="pTot" placeholder="from your pages"></div>
+  <div><button class="primary" id="pGo">Plan</button></div>
+ </div>
+ <div id="planOut"></div>
 </div>
 
 <div class="card">
@@ -897,6 +916,8 @@ function render(res){
     (res.cars||[]).filter(c=>c.file===f.name).forEach(c=>SESSION.push({...c,run}));
     // imported, but its trim names are unlike the data's: said, not refused
     if(f.wording&&f.wording.warn)SESSION.push({run,wording:true,file:f.name,error:f.wording.message});
+    // the search this page belongs to: stated against saved so far
+    if(f.search)SESSION.push({run,search:f.search});
   });
   RUNTOTALS.push({run,t:res.totals,undone:false});
   renderSession();
@@ -928,7 +949,17 @@ function renderSession(){
   // Uploads are meant to arrive cheapest first. Each live, priced car is
   // compared with the live, priced car before it.
   let prev=null,prevN=0,n=0;const drops=[];
-  const rows=SESSION.map(c=>{
+  const rows=SESSION.map((c,i)=>{
+    if(c.search){
+      // only the newest line for each search: it updates as pages arrive
+      if(SESSION.slice(i+1).some(o=>o.search&&o.search.id===c.search.id))return "";
+      const s=c.search;
+      return `<tr class="searchrow"><td class="num">—</td><td colspan="6">search <b>${esc(s.title||"(untitled)")}</b>
+        <div class="why">It stated ${s.total.toLocaleString()} listing(s); ${s.saved.toLocaleString()} saved so far
+        over ${s.pages} page(s)${s.short?` - ${s.missing.toLocaleString()} not saved yet. If the pages ran out, split the
+        search (Plan a sweep, on this page).`:"."}</div></td>
+        <td><span class="tag ${s.short?"warn":"good"}">${s.short?"not all saved":"complete"}</span></td></tr>`;
+    }
     if(c.wording)return `<tr class="savewarn"><td class="num">—</td><td colspan="6">
       <b>${esc(c.file)}</b> imported<div class="why">${esc(c.error)} <a href="/trims">Trims page</a></div></td>
       <td><span class="tag warn">new wording</span></td></tr>`;
@@ -1066,6 +1097,10 @@ function wtake(evs){
   let any=false;
   evs.forEach(ev=>{
     if(ev.result){render(ev.result);any=true;
+      const sf=(ev.result.files||[]).find(f=>f.search);
+      if(sf){const s=sf.search;
+        $("wsearch").innerHTML=`This search: <b>${s.saved.toLocaleString()}</b> of ${s.total.toLocaleString()} saved
+          over ${s.pages} page(s)`+(s.short?` - <span class="warn">${s.missing.toLocaleString()} to go</span>`:` - <span class="ok">complete</span>`);}
       // a page saved twice, or cut off: said where you are looking, and kept
       // up long enough to go back and save the page again
       const w=(ev.result.files||[]).find(f=>f.warn);
@@ -1134,6 +1169,39 @@ $("wUndo").onclick=async()=>{
 })();
 
 loadRuns();
+/* ---- plan a sweep (sweeps.plan): price bands from your own prices ---- */
+let PTREE=null;
+function pFill(sel,items,blank){sel.innerHTML=(blank?`<option value="">${blank}</option>`:"")+
+  items.map(x=>`<option>${esc(x.name)}</option>`).join("");}
+async function planInit(){
+  try{PTREE=await fetch("/api/explore/picker").then(r=>r.json());}catch(e){return;}
+  if(!PTREE||!PTREE.makes||!PTREE.makes.length){$("planOut").innerHTML='<div class="hint">Import some pages first.</div>';return;}
+  pFill($("pMk"),PTREE.makes);pMake();
+}
+function pMake(){const m=PTREE.makes.find(x=>x.name===$("pMk").value);pFill($("pMo"),m?m.models:[],"(all models)");pModel();}
+function pModel(){const m=PTREE.makes.find(x=>x.name===$("pMk").value);
+  const mo=m&&m.models.find(x=>x.name===$("pMo").value);pFill($("pVa"),mo?mo.variants:[],"(all trims)");}
+$("pMk").onchange=pMake;$("pMo").onchange=pModel;
+$("pGo").onclick=async()=>{
+  const q=new URLSearchParams({make:$("pMk").value,model:$("pMo").value,variant:$("pVa").value,total:$("pTot").value});
+  $("planOut").innerHTML='<div class="hint">planning...</div>';
+  const p=await fetch("/api/sweeps/plan?"+q).then(r=>r.json()).catch(e=>({ok:false,error:String(e)}));
+  if(!p.ok){$("planOut").innerHTML=`<div class="warnbox">${esc(p.error||"could not plan")}</div>`;return;}
+  const m=v=>v==null?"":"$"+Number(v).toLocaleString();
+  let h=`<div class="hint" style="margin-top:8px"><b>${esc(p.label)}</b>: about ${Number(p.size).toLocaleString()} listing(s) (${esc(p.size_basis)}).
+    One search shows ${esc(p.capacity.note)}.</div>`;
+  if(p.bands.length){
+    h+=`<table class="ov" style="margin-top:8px"><thead><tr><th>search</th><th>price from</th><th>price to</th>
+      <th class="num">about</th><th></th></tr></thead><tbody>`+p.bands.map((b,i)=>`<tr><td>${i+1}</td>
+      <td>${b.from==null?"(lowest)":m(b.from)}</td><td>${b.to==null?"(highest)":"under "+m(b.to)}</td>
+      <td class="num">${Number(b.estimate).toLocaleString()}</td>
+      <td>${b.fits?'<span class="tag good">fits</span>':'<span class="tag warn">may not fit - split it</span>'}</td></tr>`).join("")
+      +`</tbody></table>`;
+  }
+  h+=p.tips.map(t=>`<div class="hint" style="margin-top:6px">${esc(t)}</div>`).join("");
+  $("planOut").innerHTML=h;
+};
+planInit();
 __CHROME_JS__
 </script></div></body></html>
 """

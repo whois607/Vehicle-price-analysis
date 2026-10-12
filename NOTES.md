@@ -1083,6 +1083,38 @@ Keep these — each one was a bug that took a while to find.
   (phone._code_stamp: newest mtime of vpa/*.py/js/html/css): it stops
   listening first, then starts a fresh copy, so it never serves old code.
 
+**Searches saved and sweep planning (12/10/2026)** - `vpa/sweeps.py`
+* Results pages state their search's size ("446 ... cars for sale"). Each
+  imported results page is noted in data/sweeps.json (beside the database,
+  never in it): capture day, page title, stated total, the cars saved. A
+  search = (day, title, total); its pages add up, a page saved twice once.
+  Hooked in every import path: bulk.run (so the watch folder), Import with
+  preview (held between preview and commit, like photos), `vpa ingest`. The
+  app backfills from kept pages on first start (4 s for 203 pages).
+* The total is read from VISIBLE text only (scripts/styles dropped): a
+  count, up to 12 words, then for sale / results / listings found. On the
+  real kept pages: 252 of 267 read, never a total below the page's own
+  car count. A site can be given its own `total_pattern` (site file).
+* Short = saved below stated by more than max(2, 1%). Turnover sets a
+  capture aside (scope "cut short", exits shown, never rated - like a
+  narrowed search) only when more than 5% is missing: on the real data a
+  Ute search 5 short of 159 would otherwise have discarded 114 good exits.
+  The frame carries this as a derived `cut` column (store._frame_from),
+  so the by_variant cache keys on it automatically.
+* Real data, once noted: BMW 3 Series' "64% leave per 30 days" rested on 3
+  exits into a 550-of-895 capture - now refused; Falcon loses the 16
+  exits into the 09/10 capture (the page-saved-twice night, 415 of 437).
+* The limit per search: `max_results` in the site file first (set to 440:
+  20 pages of 22). Learning it from data is only a fallback - a search is
+  also short when you stop early (a Mustang sweep gave 660 over 30 pages).
+* Planner: size from the latest search made mostly of the selection's cars
+  (or entered, or the latest month's cars); shape from each car's latest
+  price over 60 days (all cars, not the cut-off end of one sweep); bands at
+  85% of the limit, edges rounded. A search up to twice the limit also gets
+  the two-sort tip. Nothing site-specific in the code: check_neutral passes.
+* Equivalence on the real data (no notes beside the copies): everything
+  identical apart from the new fields.
+
 **Australian dates on screen (12/10/2026)**
 * Display only: a day reads 19/09/2026, a month Sep 2026. The database,
   keys, API payloads, exports and every comparison stay ISO, so nothing

@@ -3,7 +3,8 @@
     python tools/scratch_app.py            copy, then serve on http://127.0.0.1:8873
     python tools/scratch_app.py --port 8874
 
-Copies data/vpa.db (through a read-only connection) and photos.json into
+Copies data/vpa.db (through a read-only connection) and the files beside it
+(photos, details, searches) into
 tests/synthetic/scratch_app/ and runs the app on the copy, so a merge,
 an edit or an import tried there never reaches your real database. The
 app does not run phone sync for a scratch database. Stop it with Ctrl+C
@@ -32,7 +33,7 @@ def main(argv=None) -> int:
     src.backup(dst)
     dst.close()
     src.close()
-    for name in ("photos.json",):
+    for name in ("photos.json", "details.json", "sweeps.json"):
         if (ROOT / "data" / name).exists():
             shutil.copy(ROOT / "data" / name, WORK / name)
     print(f"serving a copy of your data at http://127.0.0.1:{port} - changes there are thrown away")

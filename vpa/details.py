@@ -112,14 +112,17 @@ def _rating(text) -> str | None:
 
 
 _ENGINE = re.compile(
-    r"^\s*(?:(\d{1,2})\s*cyl)?\s*(?:(\d{1,2}(?:\.\d)?)\s*L)?\s*([TS])?\s*"
+    r"^\s*(?:(\d{1,2})\s*cyl)?\s*(?:(\d{1,3}(?:\.\d)?)\s*L)?\s*([TS])?\s*"
     r"(Petrol|Diesel|Gas Only|LPG|Hybrid|Electric|Petrol/LPG|Plug-in Hybrid)?\s*$", re.I)
 
 
 def parse_engine(text) -> dict:
     """'6cyl 4.0L T Petrol' -> cylinders 6, litres 4.0, induction turbo,
     fuel petrol. A tile writes the engine this way; anything else gives
-    only `engine` (the text as shown)."""
+    only `engine` (the text as shown). A classic's size is written in
+    cubic inches with the same 'L' ('8cyl 289L Petrol' is a 289 V8, not
+    289 litres): three digits are read as cubic inches and turned into
+    litres (4.7)."""
     t = re.sub(r"\s+", " ", str(text or "")).strip()
     out: dict = {}
     if not t:
@@ -132,7 +135,11 @@ def parse_engine(text) -> dict:
     if cyl:
         out["cylinders"] = int(cyl)
     if lit:
-        out["litres"] = float(lit)
+        v = float(lit)
+        if v >= 60:                       # cubic inches
+            v = round(v * 0.0163871, 1)
+        if 0 < v < 15:
+            out["litres"] = v
     out["induction"] = {"T": "turbo", "S": "supercharged"}.get((ind or "").upper(),
                                                               "natural" if (cyl or lit) else None)
     if out["induction"] is None:

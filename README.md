@@ -61,6 +61,11 @@ you the file isn't a listings page and skips it.
   that was cut short, and doesn't count its missing cars as sold. **Plan a
   sweep** (on Bulk upload) splits a big search into price bands that each
   fit within the pages a site shows.
+- **Listing details and filters**: what each saved page states beyond the
+  price (used, demo or new; engine, fuel and gearbox; drive-away or
+  excluding charges; the site's own price rating) is kept beside the
+  database. Explore and the phone filter by any of it, and by state,
+  seller and body, with how many cars each choice holds.
 - **Watchlist**: star cars and see how their prices move against their trim.
 - **Trim grouping**: "Auto quattro MY18" and "quattro", or "Mk II" and
   "MkII", count as the same trim. Stored names are never changed. BMW,
@@ -173,6 +178,7 @@ python -m vpa merge-duplicates             # dry run; --apply for proven ones on
 python -m vpa edit --history               # manual corrections, and undo
 python -m vpa trims                        # how trim names are grouped
 python -m vpa photos --backfill            # read photo addresses from kept pages
+python -m vpa details --backfill           # read listing details from kept pages
 ```
 
 ## Tests

@@ -1115,6 +1115,50 @@ Keep these — each one was a bug that took a while to find.
 * Equivalence on the real data (no notes beside the copies): everything
   identical apart from the new fields.
 
+**Listing details and listing filters (13/10/2026)** - `vpa/details.py`
+* What saved pages state beyond the price, kept in data/details.json
+  beside the database (never in it), keyed by ad id like photos.json:
+  per car condition (used / demo / new / new to order), engine text,
+  cylinders, litres, turbo / supercharged / natural, fuel, gearbox, seller,
+  state, seller id; from details pages also drive, doors, seats, cc,
+  colour. Per sighting (car + capture day): price type (drive away / excl.
+  charges), the site's own rating (great / good / fair, either wording),
+  just listed, suggested (not part of the search), promoted.
+* Attribution is proved, never positional: a tile is the smallest part of
+  the page's own JSON data holding one `keyDetailsTexts` and naming ONE ad
+  (5,022 of 5,036 tiles on the kept pages; two old pages have none);
+  analytics objects only when they name one ad, a field kept only when all
+  copies agree. Check on the real data: the tile's state and seller type
+  agreed with the stored ones 4,511 of 4,511 times.
+* Classic engines are written in cubic inches with an L ("8cyl 289L
+  Petrol"): three digits are converted (4.7 L). 154 cars.
+* The frame (store._frame_from) adds FRAME_COLS and fills only BLANKS in
+  stored state / seller type and in the trim-read gearbox / drive. On the
+  real data: state filled for 362 cars, seller for 459, drive for 5; no
+  stored value changed; the trim name's gearbox agrees with the listing's
+  7,636 of 7,640 times. 2,618 of 5,279 cars have details (the rest came
+  from pasted text, v2 or pages no longer kept).
+* Explore: filters condition (+ "not new or demo", which keeps unknowns,
+  and "new (in stock or to order)"), state, seller, gearbox, body, fuel,
+  engine, cylinders, price type, rating; "~" = not stated; leave out
+  suggested listings. Options come from the selection with car counts.
+  Always applied in FACETS order. Splits by condition / price type /
+  gearbox / engine / fuel / rating; a spec column in the cars table.
+  Defaults change nothing: every number is as before until a filter is set.
+* The phone copy carries the same columns (phonebuild copies details.json
+  beside its work copy); stats.js ports the filters, options, splits and
+  car fields - check_phone_app compares them, fixture and real data.
+* Backfill keys sightings by the day the page's cars were stored (or the
+  file's date): 5,026 of 5,038 real sightings line up; the other 12 get
+  car fields only. `python -m vpa details --backfill`; the app backfills on
+  first start.
+* Searches: the stated total falls back to the count the page's listing
+  data repeats (agrees with the visible text on every page that has both);
+  each search records the sort orders it was saved in.
+* Real numbers: Mustang 749 cars, median $62,500; not new or demo 683,
+  $59,900. BMW 3 Series drive-away median $99,325 (new cars) against
+  $12,990 excl. charges.
+
 **Australian dates on screen (12/10/2026)**
 * Display only: a day reads 19/09/2026, a month Sep 2026. The database,
   keys, API payloads, exports and every comparison stay ISO, so nothing

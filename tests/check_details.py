@@ -175,6 +175,8 @@ def main() -> int:
           details.parse_engine("6cyl 4.0L Gas Only") == {"engine": "6cyl 4.0L Gas Only", "cylinders": 6,
                                                          "litres": 4.0, "induction": "natural", "fuel": "lpg"}
           and details.parse_engine("Electric motor") == {"engine": "Electric motor"}
+          and details.parse_engine("8cyl 289L Petrol")["litres"] == 4.7
+          and details.parse_engine("8cyl 351L Petrol")["cylinders"] == 8
           and details.parse_engine("") == {}, "")
 
     print("\n== reading a details page ==")

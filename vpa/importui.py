@@ -1720,13 +1720,14 @@ function drawChart(days){
   const grid=vpaTicks(0,max,4).map(v=>{return `
       <line x1="${L}" y1="${y(v).toFixed(1)}" x2="${W-R}" y2="${y(v).toFixed(1)}" stroke="#edeff3"/>
       <text x="${L-7}" y="${(y(v)+3.5).toFixed(1)}" text-anchor="end" class="ax">${v.toLocaleString()}</text>`;}).join("");
+  // drawn in the dash theme's chart colour (--chart, ui.PALETTES)
   const dots=pts.map((p,i)=>`<circle cx="${x(i).toFixed(1)}" cy="${y(p.v).toFixed(1)}" r="3"
-      fill="#2e7d32"><title>${p.d}: ${p.v.toLocaleString()} total (+${days[p.d]} that day)</title></circle>`).join("");
+      style="fill:var(--chart)"><title>${p.d}: ${p.v.toLocaleString()} total (+${days[p.d]} that day)</title></circle>`).join("");
   el.innerHTML=`<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img"
       aria-label="cumulative prices collected over time">${grid}
     <path d="${path}L${x(n-1).toFixed(1)},${y(0).toFixed(1)}L${x(0).toFixed(1)},${y(0).toFixed(1)}Z"
-          fill="#2e7d32" opacity=".09"/>
-    <path d="${path}" fill="none" stroke="#2e7d32" stroke-width="2"
+          style="fill:var(--chart)" opacity=".09"/>
+    <path d="${path}" fill="none" style="stroke:var(--chart)" stroke-width="2"
           stroke-linejoin="round" stroke-linecap="round"/>${dots}
     <text x="${L}" y="${H-6}" class="ax">${pts[0].d}</text>
     <text x="${W-R}" y="${H-6}" text-anchor="end" class="ax">${pts[n-1].d}</text></svg>`;

@@ -6,6 +6,7 @@
   --r:14px;--tabh:62px;--toph:54px;--on-accent:#fff;
   --c0:#2b5fc4;--c1:#d1495b;--c2:#1f8a5b;--c3:#b07d10;
   --safe-b:env(safe-area-inset-bottom,0px);--safe-t:env(safe-area-inset-top,0px);
+  --digits:var(--ink);--glow-text:none;
   color-scheme:light;
 }
 /* Dark. index.html settles the theme before the first paint - the phone's
@@ -17,6 +18,16 @@
   --good:#5cc28c;--good-soft:#16291f;--bad:#f08a80;--bad-soft:#331a18;--warn:#e7b45a;--warn-soft:#2f2614;
   --band:rgba(126,166,244,.16);--band2:rgba(126,166,244,.26);--shadow:none;color-scheme:dark;
   --on-accent:#0f1218;--c0:#7ea6f4;--c1:#f2849a;--c2:#5cc28c;--c3:#e7b45a}
+/* dash themes: generated from vpa/ui.py PALETTES (ui.write_phone_palettes) */
+:root[data-palette=classic]:not([data-theme=dark]){--bg:#f3f6f3;--card:#fff;--line:#e0e8e2;--line2:#edf2ee;--accent:#1d7a45;--accent2:#155f35;--accent-soft:#e6f4eb;--c0:#1d7a45;--on-accent:#fff;--band:rgba(29,122,69,0.13);--band2:rgba(29,122,69,0.22);--digits:var(--ink);--glow-text:none}
+:root[data-palette=classic][data-theme=dark]{--bg:#070c09;--card:#0f1612;--line:#1f2c24;--line2:#18221c;--accent:#4ee08a;--accent2:#8af0b3;--accent-soft:#0f2e1c;--c0:#4ee08a;--on-accent:#070c09;--band:rgba(78,224,138,0.16);--band2:rgba(78,224,138,0.26);--digits:#9ef5c2;--glow-text:0 0 10px rgba(78,224,138,.55)}
+:root[data-palette=xr]:not([data-theme=dark]){--bg:#f1f4fb;--card:#fff;--line:#dfe5f2;--line2:#ecf0f8;--accent:#1a4fd6;--accent2:#133fae;--accent-soft:#e7eefd;--c0:#1a4fd6;--on-accent:#fff;--band:rgba(26,79,214,0.13);--band2:rgba(26,79,214,0.22);--digits:var(--ink);--glow-text:none}
+:root[data-palette=xr][data-theme=dark]{--bg:#050914;--card:#0c1224;--line:#1c2744;--line2:#151e36;--accent:#4c8dff;--accent2:#8db8ff;--accent-soft:#11224d;--c0:#4c8dff;--on-accent:#050914;--band:rgba(76,141,255,0.16);--band2:rgba(76,141,255,0.26);--digits:#a9c8ff;--glow-text:0 0 10px rgba(76,141,255,.6)}
+:root[data-palette=m]:not([data-theme=dark]){--bg:#f5f4f9;--card:#fff;--line:#e5e2ef;--line2:#f0eef6;--accent:#6d28d9;--accent2:#5b21b6;--accent-soft:#f1eafd;--c0:#6d28d9;--on-accent:#fff;--band:rgba(109,40,217,0.13);--band2:rgba(109,40,217,0.22);--digits:var(--ink);--glow-text:none}
+:root[data-palette=m][data-theme=dark]{--bg:#08070c;--card:#121018;--line:#262133;--line2:#1d1928;--accent:#b77cff;--accent2:#d6b3ff;--accent-soft:#2a1746;--c0:#b77cff;--on-accent:#08070c;--band:rgba(183,124,255,0.16);--band2:rgba(183,124,255,0.26);--digits:#ffe14d;--glow-text:0 0 10px rgba(255,225,77,.45)}
+:root[data-palette=amber]:not([data-theme=dark]){--bg:#faf6f0;--card:#fff;--line:#ece3d6;--line2:#f5efe6;--accent:#b45309;--accent2:#92400e;--accent-soft:#fdf0e0;--c0:#b45309;--on-accent:#fff;--band:rgba(180,83,9,0.13);--band2:rgba(180,83,9,0.22);--digits:var(--ink);--glow-text:none}
+:root[data-palette=amber][data-theme=dark]{--bg:#0d0905;--card:#17110a;--line:#322517;--line2:#261c11;--accent:#ffa53a;--accent2:#ffc67f;--accent-soft:#3a230b;--c0:#ffa53a;--on-accent:#0d0905;--band:rgba(255,165,58,0.16);--band2:rgba(255,165,58,0.26);--digits:#ffc067;--glow-text:0 0 10px rgba(255,165,58,.55)}
+/* end of dash themes */
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 [hidden]{display:none!important}
 html,body{margin:0;background:var(--bg);color:var(--ink)}
@@ -69,7 +80,8 @@ h2 small{text-transform:none;letter-spacing:0;font-weight:400;margin-left:4px}
 .sub{color:var(--dim);font-size:13px}
 .muted{color:var(--dim)}.faint{color:var(--faint)}.good{color:var(--good)}.bad{color:var(--bad)}.warn{color:var(--warn)}
 .num{font-variant-numeric:tabular-nums}
-.big{font-size:30px;font-weight:750;letter-spacing:-.02em;line-height:1.1;font-variant-numeric:tabular-nums}
+.big{font-size:30px;font-weight:750;letter-spacing:-.02em;line-height:1.1;font-variant-numeric:tabular-nums;
+  color:var(--digits);text-shadow:var(--glow-text)}
 .row{display:flex;align-items:center;gap:10px}
 .spread{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}

@@ -1115,6 +1115,22 @@ Keep these — each one was a bug that took a while to find.
 * Equivalence on the real data (no notes beside the copies): everything
   identical apart from the new fields.
 
+**Dash themes (13/10/2026)** - `vpa/ui.py` PALETTES
+* Four colour sets, each with a light and a dark face: Classic (green
+  glow, the default), XR (Falcon blue, red needles), M (violet, M-stripe
+  logo, Sao Paulo yellow digits in dark, a multi-paint heatmap) and Amber.
+  Light / dark / Match Windows is still its own choice; the dash recolours
+  both. Kept in the browser (localStorage "vpa-palette"; the phone
+  "vpa.palette"), set as data-palette on <html> before the first paint.
+* Tokens per theme: surfaces, accent family, needle (active tab
+  underline, logo), digits + glow (big figures lit like a readout in
+  dark), chart (the collected-over-time line) and heat0-4. Light rules are
+  `:not([data-theme=dark])` so source order can never let them leak into
+  dark. Semantic colours (good / bad / warn) and chart series are not
+  themed.
+* The phone's app.css holds a generated copy between markers
+  (ui.write_phone_palettes); check_importui fails if it falls behind.
+
 **Listing details and listing filters (13/10/2026)** - `vpa/details.py`
 * What saved pages state beyond the price, kept in data/details.json
   beside the database (never in it), keyed by ad id like photos.json:

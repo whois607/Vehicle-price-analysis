@@ -19,11 +19,22 @@
   try { p = localStorage.getItem(K) || "auto"; } catch (e) {}
   function ok(x) { return x === "light" || x === "dark" ? x : "auto"; }
   function now() { return p === "auto" ? (m && m.matches ? "dark" : "light") : p; }
+  /* the dash theme (vpa/ui.py PALETTES): a colour set for light and dark alike */
+  var PK = "vpa.palette", TC = {"classic":{"light":"#1d7a45","dark":"#0f1612"},"xr":{"light":"#1a4fd6","dark":"#0c1224"},"m":{"light":"#6d28d9","dark":"#121018"},"amber":{"light":"#b45309","dark":"#17110a"}},
+      PS = Object.keys(TC), pal = PS[0];
+  try { pal = localStorage.getItem(PK) || PS[0]; } catch (e) {}
   function apply() {
     p = ok(p); var t = now();
-    d.setAttribute("data-theme", t); d.setAttribute("data-theme-pref", p);
-    if (tc) tc.setAttribute("content", t === "dark" ? "#151a22" : "#2b5fc4");
+    if (PS.indexOf(pal) < 0) pal = PS[0];
+    d.setAttribute("data-theme", t); d.setAttribute("data-theme-pref", p); d.setAttribute("data-palette", pal);
+    if (tc) tc.setAttribute("content", TC[pal][t]);
   }
+  window.vpaPalette = function (np) {
+    if (np) { pal = PS.indexOf(np) >= 0 ? np : PS[0];
+      try { localStorage.setItem(PK, pal); } catch (e) {}
+      apply(); }
+    return pal;
+  };
   window.vpaTheme = function (np) {
     if (np) { p = ok(np);
       try { p === "auto" ? localStorage.removeItem(K) : localStorage.setItem(K, p); } catch (e) {}

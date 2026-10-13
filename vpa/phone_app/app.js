@@ -465,6 +465,9 @@ function vehicleAsItem(v) {
 }
 const notes = arr => arr && arr.length ? `<ul class="notes">${arr.map(n => `<li>${esc(n)}</li>`).join("")}</ul>` : "";
 
+// the dash themes, as vpa/ui.py PALETTES names them (key, name, what it is)
+const DASHES = [["classic", "Classic", "green instrument glow"], ["xr", "XR", "Falcon blue, red needles"], ["m", "M", "M stripes and loud paint"], ["amber", "Amber", "old-school orange gauges"]];
+
 /* ------------------------------------------------------------ Home */
 route("/", { tab: "home", titleText: "VPA" }, q => {
   const S = DB.snap, ovAll = S.overview || {}, lvl = q.lv === "trim" ? "trim" : "line", ov = ovAll[lvl] || {};
@@ -1084,10 +1087,13 @@ route("/sync", { tab: null, back: true, titleText: "Sync & settings", needsData:
   const sq = STARQ.load().filter(o => !o.res).length;
   if (sq) h += `<div class="card"><h2>Stars</h2><p class="sub">${sq} star change${sq > 1 ? "s" : ""} made on this phone ${
     STAR.off ? `can't be sent: <span class="warn">${esc(STAR.off)}</span>` : "waiting to reach the laptop - sent on the next sync."}</p></div>`;
-  const th = window.vpaTheme ? vpaTheme() : "auto";
+  const th = window.vpaTheme ? vpaTheme() : "auto", pal = window.vpaPalette ? vpaPalette() : "";
   h += `<div class="card"><h2>Appearance</h2><div class="seg">${[["auto", "Auto"], ["light", "Light"], ["dark", "Dark"]].map(([k, l]) =>
     `<button data-theme-set="${k}" class="${th === k ? "on" : ""}" aria-pressed="${th === k}">${l}</button>`).join("")}</div>
-    <div class="note">Auto follows the phone's own light or dark setting. Kept on this phone only.</div></div>`;
+    <h2 style="margin-top:14px">Dash</h2><div class="seg">${DASHES.map(([k, l]) =>
+    `<button data-palette-set="${k}" class="${pal === k ? "on" : ""}" aria-pressed="${pal === k}">${l}</button>`).join("")}</div>
+    <div class="note">Auto follows the phone's own light or dark setting. The dash recolours both: ${
+      DASHES.map(([, l, b]) => `<b>${l}</b> ${b}`).join(", ")}. Kept on this phone only.</div></div>`;
   h += `<div class="card"><h2>Offline &amp; home screen</h2>
     <p class="sub" id="offl">${ready ? '<span class="good">Ready to open with no signal.</span>' : secure ? "Getting ready for offline use…"
       : '<span class="warn">This address is plain http</span>, so the app itself can\'t open with no signal (browsers only allow that on HTTPS). Your data is still saved on the phone. Opening VPA through the laptop\'s HTTPS (Tailscale) address fixes this.'}</p>
@@ -1097,6 +1103,11 @@ route("/sync", { tab: null, back: true, titleText: "Sync & settings", needsData:
   return h;
 });
 ROUTES["/sync"].after = () => {
+  const pls = document.querySelectorAll("[data-palette-set]");
+  pls.forEach(b => b.onclick = () => {
+    if (window.vpaPalette) vpaPalette(b.dataset.paletteSet);
+    pls.forEach(x => { x.classList.toggle("on", x === b); x.setAttribute("aria-pressed", String(x === b)); });
+  });
   const ths = document.querySelectorAll("[data-theme-set]");
   ths.forEach(b => b.onclick = () => {
     if (window.vpaTheme) vpaTheme(b.dataset.themeSet);

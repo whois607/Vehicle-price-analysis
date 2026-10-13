@@ -14,6 +14,9 @@ network, consistent with every chart in this project.
 """
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 #: 16x16 stroke icons on a 24-unit grid, drawn from one visual family:
 #: 2-unit round strokes, no fills, so they sit evenly beside 13px text.
 ICONS = {
@@ -55,6 +58,176 @@ ICONS = {
 
 #: (setting, label) - the theme menu. "auto" follows Windows' own setting.
 THEMES = [("auto", "Match Windows"), ("light", "Light"), ("dark", "Dark")]
+
+#: Dash themes - the colours of an instrument cluster, each in a light and a
+#: dark version. Light or dark is still chosen apart (THEMES, or following
+#: Windows); the dash only recolours. Values are CSS tokens (CHROME_CSS
+#: names); `palette_css` writes them for the laptop pages and, renamed, for
+#: the phone app (vpa/phone_app/app.css holds a generated copy - see
+#: write_phone_palettes). Order = the menu's order; the first is the default.
+#:   needle  the second colour of a dash: the active tab's underline
+#:   digits  the big figures - lit like a dash readout in dark
+#:   glow    the lit edge of the logo and the figures (dark only)
+#:   chart   the line of a single-series chart (collected over time)
+#:   heat0-4 the capture-day calendar, quietest to busiest
+PALETTES = {
+    "classic": {
+        "label": "Classic", "blurb": "green instrument glow",
+        "light": {
+            "bg": "#f3f6f3", "card": "#fff", "head": "#f5f8f6", "line": "#e0e8e2", "line-2": "#edf2ee",
+            "tile-a": "#fff", "tile-b": "#f8fbf9", "topbar": "rgba(255,255,255,.86)",
+            "topbar-line": "rgba(208,222,212,.9)", "field-bg": "#fff", "seg-on": "#fff",
+            "accent": "#1d7a45", "accent-2": "#155f35", "accent-soft": "#e6f4eb", "accent-line": "#bfe1cc",
+            "ring": "0 0 0 3px rgba(29,122,69,.18)", "fill": "#1d7a45", "fill-2": "#155f35",
+            "sel": "#c6e8d3", "row-hover": "#f4faf6", "help-a": "#f3fbf6", "needle": "#1d7a45",
+            "logo": "linear-gradient(135deg,#34a865,#11502c)", "digits": "var(--ink)",
+            "glow": "0 0 0 transparent", "glow-text": "none", "chart": "#1d7a45",
+            "heat0": "#e6ebe7", "heat1": "#c9e6c9", "heat2": "#8fcb8f", "heat3": "#4d9e4d", "heat4": "#256e25"},
+        "dark": {
+            "bg": "#070c09", "card": "#0f1612", "head": "#131c17", "line": "#1f2c24", "line-2": "#18221c",
+            "tile-a": "#111a15", "tile-b": "#0f1612", "topbar": "rgba(15,22,18,.85)",
+            "topbar-line": "rgba(44,64,52,.9)", "field-bg": "#131c17", "seg-on": "#1e2c24",
+            "accent": "#4ee08a", "accent-2": "#8af0b3", "accent-soft": "#0f2e1c", "accent-line": "#22603c",
+            "ring": "0 0 0 3px rgba(78,224,138,.3)", "fill": "#1f8a4c", "fill-2": "#27a05a",
+            "sel": "#1d5534", "row-hover": "#142019", "help-a": "#0f2418", "needle": "#4ee08a",
+            "logo": "linear-gradient(135deg,#2fd07a,#0b4a27)", "digits": "#9ef5c2",
+            "glow": "0 0 14px rgba(78,224,138,.45)", "glow-text": "0 0 10px rgba(78,224,138,.55)",
+            "chart": "#4ee08a",
+            "heat0": "#17211b", "heat1": "#14462a", "heat2": "#1f7a44", "heat3": "#35b866", "heat4": "#7dffb0"},
+    },
+    "xr": {
+        "label": "XR", "blurb": "Falcon blue, red needles",
+        "light": {
+            "bg": "#f1f4fb", "card": "#fff", "head": "#f4f7fd", "line": "#dfe5f2", "line-2": "#ecf0f8",
+            "tile-a": "#fff", "tile-b": "#f7f9fe", "topbar": "rgba(255,255,255,.86)",
+            "topbar-line": "rgba(205,215,236,.9)", "field-bg": "#fff", "seg-on": "#fff",
+            "accent": "#1a4fd6", "accent-2": "#133fae", "accent-soft": "#e7eefd", "accent-line": "#c2d2f7",
+            "ring": "0 0 0 3px rgba(26,79,214,.18)", "fill": "#1a4fd6", "fill-2": "#133fae",
+            "sel": "#c9d8fb", "row-hover": "#f4f7ff", "help-a": "#f2f6ff", "needle": "#d61f2c",
+            "logo": "linear-gradient(135deg,#2d6bff 0%,#1a3fae 62%,#d61f2c 63%)", "digits": "var(--ink)",
+            "glow": "0 0 0 transparent", "glow-text": "none", "chart": "#1a4fd6",
+            "heat0": "#e5e9f2", "heat1": "#c4d4f6", "heat2": "#86a6ef", "heat3": "#2f5fd6", "heat4": "#d61f2c"},
+        "dark": {
+            "bg": "#050914", "card": "#0c1224", "head": "#10182e", "line": "#1c2744", "line-2": "#151e36",
+            "tile-a": "#0e152b", "tile-b": "#0c1224", "topbar": "rgba(12,18,36,.86)",
+            "topbar-line": "rgba(40,58,100,.9)", "field-bg": "#10182e", "seg-on": "#1b2748",
+            "accent": "#4c8dff", "accent-2": "#8db8ff", "accent-soft": "#11224d", "accent-line": "#29489a",
+            "ring": "0 0 0 3px rgba(76,141,255,.35)", "fill": "#2a62e6", "fill-2": "#3a74f5",
+            "sel": "#213f8c", "row-hover": "#111b35", "help-a": "#0f1c3e", "needle": "#ff3340",
+            "logo": "linear-gradient(135deg,#3d7dff 0%,#1b3a9a 62%,#ff3340 63%)", "digits": "#a9c8ff",
+            "glow": "0 0 14px rgba(76,141,255,.5)", "glow-text": "0 0 10px rgba(76,141,255,.6)",
+            "chart": "#4c8dff",
+            "heat0": "#121a30", "heat1": "#16306a", "heat2": "#2152c0", "heat3": "#4c8dff", "heat4": "#ff3340"},
+    },
+    "m": {
+        "label": "M", "blurb": "M stripes and loud paint",
+        "light": {
+            "bg": "#f5f4f9", "card": "#fff", "head": "#f7f6fb", "line": "#e5e2ef", "line-2": "#f0eef6",
+            "tile-a": "#fff", "tile-b": "#faf9fd", "topbar": "rgba(255,255,255,.86)",
+            "topbar-line": "rgba(220,214,234,.9)", "field-bg": "#fff", "seg-on": "#fff",
+            "accent": "#6d28d9", "accent-2": "#5b21b6", "accent-soft": "#f1eafd", "accent-line": "#d9c6f7",
+            "ring": "0 0 0 3px rgba(109,40,217,.18)", "fill": "#6d28d9", "fill-2": "#5b21b6",
+            "sel": "#dccbf8", "row-hover": "#f8f5fe", "help-a": "#f7f3ff", "needle": "#e4002b",
+            "logo": "linear-gradient(135deg,#1c9be0 0 34%,#24307f 34% 66%,#e4002b 66%)",
+            "digits": "var(--ink)", "glow": "0 0 0 transparent", "glow-text": "none", "chart": "#6d28d9",
+            "heat0": "#e9e6f0", "heat1": "#7cc4f2", "heat2": "#3fbf73", "heat3": "#f2c80f", "heat4": "#ff5a1f"},
+        "dark": {
+            "bg": "#08070c", "card": "#121018", "head": "#17141f", "line": "#262133", "line-2": "#1d1928",
+            "tile-a": "#15121c", "tile-b": "#121018", "topbar": "rgba(18,16,24,.86)",
+            "topbar-line": "rgba(60,50,80,.9)", "field-bg": "#17141f", "seg-on": "#2a2338",
+            "accent": "#b77cff", "accent-2": "#d6b3ff", "accent-soft": "#2a1746", "accent-line": "#5a3394",
+            "ring": "0 0 0 3px rgba(183,124,255,.35)", "fill": "#7c3aed", "fill-2": "#8b5cf6",
+            "sel": "#45267a", "row-hover": "#1b1726", "help-a": "#1e1530", "needle": "#ff2d55",
+            "logo": "linear-gradient(135deg,#29b6ff 0 34%,#3949c7 34% 66%,#ff2d55 66%)",
+            "digits": "#ffe14d", "glow": "0 0 16px rgba(183,124,255,.45)",
+            "glow-text": "0 0 10px rgba(255,225,77,.45)", "chart": "#ffe14d",
+            "heat0": "#1a1722", "heat1": "#1d5fd1", "heat2": "#1fbf6a", "heat3": "#ffe14d", "heat4": "#ff6a13"},
+    },
+    "amber": {
+        "label": "Amber", "blurb": "old-school orange gauges",
+        "light": {
+            "bg": "#faf6f0", "card": "#fff", "head": "#fcf8f2", "line": "#ece3d6", "line-2": "#f5efe6",
+            "tile-a": "#fff", "tile-b": "#fdfaf5", "topbar": "rgba(255,255,255,.86)",
+            "topbar-line": "rgba(232,220,203,.9)", "field-bg": "#fff", "seg-on": "#fff",
+            "accent": "#b45309", "accent-2": "#92400e", "accent-soft": "#fdf0e0", "accent-line": "#f2d1a8",
+            "ring": "0 0 0 3px rgba(180,83,9,.18)", "fill": "#b45309", "fill-2": "#92400e",
+            "sel": "#f7d8b3", "row-hover": "#fdf8f1", "help-a": "#fff8ee", "needle": "#b45309",
+            "logo": "linear-gradient(135deg,#f59e0b,#9a3d06)", "digits": "var(--ink)",
+            "glow": "0 0 0 transparent", "glow-text": "none", "chart": "#b45309",
+            "heat0": "#efe9e0", "heat1": "#f8d9ae", "heat2": "#f0b061", "heat3": "#d9801f", "heat4": "#9a4a06"},
+        "dark": {
+            "bg": "#0d0905", "card": "#17110a", "head": "#1d150c", "line": "#322517", "line-2": "#261c11",
+            "tile-a": "#1a130b", "tile-b": "#17110a", "topbar": "rgba(23,17,10,.86)",
+            "topbar-line": "rgba(80,58,30,.9)", "field-bg": "#1d150c", "seg-on": "#33261a",
+            "accent": "#ffa53a", "accent-2": "#ffc67f", "accent-soft": "#3a230b", "accent-line": "#7a4813",
+            "ring": "0 0 0 3px rgba(255,165,58,.32)", "fill": "#c4640c", "fill-2": "#db7614",
+            "sel": "#6a3a10", "row-hover": "#20170d", "help-a": "#2a1a0a", "needle": "#ff6a1a",
+            "logo": "linear-gradient(135deg,#ffb347,#a34a05)", "digits": "#ffc067",
+            "glow": "0 0 14px rgba(255,165,58,.45)", "glow-text": "0 0 10px rgba(255,165,58,.55)",
+            "chart": "#ffa53a",
+            "heat0": "#1e170f", "heat1": "#4a2c0d", "heat2": "#8a4f12", "heat3": "#d27a1c", "heat4": "#ffb347"},
+    },
+}
+DEFAULT_PALETTE = next(iter(PALETTES))
+
+#: laptop token -> phone token (vpa/phone_app/app.css names), for the ones
+#: the phone has
+_PHONE_TOKENS = {"bg": "bg", "card": "card", "line": "line", "line-2": "line2",
+                 "accent": "accent", "accent-2": "accent2", "accent-soft": "accent-soft"}
+
+
+def _rgba(hexc: str, a: float) -> str:
+    h = hexc.lstrip("#")
+    if len(h) == 3:
+        h = "".join(c * 2 for c in h)
+    return f"rgba({int(h[0:2], 16)},{int(h[2:4], 16)},{int(h[4:6], 16)},{a})"
+
+
+def _sel(name: str, mode: str) -> str:
+    # light blocks must not apply in dark: equal specificity would let
+    # source order decide
+    return (f':root[data-palette={name}]:not([data-theme=dark])' if mode == "light"
+            else f':root[data-palette={name}][data-theme=dark]')
+
+
+def palette_css(target: str = "laptop") -> str:
+    """Every dash theme's tokens, light and dark, as CSS rules."""
+    out = []
+    for name, p in PALETTES.items():
+        for mode in ("light", "dark"):
+            t = p[mode]
+            if target == "phone":
+                kv = {_PHONE_TOKENS[k]: v for k, v in t.items() if k in _PHONE_TOKENS}
+                kv.update({"c0": t["accent"], "on-accent": "#fff" if mode == "light" else t["bg"],
+                           "band": _rgba(t["accent"], .13 if mode == "light" else .16),
+                           "band2": _rgba(t["accent"], .22 if mode == "light" else .26),
+                           "digits": t["digits"],
+                           "glow-text": t["glow-text"]})
+            else:
+                kv = t
+            out.append(_sel(name, mode) + "{" + ";".join(f"--{k}:{v}" for k, v in kv.items()) + "}")
+    return "\n".join(out)
+
+
+#: the phone's app.css carries a generated copy between these markers
+PHONE_MARK = ("/* dash themes: generated from vpa/ui.py PALETTES (ui.write_phone_palettes) */",
+              "/* end of dash themes */")
+
+
+def write_phone_palettes() -> bool:
+    """Bring app.css's copy of the dash themes up to date. True if changed."""
+    css = Path(__file__).resolve().parent / "phone_app" / "app.css"
+    text = css.read_text(encoding="utf-8")
+    a, b = PHONE_MARK
+    block = f"{a}\n{palette_css('phone')}\n{b}"
+    if a in text:
+        new = text[:text.index(a)] + block + text[text.index(b) + len(b):]
+    else:
+        anchor = "*{box-sizing:border-box"
+        new = text.replace(anchor, block + "\n" + anchor, 1)
+    if new != text:
+        css.write_text(new, encoding="utf-8")
+    return new != text
 
 #: (slug, href, label, icon) - the pages you can be ON. Four, not six:
 #: Import, Bulk and Quick add were three tabs for one job, and are now the
@@ -103,6 +276,13 @@ def nav(active: str) -> str:
                        for k, _ in THEMES)
     th_items = "".join(f'<button type="button" role="menuitemradio" data-theme-set="{k}">'
                        f'{icon("t-" + k)}<span>{label}</span></button>' for k, label in THEMES)
+    # the dash themes, each with a swatch: its dark face and its two colours
+    th_items += '<div class="tmh">Dash</div>' + "".join(
+        f'<button type="button" class="pal" role="menuitemradio" data-palette-set="{k}">'
+        f'<i class="sw" style="background:linear-gradient(135deg,{p["dark"]["bg"]} 0 45%,'
+        f'{p["dark"]["accent"]} 45% 78%,{p["dark"]["needle"]} 78%)"></i>'
+        f'<span>{p["label"]}<small>{p["blurb"]}</small></span></button>'
+        for k, p in PALETTES.items())
     return f"""<div id="vpaload" aria-hidden="true"><i></i></div>
 <header class="topbar" data-sticky="1">
  <a class="brand" href="/" style="text-decoration:none"><span class="logo">{icon("trend", 17)}</span><span class="bt"><b>Vehicle prices</b><small id="navstat"></small></span></a>
@@ -113,7 +293,7 @@ def nav(active: str) -> str:
   <a class="navbtn{" on" if active == "phone" else ""}" id="phoneBtn" href="/phone" title="sync your data to your phone">{icon("phone")}<span>Phone</span></a>
   <button class="navbtn" id="xlsxBtn" title="rebuild viewer.xlsx from the database and open it in Excel">{icon("excel")}<span>Excel</span></button>
   <span class="navsep"></span>
-  <span class="themewrap"><button class="navbtn" id="themeBtn" aria-haspopup="menu" aria-expanded="false" title="Light or dark" aria-label="Light or dark">{th_icons}</button>
+  <span class="themewrap"><button class="navbtn" id="themeBtn" aria-haspopup="menu" aria-expanded="false" title="Theme" aria-label="Theme">{th_icons}</button>
    <div class="thememenu" id="themeMenu" role="menu" hidden>{th_items}</div></span>
   <button class="navbtn" id="helpBtn" title="How to use this page" aria-label="How to use this page">{icon("help")}<span>How to use</span></button>
   <button class="navbtn danger" id="quitBtn" title="Shut down the app - your data is already saved" aria-label="Shut down">{icon("power")}<span>Shut down</span></button>
@@ -177,6 +357,9 @@ CHROME_CSS = """
    --bad-ico:#a04848; --bad-ink:#7a2f2f; --bad-ink-2:#8d3b3b; --bad-line-2:#e3b3b3;
    --good-ink:#1f5a2c;
    --warn-ico:#b07a1e; --warn-ink:#6f470c; --warn-hover:#fdeccd; --warn-hover-line:#e6c48f;
+   /* dash-theme tokens (PALETTES); these are the fallbacks */
+   --needle:var(--accent); --logo:linear-gradient(135deg,#3a6fd8,#1f3f8f); --digits:var(--ink);
+   --glow:0 0 0 transparent; --glow-text:none; --chart:#2e7d32;
  }
  /* Dark. The theme is resolved before the page paints (THEME_HEAD) to
     data-theme="light" or "dark" on <html>, whether chosen or following
@@ -204,7 +387,10 @@ CHROME_CSS = """
    --bad-ico:#f08a80; --bad-ink:#f4a39b; --bad-ink-2:#f08a80; --bad-line-2:#8a4440;
    --good-ink:#7fd1a4;
    --warn-ico:#e7b45a; --warn-ink:#f0c27a; --warn-hover:#3a2f17; --warn-hover-line:#7a6030;
+   --chart:#5cc28c;
  }
+ /* the dash themes: each recolours light and dark (PALETTES) */
+ __PALETTES__
  __CHART_DARK__
  *,*::before,*::after{box-sizing:border-box}
  html{scroll-padding-top:var(--navh)}
@@ -223,8 +409,8 @@ CHROME_CSS = """
    box-shadow:0 1px 2px rgba(16,24,40,.04),0 6px 20px -10px rgba(16,24,40,.18)}
  .brand{display:flex;align-items:center;gap:9px;white-space:nowrap;padding-right:6px}
  .brand .logo{width:30px;height:30px;border-radius:9px;flex:none;display:grid;place-items:center;
-   color:#fff;background:linear-gradient(135deg,#3a6fd8,#1f3f8f);
-   box-shadow:inset 0 1px 0 rgba(255,255,255,.25),0 1px 2px rgba(31,63,143,.35)}
+   color:#fff;background:var(--logo);
+   box-shadow:inset 0 1px 0 rgba(255,255,255,.25),0 1px 2px rgba(0,0,0,.3),var(--glow)}
  .brand .logo .ico{vertical-align:0}
  .brand .bt{display:flex;flex-direction:column;line-height:1.15}
  .brand b{font-size:13.5px;font-weight:650;color:var(--ink);letter-spacing:-.01em}
@@ -237,7 +423,8 @@ CHROME_CSS = """
  .navtab .ico{color:var(--faint);transition:color .15s}
  .navtab:hover{background:var(--line-2);color:var(--ink)}
  .navtab:hover .ico{color:var(--dim)}
- .navtab.on{background:var(--accent-soft);color:var(--accent-2);font-weight:600}
+ .navtab.on{background:var(--accent-soft);color:var(--accent-2);font-weight:600;
+   box-shadow:inset 0 -2px 0 var(--needle)}
  .navtab.on .ico{color:var(--accent)}
  .navacts,.pageacts{display:flex;gap:6px;align-items:center;flex:none}
  .navbtn{position:relative;display:inline-flex;align-items:center;gap:6px;height:34px;
@@ -271,6 +458,12 @@ CHROME_CSS = """
  .thememenu button.on{color:var(--accent-2);font-weight:600}
  .thememenu button.on .ico{color:var(--accent)}
  .thememenu button.on::after{content:"✓";margin-left:auto}
+ .thememenu .tmh{font-size:11px;font-weight:600;color:var(--faint);text-transform:uppercase;
+   letter-spacing:.06em;padding:8px 10px 3px;border-top:1px solid var(--line-2);margin-top:4px}
+ .thememenu button.pal{height:auto;min-height:36px;padding:5px 10px;align-items:center}
+ .thememenu .pal small{display:block;font-size:11px;font-weight:400;color:var(--dim);line-height:1.2}
+ .thememenu .pal span{text-align:left;line-height:1.25}
+ .thememenu .sw{width:20px;height:20px;border-radius:6px;flex:none;border:1px solid var(--line)}
  .navsep{width:1px;height:22px;background:var(--line);margin:0 2px}
  .navbtn.busy{opacity:.6;cursor:progress}
  /* workbook build in progress: the button fills as it goes */
@@ -428,7 +621,7 @@ CHROME_CSS = """
  .tile{background:linear-gradient(180deg,var(--tile-a),var(--tile-b));border:1px solid var(--line);
    border-radius:12px;padding:12px 14px;min-width:0}
  .tile b{display:block;font-family:var(--ui-d);font-size:22px;font-weight:650;line-height:1.2;
-   letter-spacing:-.02em}
+   letter-spacing:-.02em;color:var(--digits);text-shadow:var(--glow-text)}
  .tile b.rng{font-size:15px;line-height:1.5;white-space:nowrap}
  .tile span{display:block;font-size:12px;color:var(--dim);margin-top:2px}
  .tile.warn b{color:var(--warn)}
@@ -813,15 +1006,21 @@ function vpaAxMoney(v){
   var tb=document.getElementById("themeBtn"),tm=document.getElementById("themeMenu");
   if(tb&&tm&&window.vpaTheme){
     var NAMES={auto:"matching Windows",light:"light",dark:"dark"};
-    var mark=function(){var p=vpaTheme();
-      tb.title="Light or dark - now "+NAMES[p]+(p==="auto"?" ("+vpaThemeNow()+")":"");
+    var mark=function(){var p=vpaTheme(),d=window.vpaPalette?vpaPalette():"",
+        dn=tm.querySelector('[data-palette-set="'+d+'"] span');
+      tb.title="Theme - "+NAMES[p]+(p==="auto"?" ("+vpaThemeNow()+")":"")
+        +(dn?", "+dn.firstChild.textContent+" dash":"");
       tm.querySelectorAll("[data-theme-set]").forEach(function(b){
-        var on=b.dataset.themeSet===p;b.classList.toggle("on",on);b.setAttribute("aria-checked",String(on));});};
+        var on=b.dataset.themeSet===p;b.classList.toggle("on",on);b.setAttribute("aria-checked",String(on));});
+      tm.querySelectorAll("[data-palette-set]").forEach(function(b){
+        var on=b.dataset.paletteSet===d;b.classList.toggle("on",on);b.setAttribute("aria-checked",String(on));});};
     var shut=function(){tm.hidden=true;tb.setAttribute("aria-expanded","false");tb.classList.remove("on");};
     tb.onclick=function(e){e.stopPropagation();
       if(!tm.hidden){shut();return;}
       mark();tm.hidden=false;tb.setAttribute("aria-expanded","true");tb.classList.add("on");};
-    tm.onclick=function(e){var b=e.target.closest("[data-theme-set]");
+    tm.onclick=function(e){var b=e.target.closest("[data-theme-set]"),
+        q=e.target.closest("[data-palette-set]");
+      if(q&&window.vpaPalette){vpaPalette(q.dataset.paletteSet);mark();shut();return;}
       if(!b)return;vpaTheme(b.dataset.themeSet);mark();shut();};
     document.addEventListener("click",function(e){if(!tm.hidden&&!e.target.closest(".themewrap"))shut();});
     document.addEventListener("keydown",function(e){if(e.key==="Escape"&&!tm.hidden){shut();tb.focus();}});
@@ -923,6 +1122,17 @@ THEME_HEAD = r"""<script>
     m.addEventListener?m.addEventListener("change",f):m.addListener&&m.addListener(f);}
   window.addEventListener("storage",function(e){if(e.key===K){p=e.newValue||"auto";apply();}});
   apply();
+  /* the dash theme: a colour set for light and dark alike */
+  var PK="vpa-palette",PS=__PALETTE_NAMES__,pal=PS[0];
+  try{pal=localStorage.getItem(PK)||PS[0];}catch(e){}
+  function pok(x){return PS.indexOf(x)>=0?x:PS[0];}
+  function papply(){pal=pok(pal);d.setAttribute("data-palette",pal);
+    try{window.dispatchEvent(new Event("vpa-theme"));}catch(e){}}
+  window.vpaPalette=function(np){
+    if(np){pal=pok(np);try{localStorage.setItem(PK,pal);}catch(e){}papply();}
+    return pal;};
+  window.addEventListener("storage",function(e){if(e.key===PK){pal=e.newValue||PS[0];papply();}});
+  papply();
 })();
 </script>"""
 
@@ -968,8 +1178,10 @@ def chrome(page: str, active: str, actions: str = "", mode: str = "") -> str:
     behaviour into a page template. `actions` lands in the page header,
     beside the title; `mode` marks which Add data mode this page is."""
     page = page.replace('<meta charset="utf-8">',
-                        '<meta charset="utf-8">\n' + HEAD_LINKS + "\n" + THEME_HEAD, 1)
-    return (page.replace("__CHROME_CSS__", CHROME_CSS.replace("__CHART_DARK__", _chart_dark_css()))
+                        '<meta charset="utf-8">\n' + HEAD_LINKS + "\n"
+                        + THEME_HEAD.replace("__PALETTE_NAMES__", json.dumps(list(PALETTES))), 1)
+    return (page.replace("__CHROME_CSS__", CHROME_CSS.replace("__CHART_DARK__", _chart_dark_css())
+                                                     .replace("__PALETTES__", palette_css()))
                 .replace("__NAV__", nav(active))
                 .replace("__MODES__", modes(mode) if mode else "")
                 .replace("__ACTIONS__",

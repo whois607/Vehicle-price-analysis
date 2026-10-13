@@ -1116,8 +1116,8 @@ Keep these — each one was a bug that took a while to find.
   identical apart from the new fields.
 
 **Dash themes (13/10/2026)** - `vpa/ui.py` PALETTES
-* Eight colour sets, each with a light and a dark face: Classic (green
-  glow, the default), Standard (the original blue, no needle, no glow), XR
+* Eight colour sets, each with a light and a dark face: Standard (the
+  original blue, no needle, no glow - the default), Classic (green glow), XR
   (Falcon blue, red needles), M (violet, M-stripe logo, Sao Paulo yellow
   digits in dark, a multi-paint heatmap), Amber, SS (Commodore red - note
   it shares its hue with "bad"), EV (cyan, white needle) and Digital

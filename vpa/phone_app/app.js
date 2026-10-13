@@ -466,7 +466,7 @@ function vehicleAsItem(v) {
 const notes = arr => arr && arr.length ? `<ul class="notes">${arr.map(n => `<li>${esc(n)}</li>`).join("")}</ul>` : "";
 
 // the dash themes, as vpa/ui.py PALETTES names them (key, name, what it is)
-const DASHES = [["classic", "Classic", "green instrument glow"], ["standard", "Standard", "the original, plain blue"], ["xr", "XR", "Falcon blue, red needles"], ["m", "M", "M stripes and loud paint"], ["amber", "Amber", "old-school orange gauges"], ["ss", "SS", "Commodore red"], ["ev", "EV", "clean cyan, modern screens"], ["digital", "Digital", "80s digital dash, magenta and cyan"]];
+const DASHES = [["standard", "Standard", "the original, plain blue"], ["classic", "Classic", "green instrument glow"], ["xr", "XR", "Falcon blue, red needles"], ["m", "M", "M stripes and loud paint"], ["amber", "Amber", "old-school orange gauges"], ["ss", "SS", "Commodore red"], ["ev", "EV", "clean cyan, modern screens"], ["digital", "Digital", "80s digital dash, magenta and cyan"]];
 
 /* ------------------------------------------------------------ Home */
 route("/", { tab: "home", titleText: "VPA" }, q => {

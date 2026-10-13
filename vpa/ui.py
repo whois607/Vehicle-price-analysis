@@ -71,6 +71,29 @@ THEMES = [("auto", "Match Windows"), ("light", "Light"), ("dark", "Dark")]
 #:   chart   the line of a single-series chart (collected over time)
 #:   heat0-4 the capture-day calendar, quietest to busiest
 PALETTES = {
+    "standard": {
+        "label": "Standard", "blurb": "the original, plain blue",
+        "light": {
+            "bg": "#f4f5f8", "card": "#fff", "head": "#f7f8fa", "line": "#e4e7ed", "line-2": "#eff1f5",
+            "tile-a": "#fff", "tile-b": "#fafbfc", "topbar": "rgba(255,255,255,.86)",
+            "topbar-line": "rgba(214,219,228,.9)", "field-bg": "#fff", "seg-on": "#fff",
+            "accent": "#2b5fc4", "accent-2": "#224ea5", "accent-soft": "#edf2fc", "accent-line": "#c8d7f3",
+            "ring": "0 0 0 3px rgba(43,95,196,.18)", "fill": "#2b5fc4", "fill-2": "#224ea5",
+            "sel": "#cfdcf6", "row-hover": "#f7f9fe", "help-a": "#f8fbff", "needle": "transparent",
+            "logo": "linear-gradient(135deg,#3a6fd8,#1f3f8f)", "digits": "var(--ink)",
+            "glow": "0 0 0 transparent", "glow-text": "none", "chart": "#2e7d32",
+            "heat0": "#e8eaee", "heat1": "#c9e6c9", "heat2": "#8fcb8f", "heat3": "#4d9e4d", "heat4": "#256e25"},
+        "dark": {
+            "bg": "#0f1218", "card": "#181c24", "head": "#1d222b", "line": "#2a303b", "line-2": "#222833",
+            "tile-a": "#1b2029", "tile-b": "#181c24", "topbar": "rgba(24,28,36,.84)",
+            "topbar-line": "rgba(58,66,80,.9)", "field-bg": "#1d222b", "seg-on": "#2c3340",
+            "accent": "#7ea6f4", "accent-2": "#a3c0f8", "accent-soft": "#1d2a44", "accent-line": "#34507f",
+            "ring": "0 0 0 3px rgba(126,166,244,.32)", "fill": "#3d6fd6", "fill-2": "#4c7de2",
+            "sel": "#2d4a80", "row-hover": "#1e2431", "help-a": "#1a2233", "needle": "transparent",
+            "logo": "linear-gradient(135deg,#3a6fd8,#1f3f8f)", "digits": "var(--ink)",
+            "glow": "0 0 0 transparent", "glow-text": "none", "chart": "#5cc28c",
+            "heat0": "#232934", "heat1": "#1f4a2c", "heat2": "#2c7040", "heat3": "#42a05c", "heat4": "#7fdc98"},
+    },
     "classic": {
         "label": "Classic", "blurb": "green instrument glow",
         "light": {
@@ -94,29 +117,6 @@ PALETTES = {
             "glow": "0 0 14px rgba(78,224,138,.45)", "glow-text": "0 0 10px rgba(78,224,138,.55)",
             "chart": "#4ee08a",
             "heat0": "#1e2321", "heat1": "#14462a", "heat2": "#1f7a44", "heat3": "#35b866", "heat4": "#7dffb0"},
-    },
-    "standard": {
-        "label": "Standard", "blurb": "the original, plain blue",
-        "light": {
-            "bg": "#f4f5f8", "card": "#fff", "head": "#f7f8fa", "line": "#e4e7ed", "line-2": "#eff1f5",
-            "tile-a": "#fff", "tile-b": "#fafbfc", "topbar": "rgba(255,255,255,.86)",
-            "topbar-line": "rgba(214,219,228,.9)", "field-bg": "#fff", "seg-on": "#fff",
-            "accent": "#2b5fc4", "accent-2": "#224ea5", "accent-soft": "#edf2fc", "accent-line": "#c8d7f3",
-            "ring": "0 0 0 3px rgba(43,95,196,.18)", "fill": "#2b5fc4", "fill-2": "#224ea5",
-            "sel": "#cfdcf6", "row-hover": "#f7f9fe", "help-a": "#f8fbff", "needle": "transparent",
-            "logo": "linear-gradient(135deg,#3a6fd8,#1f3f8f)", "digits": "var(--ink)",
-            "glow": "0 0 0 transparent", "glow-text": "none", "chart": "#2e7d32",
-            "heat0": "#e8eaee", "heat1": "#c9e6c9", "heat2": "#8fcb8f", "heat3": "#4d9e4d", "heat4": "#256e25"},
-        "dark": {
-            "bg": "#0f1218", "card": "#181c24", "head": "#1d222b", "line": "#2a303b", "line-2": "#222833",
-            "tile-a": "#1b2029", "tile-b": "#181c24", "topbar": "rgba(24,28,36,.84)",
-            "topbar-line": "rgba(58,66,80,.9)", "field-bg": "#1d222b", "seg-on": "#2c3340",
-            "accent": "#7ea6f4", "accent-2": "#a3c0f8", "accent-soft": "#1d2a44", "accent-line": "#34507f",
-            "ring": "0 0 0 3px rgba(126,166,244,.32)", "fill": "#3d6fd6", "fill-2": "#4c7de2",
-            "sel": "#2d4a80", "row-hover": "#1e2431", "help-a": "#1a2233", "needle": "transparent",
-            "logo": "linear-gradient(135deg,#3a6fd8,#1f3f8f)", "digits": "var(--ink)",
-            "glow": "0 0 0 transparent", "glow-text": "none", "chart": "#5cc28c",
-            "heat0": "#232934", "heat1": "#1f4a2c", "heat2": "#2c7040", "heat3": "#42a05c", "heat4": "#7fdc98"},
     },
     "xr": {
         "label": "XR", "blurb": "Falcon blue, red needles",

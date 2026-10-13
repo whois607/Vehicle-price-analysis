@@ -40,9 +40,11 @@ def _cmd_ingest(args) -> int:
         counts = store.ingest(records, source_file=str(path), adapter=fmt)
     sweep = None
     if fmt == "html":
-        from . import photos, sweeps
+        from . import details, photos, sweeps
         html = path.read_text(encoding="utf-8", errors="replace")
-        photos.remember_html(args.db, html, max((str(r.capture_date) for r in records), default=None))
+        day = max((str(r.capture_date) for r in records), default=None)
+        photos.remember_html(args.db, html, day)
+        details.remember_html(args.db, html, day)
         sweep = sweeps.note_html(args.db, html, records)
     print(f"Ingested {path.name} [{fmt}]: parsed {counts['rows_parsed']}, "
           f"new vehicles {counts['vehicles_new']}, new observations "
@@ -277,7 +279,25 @@ def build_parser() -> argparse.ArgumentParser:
                        "data/photos.json, never the database)")
     q.add_argument("--backfill", action="store_true")
     q.set_defaults(fn=_cmd_photos)
+    q = sub.add_parser("details", help="how many cars have listing details (condition, "
+                       "engine, gearbox, price type...); --backfill reads them from every "
+                       "kept saved page (writes only data/details.json, never the database)")
+    q.add_argument("--backfill", action="store_true")
+    q.set_defaults(fn=_cmd_details)
     return p
+
+
+def _cmd_details(args) -> int:
+    from . import details
+    if args.backfill:
+        r = details.backfill(args.db)
+        print(f"Read {r['pages']} kept page(s): details for {r['ads_in_pages']:,} listing(s), "
+              f"{r['changed']:,} new or updated.")
+    else:
+        r = details.coverage(args.db)
+    print(f"{r['with_details']:,} of {r['cars']:,} cars have listing details "
+          f"({r['stored_ads']:,} ads in {details.store_path(args.db)}).")
+    return 0
 
 
 def _cmd_photos(args) -> int:

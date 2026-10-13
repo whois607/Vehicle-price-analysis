@@ -113,8 +113,98 @@ def _select_multi(df: pd.DataFrame, make, model, variants) -> pd.DataFrame:
 KEYWORD_COLS = ("variant", "raw_title", "model")
 
 
+#: The listing filters: URL parameter -> (frame column, how it is named on
+#: the page). Old columns (state, seller, body, gearbox from the trim name)
+#: and the ones the saved pages state (details.py) narrow alike. The value
+#: UNKNOWN picks the cars that did not state it.
+FACETS = {
+    "cond": ("condition", "condition"),
+    "st": ("state", "state"),
+    "sel": ("seller_type", "seller"),
+    "gb": ("gearbox", "gearbox"),
+    "fuel": ("fuel", "fuel"),
+    "ind": ("induction", "engine"),
+    "cyl": ("cylinders", "cylinders"),
+    "body": ("body_type", "body"),
+    "pt": ("price_type", "price"),
+    "rat": ("rating", "site rating"),
+}
+UNKNOWN = "~"
+#: condition shortcuts: "not new" keeps used cars AND cars whose page did
+#: not say (most older captures), dropping only what is known new or demo
+COND_GROUPS = {"notnew": ("not new or demo", None),
+               "anynew": ("new (in stock or to order)", ("new", "new to order"))}
+
+
+def _facet_key(v) -> str | None:
+    """A frame value as a filter value: numbers without '.0', text as is."""
+    if v is None or (isinstance(v, float) and pd.isna(v)) or v is pd.NA:
+        return None
+    if isinstance(v, float) and v.is_integer():
+        return str(int(v))
+    s = str(v).strip()
+    return s or None
+
+
+def facet_options(df: pd.DataFrame) -> dict:
+    """Each filter's values in this selection, with how many cars hold each
+    (a car counts once, by its latest sighting) - so the page offers only
+    what the data has, and says how much of it there is."""
+    out = {}
+    if df.empty:
+        return {k: [] for k in FACETS}
+    last = df.sort_values("capture_date", kind="stable").drop_duplicates("key", keep="last")
+    for k, (col, _) in FACETS.items():
+        if col not in last.columns:
+            out[k] = []
+            continue
+        vals = [_facet_key(v) for v in last[col].tolist()]
+        counts: dict = {}
+        for v in vals:
+            counts[v] = counts.get(v, 0) + 1
+        opts = [{"v": v, "n": n} for v, n in counts.items() if v is not None]
+        opts.sort(key=lambda o: (-o["n"], o["v"]))
+        if None in counts and opts:
+            opts.append({"v": UNKNOWN, "n": counts[None]})
+        out[k] = opts
+    return out
+
+
+def _apply_facets(out: pd.DataFrame, facets: dict | None) -> tuple:
+    applied = []
+    facets = facets or {}
+    # always in FACETS order, whatever order they were given in, so the
+    # page states them the same way every time (and the phone matches)
+    for k in (*FACETS, "nosug"):
+        want = str(facets.get(k) or "").strip()
+        if not want:
+            continue
+        if k == "nosug":
+            if want in ("1", "true", "on") and "suggested" in out.columns:
+                out = out[~out["suggested"].astype(bool)]
+                applied.append({"kind": "nosug", "text": "only listings from the search itself"})
+            continue
+        col, name = FACETS[k]
+        if col not in out.columns:
+            continue
+        vals = pd.Series([_facet_key(v) for v in out[col].tolist()], index=out.index, dtype=object)
+        if k == "cond" and want in COND_GROUPS:
+            text, keep = COND_GROUPS[want]
+            out = out[~vals.isin(("new", "new to order", "demo"))] if keep is None else out[vals.isin(keep)]
+            applied.append({"kind": k, "text": text})
+            continue
+        if want == UNKNOWN:
+            out = out[vals.isna()]
+            applied.append({"kind": k, "text": f"{name} not stated"})
+        else:
+            out = out[vals == want]
+            applied.append({"kind": k, "text": f"{name}: {want}"})
+    return out, applied
+
+
 def _apply_filters(df: pd.DataFrame, year_min=None, year_max=None,
-                   price_min=None, price_max=None, keyword=None) -> tuple:
+                   price_min=None, price_max=None, keyword=None,
+                   facets: dict | None = None) -> tuple:
     """Narrow a selection by year, asking price and free text.
 
     Returns (filtered, applied) where `applied` describes each filter that
@@ -174,7 +264,27 @@ def _apply_filters(df: pd.DataFrame, year_min=None, year_max=None,
                     kw, case=False, na=False, regex=False)
         out = out[hit]
         applied.append({"kind": "keyword", "text": f'"{kw}"'})
-    return out, applied
+    # the listing filters: a car with no value is dropped by a filter on
+    # that field (asking for manuals is not asking for "maybe manuals") -
+    # except "not new or demo", which keeps the cars that did not say
+    out, more = _apply_facets(out, facets)
+    return out, applied + more
+
+
+def _txt(v):
+    return None if v is None or (not isinstance(v, str) and pd.isna(v)) else str(v)
+
+
+def _spec(row) -> dict:
+    """What a car's pages stated beyond the price, for the cars table:
+    the latest sighting's (details.py). Missing columns read as blank."""
+    g = row.get
+    eng = _txt(g("engine"))
+    return {"condition": _txt(g("condition")), "gearbox": _txt(g("gearbox")),
+            "engine": eng, "fuel": _txt(g("fuel")),
+            "price_type": _txt(g("price_type")), "rating": _txt(g("rating")),
+            "just_listed": bool(g("just_listed") or False),
+            "suggested": bool(g("suggested") or False)}
 
 
 def _num(v):
@@ -232,7 +342,7 @@ def detail_payload(db_path: str | Path = DEFAULT_DB, make: str | None = None,
                    model: str | None = None, variant: str | None = None,
                    horizon: int = DEFAULT_HORIZON, variants=None,
                    year_min=None, year_max=None, price_min=None,
-                   price_max=None, keyword=None) -> dict:
+                   price_max=None, keyword=None, facets: dict | None = None) -> dict:
     """Everything about one selection: headline stats, per-capture-day trend
     and supply, mileage fit, forecast, the individual vehicles behind the
     numbers, and which of them changed price.
@@ -274,11 +384,13 @@ def detail_payload(db_path: str | Path = DEFAULT_DB, make: str | None = None,
     # kept whole: turnover needs the pre-filter selection to tell a car that
     # left the market from one that merely left the filter (turnover.py)
     unfiltered_sub = sub
+    facet_opts = facet_options(unfiltered_sub)
     sub, applied = _apply_filters(sub, year_min, year_max, price_min,
-                                  price_max, keyword)
+                                  price_max, keyword, facets)
     if sub.empty:
         return {"ok": True, "empty": True, "label": label,
                 "filters": applied, "unfiltered": unfiltered_n,
+                "facets": facet_opts,
                 "reason": ("no listings match that selection"
                            if not applied else
                            f"the selection holds {unfiltered_n} sighting(s), "
@@ -325,6 +437,11 @@ def detail_payload(db_path: str | Path = DEFAULT_DB, make: str | None = None,
 
     splits = {"seller": split("seller_type"), "state": split("state"),
               "source": split("source"),
+              # what the saved pages stated (details.py): blank columns for
+              # a selection whose pages said nothing - the page hides those
+              **{c: split(c) for c in ("condition", "gearbox", "price_type",
+                                       "fuel", "induction", "rating")
+                 if c in priced.columns},
               "year": sorted(split("year", lambda v: str(int(float(v)))
                                    if str(v) != "(unknown)" else "(unknown)"),
                              key=lambda r: r["name"])}
@@ -554,6 +671,7 @@ def detail_payload(db_path: str | Path = DEFAULT_DB, make: str | None = None,
             "change": (round((last_price - first_price) / first_price * 100, 1)
                        if moved and first_price else None),
             "ph": _first_photo(PHOTOS, last),
+            **_spec(last),
         }
         vehicles.append(v)
         if moved:
@@ -617,12 +735,13 @@ def detail_payload(db_path: str | Path = DEFAULT_DB, make: str | None = None,
     if make and model:
         fam_all = _select(df, make, model, None)
         fam_filtered, _ = _apply_filters(fam_all, year_min, year_max,
-                                         price_min, price_max, keyword)
+                                         price_min, price_max, keyword, facets)
         trim_churn = _turn.by_variant(fam_filtered, selected=picked,
                                       full_line=fam_all)
 
     return {"ok": True, "empty": False, "head": head, "byday": byday,
             "picked": picked, "filters": applied, "starred_total": len(STARS),
+            "facets": facet_opts,
             "unfiltered": unfiltered_n, "kept": int(len(sub)),
             "bymonth": bymonth, "forecast": fcast, "mileage": mileage,
             "caveats": caveats, "supply": supply, "splits": splits,
@@ -1487,6 +1606,12 @@ _PAGE = r"""<!DOCTYPE html>
 __CHROME_CSS__
  select{min-width:150px;max-width:280px}
  .filters{margin-top:12px;padding-top:12px;border-top:1px solid var(--line-2)}
+ .facets{margin-top:8px;gap:8px}
+ .facets select{min-width:92px;max-width:170px}
+ .facets .chk{align-self:flex-end;padding-bottom:6px}
+ .facets .chk label{display:flex;gap:6px;align-items:center;font-size:12px;text-transform:none;letter-spacing:0}
+ .facets .on select{border-color:var(--accent,#3b6fd8);font-weight:600}
+ .spec{font-size:12px;color:var(--muted,#667);white-space:nowrap}
  .w6{width:104px}.w8{width:132px}
  .fbadge{display:inline-block;background:var(--accent-soft);border:1px solid var(--accent-line);
    color:var(--accent-2);border-radius:11px;padding:0 9px;font-size:11.5px;line-height:19px;
@@ -1782,6 +1907,19 @@ __NAV__
   <div><button class="ghost" id="fGo">Apply</button></div>
   <div><button class="ghost" id="fClear">Clear filters</button></div>
  </div>
+ <div class="row facets" id="facets">
+  <div data-f="cond"><label for="fCond">condition</label><select id="fCond"></select></div>
+  <div data-f="st"><label for="fSt">state</label><select id="fSt"></select></div>
+  <div data-f="sel"><label for="fSel">seller</label><select id="fSel"></select></div>
+  <div data-f="gb"><label for="fGb">gearbox</label><select id="fGb"></select></div>
+  <div data-f="body"><label for="fBody">body</label><select id="fBody"></select></div>
+  <div data-f="fuel"><label for="fFuel">fuel</label><select id="fFuel"></select></div>
+  <div data-f="ind"><label for="fInd">engine</label><select id="fInd"></select></div>
+  <div data-f="cyl"><label for="fCyl">cylinders</label><select id="fCyl"></select></div>
+  <div data-f="pt"><label for="fPt">price</label><select id="fPt"></select></div>
+  <div data-f="rat"><label for="fRat">site rating</label><select id="fRat"></select></div>
+  <div class="chk"><label><input type="checkbox" id="fNoSug"> only the search's own listings</label></div>
+ </div>
  <div class="chipbar" id="chipbar" style="display:none">
   <div class="ptitle">trims in this model <span id="chipspan"></span></div>
   <input type="text" id="chipq" placeholder="filter trims..." autocomplete="off">
@@ -1841,6 +1979,7 @@ __NAV__
   <th class="s" data-k="starred" title="cars you are following">&#9733;</th>
   <th class="ph" title="the advert's photo, where a saved page had one - hover to enlarge"></th>
   <th class="s" data-k="year">year</th><th class="s" data-k="variant">trim</th>
+  <th class="s" data-k="spec" title="what the listing stated: gearbox and engine, and how it was advertised">spec</th>
   <th class="s num" data-k="price">price</th>
   <th class="s num" data-k="odometer_km">odometer</th>
   <th class="s num" data-k="per10k">$/10k km</th>
@@ -3187,16 +3326,26 @@ function whoTab(d){
       <td class="num flat">${money(r.lo)}&ndash;${money(r.hi)}</td></tr>`).join("")
     ||'<tr><td colspan="5" class="flat">nothing</td></tr>'}</tbody></table></div>`;
   const s=d.splits;
+  // what the saved pages stated: only the splits that name something
+  const named=rows=>(rows||[]).some(r=>r.name!=="(unknown)");
+  const more=[["condition","condition","new or used"],["price_type","price type","as advertised"],
+    ["gearbox","gearbox","gearbox"],["induction","engine","induction"],["fuel","fuel","fuel"],
+    ["rating","the site's own price rating","rating"]].filter(([k])=>named(s[k]));
+  const pairs=[];
+  for(let i=0;i<more.length;i+=2)pairs.push(more.slice(i,i+2));
   return `<div class="cols">
     ${tbl("seller",s.seller,"type")}
     ${tbl("state",s.state,"where")}
-   </div><div class="cols" style="margin-top:14px">
+   </div>${pairs.map(p=>`<div class="cols" style="margin-top:14px">
+    ${p.map(([k,t,n])=>tbl(t,s[k],n)).join("")}</div>`).join("")}<div class="cols" style="margin-top:14px">
     ${tbl("source",s.source,"captured from")}
     <div><div class="mini-h">median price by model year</div>
       ${yearChart(s.year)}</div>
    </div>
    <div class="hint note">A dealer median above the private median is normal - it
-    prices in warranty and on-road costs, not a better car. "(unknown)" is a
+    prices in warranty and on-road costs, not a better car. A drive-away price
+    includes on-road costs too, so it is not like for like with one that
+    excludes them. "(unknown)" is a
     listing that did not state it, and is left out of the year chart because
     it has no year to sit at.</div>`;
 }
@@ -3492,13 +3641,44 @@ function selLabel(){
        :PICK.length?`${s.make} ${s.model} — ${PICK.length} trims`
        :[s.make,s.model].filter(Boolean).join(" ");
 }
+/* the listing filters (explore.FACETS): URL key -> select. Their options
+   come from the selection itself (d.facets), with how many cars hold each */
+const FACET_IDS={cond:"fCond",st:"fSt",sel:"fSel",gb:"fGb",body:"fBody",fuel:"fFuel",
+  ind:"fInd",cyl:"fCyl",pt:"fPt",rat:"fRat"};
+const FACET_KEYS=Object.keys(FACET_IDS).concat(["nosug"]);
+const FACET_WANT={};               // chosen before the options arrive (a bookmark)
+function facetVal(k){const el=$(FACET_IDS[k]);return (el&&el.value)||FACET_WANT[k]||"";}
 function filterQuery(q){
   const put=(k,id)=>{const v=$(id).value.trim();if(v)q.set(k,v);};
   put("y0","fY0");put("y1","fY1");put("p0","fP0");put("p1","fP1");put("q","fKw");
+  Object.keys(FACET_IDS).forEach(k=>{const v=facetVal(k);if(v)q.set(k,v);});
+  if($("fNoSug").checked)q.set("nosug","1");
   return q;
 }
 function anyFilter(){
-  return ["fY0","fY1","fP0","fP1","fKw"].some(id=>$(id).value.trim());
+  return ["fY0","fY1","fP0","fP1","fKw"].some(id=>$(id).value.trim())
+    ||Object.keys(FACET_IDS).some(k=>facetVal(k))||$("fNoSug").checked;
+}
+function facetLabel(k,v){
+  if(v==="~")return "not stated";
+  if(k==="cyl")return v+" cyl";
+  return v;
+}
+function fillFacets(f){
+  if(!f)return;
+  Object.entries(FACET_IDS).forEach(([k,id])=>{
+    const el=$(id),cur=el.value||FACET_WANT[k]||"",opts=(f[k]||[]).slice();
+    let h='<option value="">any</option>';
+    if(k==="cond")h+='<option value="notnew">not new or demo</option>'
+                   +'<option value="anynew">new (in stock or to order)</option>';
+    if(cur&&!["notnew","anynew"].includes(cur)&&!opts.some(o=>o.v===cur))opts.push({v:cur,n:0});
+    h+=opts.map(o=>`<option value="${esc(o.v)}">${esc(facetLabel(k,o.v))} (${o.n})</option>`).join("");
+    el.innerHTML=h;el.value=cur;delete FACET_WANT[k];
+    const box=el.parentElement;
+    // a filter with nothing to choose between is hidden, unless it is set
+    box.style.display=(opts.filter(o=>o.v!=="~").length>=1||cur)?"":"none";
+    box.classList.toggle("on",!!cur);
+  });
 }
 
 /* Sibling trims as clickable chips (the workbook's Models sheet), in the
@@ -3558,6 +3738,7 @@ async function load(){
   if(!d)return;                          // a newer selection has taken over
   if(!d.ok){$("selspan").textContent=d.error||"failed";return;}
   DATA=d;
+  fillFacets(d.facets);
   if(d.empty){
     $("selspan").textContent="— "+d.reason;
     $("tiles").innerHTML="";$("trend").innerHTML="";$("supply").innerHTML="";
@@ -3584,7 +3765,7 @@ async function load(){
   su.delete("variant");
   su.set("make",$("mk").value);su.set("model",$("mo").value);
   PICK.forEach(v=>su.append("variant",v));
-  ["y0","y1","p0","p1","q"].forEach(k=>su.delete(k));
+  ["y0","y1","p0","p1","q"].concat(FACET_KEYS).forEach(k=>su.delete(k));
   filterQuery(su);
   history.replaceState(null,"","/explore?"+su);
   $("tiles").innerHTML=[
@@ -3644,12 +3825,24 @@ async function load(){
 }
 
 /* ---------- individual vehicles ---------- */
+/* how the listing was advertised, as small tags: only what is worth a look */
+function specTags(v){
+  const t=[];
+  if(v.condition&&v.condition!=="used")t.push(`<span class="tag warn" title="the listing said: ${esc(v.condition)}">${esc(v.condition)}</span>`);
+  if(v.price_type==="drive away")t.push('<span class="tag" title="the price includes on-road costs">drive away</span>');
+  if(v.rating)t.push(`<span class="tag" title="the site's own price rating, not this app's">${esc(v.rating)}</span>`);
+  if(v.just_listed)t.push('<span class="tag good">just listed</span>');
+  if(v.suggested)t.push('<span class="tag warn" title="the site added this listing to your results; it was not part of the search">suggested</span>');
+  return t.length?" "+t.join(""):"";
+}
 function renderVehicles(){
   const d=DATA;if(!d||d.empty)return;
   const q=$("filter").value.trim().toLowerCase();
   let rows=d.vehicles.map(v=>({...v,
-    per10k:(v.price!=null&&v.odometer_km)?v.price/(v.odometer_km/10000):null}));
-  if(q)rows=rows.filter(v=>[v.year,v.variant,v.state,v.seller_type,v.source,v.title]
+    per10k:(v.price!=null&&v.odometer_km)?v.price/(v.odometer_km/10000):null,
+    spec:[v.gearbox,v.engine].filter(Boolean).join(" · ")||null}));
+  if(q)rows=rows.filter(v=>[v.year,v.variant,v.state,v.seller_type,v.source,v.title,
+      v.spec,v.condition,v.price_type,v.fuel]
     .map(x=>String(x==null?"":x).toLowerCase()).join(" ").includes(q));
   rows.sort((a,b)=>{
     const x=a[sortKey],y=b[sortKey];
@@ -3668,6 +3861,7 @@ function renderVehicles(){
     <td>${v.year||""}</td>
     <td>${esc(v.variant||"")}${v.clash?'<span class="tag warn" title="two cars share this identity - they show two prices on the same capture day">merged identity</span>':""}
       ${v.detail==="brief"?'<span class="tag">price only</span>':""}</td>
+    <td class="spec">${esc(v.spec||"")}${specTags(v)}</td>
     <td class="num">${money(v.price)}${v.moved?`<span class="tag ${v.change>0?"good":"warn"}">${v.change>0?"+":""}${v.change}%</span>`:""}</td>
     <td class="num">${km(v.odometer_km)}</td>
     <td class="num">${v.per10k==null?"":money(v.per10k)}</td>
@@ -3675,7 +3869,7 @@ function renderVehicles(){
     <td>${esc(v.source)}</td><td class="num">${v.sightings}</td>
     <td>${v.last_day}</td>
     <td>${vpaAdLinks(v.url,v.last_day<newest,v)}</td>
-  </tr>`).join("")||'<tr><td colspan="13" class="flat">nothing matches that filter</td></tr>';
+  </tr>`).join("")||'<tr><td colspan="14" class="flat">nothing matches that filter</td></tr>';
   $("vspan").textContent=`— showing ${rows.length}`
     +(d.vehicle_total>d.vehicles.length?` of ${d.vehicle_total} (newest ${d.vehicles.length} loaded)`:"");
   $("vhint").textContent="Click any row to judge that car against the rest of "
@@ -3715,7 +3909,10 @@ $("fGo").onclick=load;
 ["fY0","fY1","fP0","fP1","fKw"].forEach(id=>
   $(id).onkeydown=e=>{if(e.key==="Enter")load();});
 $("fClear").onclick=()=>{
-  ["fY0","fY1","fP0","fP1","fKw"].forEach(id=>$(id).value="");load();};
+  ["fY0","fY1","fP0","fP1","fKw"].forEach(id=>$(id).value="");
+  Object.values(FACET_IDS).forEach(id=>$(id).value="");$("fNoSug").checked=false;load();};
+Object.values(FACET_IDS).forEach(id=>$(id).onchange=load);
+$("fNoSug").onchange=load;
 
 
 /* ---------- stay in step with the database ---------- */
@@ -3740,6 +3937,8 @@ async function checkFresh(){
   PICK=p.getAll("variant").filter(Boolean);
   [["y0","fY0"],["y1","fY1"],["p0","fP0"],["p1","fP1"],["q","fKw"]]
     .forEach(([k,id])=>{if(p.get(k))$(id).value=p.get(k);});
+  Object.keys(FACET_IDS).forEach(k=>{if(p.get(k))FACET_WANT[k]=p.get(k);});
+  if(p.get("nosug"))$("fNoSug").checked=true;
   fillSelects(p.get("make"),p.get("model"),PICK.length===1?PICK[0]:null);
   await checkFresh();await load();loadWatchlist();
   // a verdict is bookmarkable: restore whichever subject the URL names

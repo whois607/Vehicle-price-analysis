@@ -130,10 +130,10 @@ def _ping(port: int) -> dict | None:
 def _db_stat(db):
     """What a rebuild is triggered by: the database, and the photo list
     beside it (a photo backfill changes the copy with no database write)."""
-    from . import photos
+    from . import details, photos
     try:
         st = Path(db).stat()
-        return (st.st_mtime_ns, st.st_size, photos.stat(db))
+        return (st.st_mtime_ns, st.st_size, photos.stat(db), details.stat(db))
     except OSError:
         return None
 

@@ -346,12 +346,14 @@ def run(files: list[dict], db_path: str | Path = DEFAULT_DB,
     # the photo addresses in each page (data/photos.json, never vpa.db) -
     # only now, after the run is committed; a failure here costs pictures,
     # never the import
-    from . import photos, sweeps
+    from . import details, photos, sweeps
     by_name = {r["name"]: r for r in reports if r.get("ok")}
     for p in parsed:
         if p["format"] == "html" and not p.get("skip"):
-            photos.remember_html(db_path, p["text"],
-                                 max((str(r.capture_date) for r in p["records"]), default=None))
+            day = max((str(r.capture_date) for r in p["records"]), default=None)
+            photos.remember_html(db_path, p["text"], day)
+            # what the page states beyond the price (data/details.json)
+            details.remember_html(db_path, p["text"], day)
             # the page's search: how many it stated, how many are saved so far
             s = sweeps.note_html(db_path, p["text"], p["records"])
             if s and p["name"] in by_name:

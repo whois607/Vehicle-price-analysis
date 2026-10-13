@@ -89,6 +89,7 @@ def parse_payload(payload: dict, db_path: str | Path) -> dict:
         verdicts = store.preview(records)
     if used_fmt == "html":
         _hold_photos(text, max((str(r.capture_date) for r in records), default=None))
+        _hold_details(text, max((str(r.capture_date) for r in records), default=None))
         _hold_search(text, records)
 
     seen: set[tuple] = set()
@@ -168,6 +169,38 @@ def _hold_photos(text: str, day) -> None:
         pass
 
 
+# The listing details each previewed page states (details.py), by ad id:
+# kept only for the cars that are committed, like the photos above.
+_DETAILS_HELD: dict[str, tuple] = {}
+
+
+def _hold_details(text: str, day) -> None:
+    from . import details
+    try:
+        for ad, got in details.extract(text)["ads"].items():
+            _DETAILS_HELD.pop(ad, None)
+            _DETAILS_HELD[ad] = (got, day)
+        while len(_DETAILS_HELD) > 5000:
+            _DETAILS_HELD.pop(next(iter(_DETAILS_HELD)))
+    except Exception:
+        pass
+
+
+def _store_held_details(records, db_path) -> None:
+    from . import details, photos
+    by_day: dict = {}
+    for r in records:
+        ad = photos.ad_id(r.listing_id, r.url)
+        if ad and ad in _DETAILS_HELD:
+            got, day = _DETAILS_HELD[ad]
+            by_day.setdefault(day, {})[ad] = got
+    for day, ads in by_day.items():
+        try:
+            details.remember(db_path, {"ads": ads}, day)
+        except Exception:
+            pass
+
+
 # The search each previewed results page came from, by car: noted (sweeps.py)
 # only for pages whose cars are committed, like the photos above.
 _SEARCH_HELD: dict[str, tuple] = {}
@@ -176,10 +209,10 @@ _SEARCH_HELD: dict[str, tuple] = {}
 def _hold_search(text: str, records) -> None:
     from . import sweeps
     try:
-        total = sweeps.stated_total(text, records[0].source if records else None)
+        total = sweeps.page_total(text, records[0].source if records else None)
         if total is None or total < len(records):
             return
-        ref = (sweeps.page_title(text), total)
+        ref = (sweeps.page_title(text), total, sweeps.page_sort(text))
         for r in records:
             _SEARCH_HELD.pop(r.dedupe_key(), None)
             _SEARCH_HELD[r.dedupe_key()] = ref
@@ -196,9 +229,9 @@ def _store_held_search(records, db_path) -> None:
         ref = _SEARCH_HELD.get(r.dedupe_key())
         if ref:
             groups.setdefault(ref, []).append(r)
-    for (title, total), recs in groups.items():
+    for (title, total, sort), recs in groups.items():
         try:
-            sweeps.note_page(db_path, title, total, recs)
+            sweeps.note_page(db_path, title, total, recs, sort)
         except Exception:
             pass
 
@@ -238,6 +271,7 @@ def commit_payload(payload: dict, db_path: str | Path) -> dict:
         with Store(db_path) as store:
             counts = store.ingest(records, source_file="(import-ui)", adapter="ui")
         _store_held_photos(records, db_path)
+        _store_held_details(records, db_path)
         _store_held_search(records, db_path)
     return {"ok": True, "committed": counts["obs_new"],
             "new_vehicles": counts["vehicles_new"],
@@ -740,7 +774,8 @@ class _Handler(BaseHTTPRequestHandler):
                 self.db_path, make=one("make"), model=one("model"),
                 variants=[v for v in (q.get("variant") or []) if v.strip()],
                 year_min=one("y0"), year_max=one("y1"),
-                price_min=one("p0"), price_max=one("p1"), keyword=one("q")))
+                price_min=one("p0"), price_max=one("p1"), keyword=one("q"),
+                facets={k: one(k) for k in (*explore.FACETS, "nosug") if one(k)}))
         elif self.path.startswith("/api/explore/car"):
             from urllib.parse import parse_qs, urlparse
             from . import explore
@@ -1010,6 +1045,11 @@ def serve(db_path: str | Path = DEFAULT_DB, port: int = DEFAULT_PORT,
     if not photos.store_path(db_path).exists():
         threading.Thread(target=lambda: photos.backfill(db_path), daemon=True,
                          name="photo-backfill").start()
+    # likewise what those pages state beyond the price (details.json only)
+    from . import details
+    if not details.store_path(db_path).exists():
+        threading.Thread(target=lambda: details.backfill(db_path), daemon=True,
+                         name="details-backfill").start()
     # likewise the searches those pages came from (sweeps.json only)
     from . import sweeps
     if not sweeps.store_path(db_path).exists():
@@ -1849,7 +1889,8 @@ fetch("/api/sweeps").then(r=>r.json()).then(c=>{
   $("sweeps").innerHTML=`<table class="ov"><thead><tr><th>day</th><th>search</th><th class="num">stated</th>
     <th class="num">saved</th><th class="num">pages</th><th></th></tr></thead><tbody>`
     +c.days.map(d=>d.searches.map((s,i)=>`<tr><td>${i?"":esc(d.day)}</td><td>${esc(s.title||"(untitled)")}</td>
-      <td class="num">${n(s.total)}</td><td class="num">${n(s.saved)}</td><td class="num">${s.pages}</td>
+      <td class="num">${n(s.total)}</td><td class="num">${n(s.saved)}</td><td class="num">${s.pages}${
+        (s.sorts||[]).length?`<div class="hint" style="margin:0">${esc(s.sorts.join(", "))}</div>`:""}</td>
       <td>${s.short?`<span class="tag warn" title="${n(s.missing)} listing(s) were not saved${s.set_aside?" - turnover sets this capture aside":""}">${s.set_aside?"cut short":"a few short"}</span>`
                     :'<span class="tag good">complete</span>'}</td></tr>`).join("")).join("")
     +`</tbody></table><div class="hint">One search shows ${esc(c.capacity.note)}. When a search missed more than 5% of `

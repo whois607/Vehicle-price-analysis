@@ -76,6 +76,33 @@ LINES = {("Ford", "Falcon"): ["XR6", "XR8", "G6E"], ("Holden", "Commodore"): ["S
 DAYS = ["2026-05-14", "2026-06-02", "2026-06-20", "2026-07-11", "2026-08-01", "2026-08-22"]
 
 
+def seed_details(db, ads) -> None:
+    """Listing details (details.py) for most cars: every condition, gearbox,
+    engine and price type, cars that stated nothing, and a state for some
+    cars stored without one - so the phone's filters, splits and car list
+    are compared on all of it."""
+    from vpa import details
+    conds = ["used", "used", "used", "demo", "new to order", "new", None]
+    engines = ["6cyl 4.0L T Petrol", "8cyl 5.0L S Petrol", "6cyl 4.0L Gas Only",
+               "4cyl 2.0L T Diesel", None]
+    for d_i, day in enumerate(DAYS):
+        got = {}
+        for i, ad in enumerate(ads):
+            if i % 9 == 4:
+                continue                         # stated nothing at all
+            car = {"condition": conds[i % len(conds)], "state": ["VIC", "WA", "SA"][i % 3],
+                   "gearbox": ["manual", "auto", None][i % 3]}
+            car.update(details.parse_engine(engines[i % len(engines)]))
+            sight = {"price_type": "drive away" if (i + d_i) % 4 == 0 else "excl. charges",
+                     "rating": ["great", "good", "fair", None][(i + d_i) % 4]}
+            if i % 11 == 0:
+                sight["suggested"] = True
+            if (i + d_i) % 7 == 0:
+                sight["just_listed"] = True
+            got[ad] = {"car": {k: v for k, v in car.items() if v}, "day": {k: v for k, v in sight.items() if v}}
+        details.remember(db, {"ads": got}, day)
+
+
 def seed() -> None:
     rnd = random.Random(7)
     recs = []
@@ -175,9 +202,10 @@ def main(argv=None) -> int:
         dst.close()
         src.close()
         print(f"  comparing on a read-only copy of {source}")
-        ph = source.resolve().parent / "photos.json"
-        if ph.exists():                     # the photo list is read, never written
-            (WORK / "photos.json").write_bytes(ph.read_bytes())
+        for name in ("photos.json", "details.json"):   # read, never written
+            ph = source.resolve().parent / name
+            if ph.exists():
+                (WORK / name).write_bytes(ph.read_bytes())
     else:
         seed()
         # photos for every other car that has an ad id, one to four each
@@ -188,6 +216,7 @@ def main(argv=None) -> int:
         photos.remember(DB, {ad: [f"examplecars/cars/private/{ad.lower().replace('-', '')}{j}x0000.jpg"
                                   for j in range(1 + i % 4)] for i, ad in enumerate(ads) if i % 2 == 0},
                         "2026-08-20")
+        seed_details(DB, ads)
     before = hashlib.sha256(DB.read_bytes()).hexdigest()
 
     # the phone copy builds in its own process while this one works out the
@@ -263,7 +292,13 @@ def laptop_answers(source) -> tuple[dict, str]:
             continue
         mk, mo, va, lv = index[label]
         for f in ({"year_min": 2010, "year_max": 2014}, {"price_max": "30,000"},
-                  {"price_min": 20000}, {"keyword": "xr"}, {"year_max": 2012, "price_min": 15000}):
+                  {"price_min": 20000}, {"keyword": "xr"}, {"year_max": 2012, "price_min": 15000},
+                  # the listing filters (explore.FACETS), given out of order
+                  {"facets": {"st": "VIC", "cond": "notnew"}}, {"facets": {"cond": "anynew"}},
+                  {"facets": {"gb": "manual", "nosug": "1"}}, {"facets": {"pt": "drive away"}},
+                  {"facets": {"cond": "~"}}, {"facets": {"cyl": "6", "ind": "turbo"}},
+                  {"facets": {"rat": "great", "sel": "dealer"}}, {"facets": {"fuel": "lpg"}},
+                  {"facets": {"body": "~", "st": "~"}}, {"price_max": 40000, "facets": {"cond": "used"}}):
             dspec.append((label, mk, mo, va, f))
     cards = []
     trims = [(label, sel) for label, sel in index.items() if sel[3] == "trim"]

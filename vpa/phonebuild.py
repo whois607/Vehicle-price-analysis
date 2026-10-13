@@ -40,11 +40,14 @@ from .phonecfg import FORMAT
 KEEP_SNAPSHOTS = 2
 _CODE_FILES = ("explore.py", "compare.py", "turnover.py", "analyze.py", "forecast.py",
                "dupes.py", "importui.py", "segments.py", "links.py", "phonebuild.py",
-               "photos.py", "trims.py", "store.py", "trim_rules.json", "sites.py")
+               "photos.py", "trims.py", "store.py", "trim_rules.json", "sites.py",
+               "details.py")
 _COLS_V = ["k", "src", "id", "url", "make", "model", "variant", "year", "body",
            "type", "state", "seller", "title", "first", "last", "u0", "ph", "gear",
-           "gen", "tb"]
-_COLS_S = ["v", "d", "p", "km"]
+           "gen", "tb", "cond", "eng", "fuel", "ind", "cyl"]
+#: pt/rat: price type and the site's rating that day; fl: 1 just listed,
+#: 2 a listing the site suggested (details.py)
+_COLS_S = ["v", "d", "p", "km", "pt", "rat", "fl"]
 
 
 def _say(msg: str) -> None:
@@ -218,6 +221,18 @@ def _private_copy(db_path, out: Path) -> Path:
             dst.close()
     finally:
         src.close()
+    # the listing details beside the real database go beside the copy, so the
+    # phone's frame carries the same columns (and filled-in states) as the
+    # laptop's. Read only; a missing file leaves the copy without them.
+    from . import details
+    mine, theirs = details.store_path(work), details.store_path(db_path)
+    try:
+        if theirs.is_file():
+            mine.write_bytes(theirs.read_bytes())
+        else:
+            mine.unlink(missing_ok=True)
+    except OSError:
+        pass
     return work
 
 
@@ -267,6 +282,14 @@ def build(db_path, out: Path, force: bool = False) -> dict:
         for p in out.glob(f"work-{os.getpid()}.db*"):
             try:
                 p.unlink()
+            except OSError:
+                pass
+        # the details copied beside the work copy (_private_copy) - never
+        # the real one, should out/ ever be the database's own folder
+        from . import details
+        if details.store_path(out / "x.db") != details.store_path(db_path):
+            try:
+                details.store_path(out / "x.db").unlink(missing_ok=True)
             except OSError:
                 pass
         try:
@@ -369,12 +392,17 @@ def _build(db_path, out: Path, force: bool) -> dict:
                 # for one only when that car is on screen
                 PH.get(photos.ad_id(row.listing_id if isinstance(row.listing_id, str) else None,
                                     row.url if isinstance(row.url, str) else None) or ""),
-                txt(row.gearbox), txt(row.generation), txt(row.trim_base)])
+                txt(row.gearbox), txt(row.generation), txt(row.trim_base),
+                # what its pages stated beyond the price (details.py)
+                txt(row.condition), txt(row.engine), txt(row.fuel), txt(row.induction),
+                num(row.cylinders)])
         # sightings in the frame's own order (capture_date, key): the phone's
         # "last sighting wins" must break ties exactly as the laptop does
         for row in raw.itertuples(index=False):
             sightings.append([index_k[row.key], row.capture_date.strftime("%Y-%m-%d"),
-                              num(row.price_aud), num(row.odometer_km)])
+                              num(row.price_aud), num(row.odometer_km),
+                              txt(row.price_type), txt(row.rating),
+                              (1 if row.just_listed else 0) | (2 if row.suggested else 0)])
 
     days = sorted({s[1] for s in sightings})
     counts = {"vehicles": len(vehicles), "sightings": len(sightings),

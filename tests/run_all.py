@@ -39,6 +39,7 @@ The suites:
   check_savewarn   saves that went wrong: cut-off pages, a page saved twice
   check_trims      trim names grouped on read, stored names untouched
   check_sweeps     searches: stated against saved, cut-short captures, planning
+  check_details    listing details from saved pages; Explore's listing filters
   check_neutral    the shared files name no site; works with no site file
   check_viewer     the workbook's formulas in real Excel (COM)
 """
@@ -58,7 +59,7 @@ SUITES = ["tests.selfcheck", "tests.check_titles", "tests.check_sitepages",
           "tests.check_edit", "tests.check_starred", "tests.check_turnover", "tests.check_bulk",
           "tests.check_inbox", "tests.check_quickadd", "tests.check_workbook", "tests.check_phone",
           "tests.check_phone_app", "tests.check_phone_stars", "tests.check_photos",
-          "tests.check_savewarn", "tests.check_trims", "tests.check_sweeps", "tests.check_neutral",
+          "tests.check_savewarn", "tests.check_trims", "tests.check_sweeps", "tests.check_details", "tests.check_neutral",
           "tests.check_viewer"]
 #: drives the one real Excel - never beside anything else
 ALONE = {"tests.check_viewer"}

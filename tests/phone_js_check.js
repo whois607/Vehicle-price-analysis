@@ -53,6 +53,7 @@ for (const x of E.details) {
   const pool = VS.latestPerVehicle(VS.prep(rows)).map(r => r.p);
   tally("histogram", lab, diff(VS.hist(pool), P.hist, "hist"));
   tally("filters applied", lab, diff(f.applied, P.filters || [], "filters"));
+  tally("filter options", lab, diff(VS.facetOptions(all), P.facets, "facets"));
   const sc = VS.scatter(rows, snap.consts.MAX_SCATTER);
   tally("scatter", lab, diff(sc.points, P.scatter, "scatter") || (sc.total === P.scatter_total ? null : "scatter_total"));
   const c = VS.cars(DB, rows);
@@ -137,6 +138,8 @@ for (const x of E.compare) {
     run("selection " + l, "/sel", { l });
     run("filtered " + l, "/sel", { l, y0: "2010", y1: "2015", p1: "40000", s: "cheap" });
     run("keyword " + l, "/sel", { l, kw: "xr", s: "km", trims: "all" });
+    run("listing filters " + l, "/sel", { l, cond: "notnew", gb: "manual", nosug: "1", st: "~", s: "dear" });
+    run("listing filters 2 " + l, "/sel", { l, cond: "anynew", pt: "drive away", cyl: "6" });
   }
   for (const v of snap.vehicles.rows) run("car " + v[0], "/car", { k: v[0] });
   for (const l of labels.filter(l => snap.sel[l].lv === "trim"))

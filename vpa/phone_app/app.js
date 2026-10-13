@@ -446,7 +446,11 @@ function selLink(label, text, sub, right) {
 }
 function carItem(v, extra) {
   const t = v.title || [v.year, v.make, v.model, v.variant].filter(Boolean).join(" ");
-  const bits = [v.odometer_km != null ? kmK(v.odometer_km) : null, v.state, v.seller_type, extra].filter(Boolean);
+  // what the listing stated (details.py): gearbox, and anything unusual
+  // about how it was advertised
+  const bits = [v.odometer_km != null ? kmK(v.odometer_km) : null, v.state, v.seller_type, v.gearbox,
+    v.condition && v.condition !== "used" ? v.condition : null, v.price_type === "drive away" ? "drive away" : null,
+    v.suggested ? "suggested by the site" : null, extra].filter(Boolean);
   const own = DB.byKey.get(v.key);
   return `<a class="item car" href="#/car?k=${enc(v.key)}">${thumb(own && own.ph ? own.ph[0] : null)}<div class="main"><div class="t">${DB.stars.has(v.key) ? "★ " : ""}${esc(t)}</div>
     <div class="s">${esc(bits.join(" · "))}</div></div><div class="r"><b>${money(v.price)}</b>
@@ -592,8 +596,10 @@ route("/sel", { tab: "find", back: true }, q => {
   const label = selLabel(q.l), e = DB.sel[label];
   if (!e) return `<div class="empty"><b>${esc(label)}</b>isn't in your data.</div>`;
   setTitle(label);
-  const f = { year_min: q.y0, year_max: q.y1, price_min: q.p0, price_max: q.p1, keyword: q.kw };
+  const f = { year_min: q.y0, year_max: q.y1, price_min: q.p0, price_max: q.p1, keyword: q.kw,
+    facets: Object.fromEntries(FACET_KEYS.map(k => [k, q[k]])) };
   const all = VS.rowsOf(DB, e.mk, e.mo, e.va), fr = VS.applyFilters(all, f), rows = fr.rows, F = fr.applied.length > 0;
+  FACET_OPTS = VS.facetOptions(all);
   const d = e.d, lineE = e.va ? DB.sel[`${e.mk} ${e.mo}`] : null;
   let h = "";
   if (d.empty || !rows.length) return filterCard(q, fr, F) + `<div class="empty">No sightings match${F ? " these filters" : ""}.</div>`;
@@ -690,8 +696,14 @@ route("/sel", { tab: "find", back: true }, q => {
   const sp = F ? VS.splits(rows) : d.splits;
   const spTbl = (title, arr) => arr && arr.length ? `<h2 style="margin-top:12px">${title}</h2><table class="tbl"><tr><th></th><th>listings</th><th>median</th><th>km</th></tr>${
     arr.map(s => `<tr><td>${esc(s.name)}</td><td>${n0(s.n)}</td><td><b>${moneyK(s.median)}</b></td><td>${kmK(s.odo)}</td></tr>`).join("")}</table>` : "";
+  // what the saved pages stated, only where they named something
+  const named = arr => (arr || []).some(s => s.name !== "(unknown)");
+  const more = [["Condition", "condition"], ["Price as advertised", "price_type"], ["Gearbox", "gearbox"],
+    ["Engine", "induction"], ["Fuel", "fuel"], ["The site's own rating", "rating"]]
+    .filter(([, k]) => named(sp[k])).map(([t, k]) => spTbl(t, sp[k])).join("");
   h += `<details class="card"><summary><h2>Who, where, which year</h2></summary>${spTbl("Seller", sp.seller)}${spTbl("State", sp.state)}${
-    spTbl("Model year", sp.year)}${sp.source && sp.source.length > 1 ? spTbl("Source", sp.source) : ""}</details>`;
+    spTbl("Model year", sp.year)}${sp.source && sp.source.length > 1 ? spTbl("Source", sp.source) : ""}${more}${
+    more ? `<div class="note">A drive-away price includes on-road costs, so it is not like for like with one that excludes them.</div>` : ""}</details>`;
 
   // ---- trims
   const sib = e.lv === "line" ? d.siblings : lineE ? lineE.d.siblings : null;
@@ -743,6 +755,25 @@ route("/sel", { tab: "find", back: true }, q => {
   if (!F && (d.caveats || []).length) h += `<div class="card flat"><h2>Read with care</h2>${notes(d.caveats)}</div>`;
   return h;
 });
+/* the listing filters (explore.FACETS): options from the selection itself,
+   with how many cars hold each */
+const FACET_UI = [["cond", "Condition"], ["st", "State"], ["sel", "Seller"], ["gb", "Gearbox"],
+  ["body", "Body"], ["fuel", "Fuel"], ["ind", "Engine"], ["cyl", "Cylinders"], ["pt", "Price"], ["rat", "Site rating"]];
+const FACET_KEYS = FACET_UI.map(x => x[0]).concat(["nosug"]);
+let FACET_OPTS = {};
+function facetSelects(q) {
+  return `<div class="grid2">${FACET_UI.map(([k, t]) => {
+    const cur = q[k] || "", opts = (FACET_OPTS[k] || []).slice();
+    if (!opts.some(o => o.v !== "~") && !cur) return "";
+    if (cur && !["notnew", "anynew"].includes(cur) && !opts.some(o => o.v === cur)) opts.push({ v: cur, n: 0 });
+    const lab = v => v === "~" ? "not stated" : k === "cyl" ? v + " cyl" : v;
+    return `<label class="field"><span>${t}</span><select id="ff_${k}"><option value="">any</option>${
+      k === "cond" ? '<option value="notnew">not new or demo</option><option value="anynew">new (in stock or to order)</option>' : ""}${
+      opts.map(o => `<option value="${esc(o.v)}">${esc(lab(o.v))} (${n0(o.n)})</option>`).join("")}</select></label>`;
+  }).join("")}</div>
+  <label class="field" style="flex-direction:row;gap:8px;align-items:center"><input type="checkbox" id="ff_nosug" ${q.nosug ? "checked" : ""}>
+    <span>Only the search's own listings (leave out ones the site suggested)</span></label>`;
+}
 function filterCard(q, fr, F) {
   return `<details class="card" ${F ? "open" : ""}><summary><h2>Filter${F ? ` <small>${fr.applied.map(a => esc(a.text)).join(" · ")}</small>` : ""}</h2></summary>
     <div class="grid2"><label class="field"><span>Year from</span><input type="number" inputmode="numeric" id="fy0" value="${esc(q.y0 || "")}"></label>
@@ -750,14 +781,21 @@ function filterCard(q, fr, F) {
     <label class="field"><span>Price from</span><input type="number" inputmode="numeric" id="fp0" value="${esc(q.p0 || "")}"></label>
     <label class="field"><span>Price to</span><input type="number" inputmode="numeric" id="fp1" value="${esc(q.p1 || "")}"></label></div>
     <label class="field"><span>Word in the trim or title</span><input type="text" id="fkw" value="${esc(q.kw || "")}" placeholder="e.g. manual, sedan"></label>
+    ${facetSelects(q)}
     <div class="row"><button class="btn primary" id="fGo" style="flex:1">Apply</button>${F ? '<button class="btn" id="fClear">Clear</button>' : ""}</div>
     ${F ? '<div class="note">Filtered: counts and prices are recomputed on this phone. Forecast, bell curve, mileage fit and turnover are for the whole selection, so they are hidden.</div>' : ""}</details>`;
 }
 ROUTES["/sel"].after = q => {
   const base = { l: q.l };
   const nav = extra => go("#/sel?" + new URLSearchParams(Object.entries(Object.assign({}, base, extra)).filter(x => x[1] != null && x[1] !== "")).toString(), true);
-  const cur = { y0: q.y0, y1: q.y1, p0: q.p0, p1: q.p1, kw: q.kw };
-  if ($("fGo")) $("fGo").onclick = () => nav({ y0: $("fy0").value, y1: $("fy1").value, p0: $("fp0").value, p1: $("fp1").value, kw: $("fkw").value.trim() });
+  const cur = Object.assign({ y0: q.y0, y1: q.y1, p0: q.p0, p1: q.p1, kw: q.kw },
+    Object.fromEntries(FACET_KEYS.map(k => [k, q[k]])));
+  // the selects are filled with their values after the page is drawn
+  FACET_UI.forEach(([k]) => { const el = $("ff_" + k); if (el) el.value = q[k] || ""; });
+  if ($("fGo")) $("fGo").onclick = () => nav(Object.assign({ y0: $("fy0").value, y1: $("fy1").value, p0: $("fp0").value,
+    p1: $("fp1").value, kw: $("fkw").value.trim() },
+    Object.fromEntries(FACET_UI.map(([k]) => [k, $("ff_" + k) ? $("ff_" + k).value : q[k]])),
+    { nosug: $("ff_nosug") && $("ff_nosug").checked ? "1" : "" }));
   if ($("fClear")) $("fClear").onclick = () => nav({});
   document.querySelectorAll("[data-sort]").forEach(b => b.onclick = () => {
     nav(Object.assign({}, cur, { s: b.dataset.sort }));

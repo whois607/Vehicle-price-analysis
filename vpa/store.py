@@ -160,17 +160,30 @@ def _frame_from(conn) -> pd.DataFrame:
     # The trim the analysis groups by, worked out on read; the stored name
     # stays alongside as variant_stored (see trims.py)
     from .trims import add_trim_cols
-    return add_trim_cols(df)
+    df = add_trim_cols(df)
+    # What the saved pages stated beyond the price (condition, engine,
+    # gearbox, price type, rating...), from data/details.json beside the
+    # database - never stored in it. Blank columns when there is none.
+    from . import details
+    try:
+        details.frame_cols(df, _db_path(conn))
+    except Exception:            # a damaged details file costs the extras, never the frame
+        details.frame_cols(df, None)
+    return df
+
+
+def _db_path(conn) -> str:
+    try:
+        return conn.execute("PRAGMA database_list").fetchone()[2] or ""
+    except Exception:
+        return ""
 
 
 def _cut_flags(conn, df: pd.DataFrame):
     """True for each row whose (capture day, car) a short search saved."""
     if df.empty:
         return pd.Series([], dtype=bool)
-    try:
-        path = conn.execute("PRAGMA database_list").fetchone()[2]
-    except Exception:
-        path = ""
+    path = _db_path(conn)
     if not path:
         return False
     from . import sweeps

@@ -96,6 +96,29 @@ def stated_total(html: str, source: str | None = None) -> int | None:
     return n if n > 0 else None
 
 
+def page_total(html: str, source: str | None = None) -> int | None:
+    """The stated total: the visible text first; else the count the page's
+    own listing data repeats with every listing, when every copy agrees
+    (details._analytics). On every kept page that shows both they agree."""
+    n = stated_total(html, source)
+    if n is None:
+        try:
+            from . import details
+            n = details._analytics(html or "")[1].get("total")
+        except Exception:
+            n = None
+    return n
+
+
+def page_sort(html: str) -> str | None:
+    """How the page's search was sorted, when its listings all say the same."""
+    try:
+        from . import details
+        return details._analytics(html or "")[1].get("sort")
+    except Exception:
+        return None
+
+
 def page_title(html: str) -> str:
     m = _TITLE.search(html or "")
     return re.sub(r"\s+", " ", unescape(m.group(1))).strip()[:200] if m else ""
@@ -154,13 +177,13 @@ def note(db_path, html: str, records, source: str | None = None) -> dict | None:
     records = [r for r in (records or []) if r is not None]
     if not records:
         return None
-    total = stated_total(html, source or getattr(records[0], "source", None))
+    total = page_total(html, source or getattr(records[0], "source", None))
     if total is None or total < len(records):
         return None                  # no total, or not this page's search
-    return note_page(db_path, page_title(html), total, records)
+    return note_page(db_path, page_title(html), total, records, page_sort(html))
 
 
-def note_page(db_path, title: str, total: int, records) -> dict:
+def note_page(db_path, title: str, total: int, records, sort: str | None = None) -> dict:
     """note(), for a page whose title and stated total are already read."""
     day = max(str(r.capture_date)[:10] for r in records)
     keys = sorted({r.dedupe_key() for r in records})
@@ -176,6 +199,10 @@ def note_page(db_path, title: str, total: int, records) -> dict:
                                   "pages": {}, "keys": [], "first": now})
         s["pages"][sig] = len(keys)
         s["keys"] = sorted(set(s["keys"]) | set(keys))
+        if sort:
+            # saving one search sorted two ways is how a capped search is
+            # read from both ends; the sorts it was saved in are kept
+            s["sorts"] = sorted(set(s.get("sorts") or []) | {str(sort)[:60]})
         s["last"] = now
         body = json.dumps({"format": FORMAT, "searches": allx}, separators=(",", ":"))
         tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
@@ -223,6 +250,7 @@ def _state(sid: str, s: dict) -> dict:
             "per_page": max((s.get("pages") or {}).values(), default=0),
             "short": _short(total, saved), "missing": max(0, total - saved),
             "set_aside": _material(total, saved),
+            "sorts": list(s.get("sorts") or []),
             "share": round(saved / total * 100, 1) if total else None}
 
 

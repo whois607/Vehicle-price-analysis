@@ -73,7 +73,10 @@ function index(snap) {
     return o;
   });
   const byKey = new Map(V.map(v => [v.k, v]));
-  const S = snap.sightings.rows.map(r => ({ v: V[r[0]], d: r[1], p: r[2], km: r[3] }));
+  // pt / rat / fl: what the page said that day (details.py); an older copy
+  // without them reads as blank
+  const S = snap.sightings.rows.map(r => ({ v: V[r[0]], d: r[1], p: r[2], km: r[3],
+    pt: r[4] == null ? null : r[4], rat: r[5] == null ? null : r[5], fl: r[6] || 0 }));
   const bySel = new Map();               // "make|model|variant" -> rows, frame order
   const add = (k, r) => { let a = bySel.get(k); if (!a) bySel.set(k, a = []); a.push(r); };
   for (const r of S) {
@@ -169,6 +172,61 @@ function parseNum(v) {
   const f = Number(String(v).replace(/,/g, "").replace(/\$/g, "").trim());
   return Number.isFinite(f) && String(v).trim() !== "" ? f : null;
 }
+// explore.FACETS: URL key -> how a row reads it, and its name on the page
+const FACETS = [
+  ["cond", r => r.v.cond, "condition"], ["st", r => r.v.state, "state"],
+  ["sel", r => r.v.seller, "seller"], ["gb", r => r.v.gear, "gearbox"],
+  ["fuel", r => r.v.fuel, "fuel"], ["ind", r => r.v.ind, "engine"],
+  ["cyl", r => r.v.cyl, "cylinders"], ["body", r => r.v.body, "body"],
+  ["pt", r => r.pt, "price"], ["rat", r => r.rat, "site rating"]];
+const facetKey = v => (v == null || v === "" ? null : String(v).trim() || null);
+// explore.facet_options: each filter's values over the cars (latest sighting)
+function facetOptions(rows) {
+  const s = stableBy(rows, r => r.d), last = new Map();
+  s.forEach(r => last.set(r.v.k, r));
+  const ordered = s.filter(r => last.get(r.v.k) === r);
+  const out = {};
+  for (const [k, get] of FACETS) {
+    const counts = new Map();
+    for (const r of ordered) { const v = facetKey(get(r)); counts.set(v, (counts.get(v) || 0) + 1); }
+    const opts = [...counts.entries()].filter(e => e[0] != null).map(e => ({ v: e[0], n: e[1] }));
+    opts.sort((a, b) => b.n - a.n || (a.v < b.v ? -1 : a.v > b.v ? 1 : 0));
+    if (counts.has(null) && opts.length) opts.push({ v: "~", n: counts.get(null) });
+    out[k] = rows.length ? opts : [];
+  }
+  return out;
+}
+// explore._apply_facets
+function applyFacets(out, facets) {
+  const applied = [];
+  facets = facets || {};
+  for (const [k, get, name] of FACETS.concat([["nosug", null, null]])) {
+    const want = String(facets[k] == null ? "" : facets[k]).trim();
+    if (!want) continue;
+    if (k === "nosug") {
+      if (["1", "true", "on"].includes(want)) {
+        out = out.filter(r => !(r.fl & 2));
+        applied.push({ kind: "nosug", text: "only listings from the search itself" });
+      }
+      continue;
+    }
+    if (k === "cond" && (want === "notnew" || want === "anynew")) {
+      const nw = ["new", "new to order"];
+      out = want === "notnew" ? out.filter(r => !nw.concat(["demo"]).includes(facetKey(get(r))))
+                              : out.filter(r => nw.includes(facetKey(get(r))));
+      applied.push({ kind: k, text: want === "notnew" ? "not new or demo" : "new (in stock or to order)" });
+      continue;
+    }
+    if (want === "~") {
+      out = out.filter(r => facetKey(get(r)) == null);
+      applied.push({ kind: k, text: `${name} not stated` });
+    } else {
+      out = out.filter(r => facetKey(get(r)) === want);
+      applied.push({ kind: k, text: `${name}: ${want}` });
+    }
+  }
+  return { rows: out, applied };
+}
 // explore._apply_filters
 function applyFilters(rows, f) {
   f = f || {};
@@ -194,7 +252,8 @@ function applyFilters(rows, f) {
       r.v[c] != null && String(r.v[c]).toLowerCase().includes(k)));
     applied.push({ kind: "keyword", text: `"${kw}"` });
   }
-  return { rows: out, applied };
+  const fa = applyFacets(out, f.facets);
+  return { rows: fa.rows, applied: applied.concat(fa.applied) };
 }
 // detail_payload's headline
 function head(rows, label, level) {
@@ -230,6 +289,9 @@ function splits(rows) {
   const byN = a => stableBy(a, r => -r.n);
   return { seller: byN(one(r => r.v.seller, String)), state: byN(one(r => r.v.state, String)),
            source: byN(one(r => r.v.src, String)),
+           condition: byN(one(r => r.v.cond, String)), gearbox: byN(one(r => r.v.gear, String)),
+           price_type: byN(one(r => r.pt, String)), fuel: byN(one(r => r.v.fuel, String)),
+           induction: byN(one(r => r.v.ind, String)), rating: byN(one(r => r.rat, String)),
            year: one(r => r.v.year, v => String(Math.trunc(v))) };
 }
 function byday(rows) {
@@ -305,7 +367,11 @@ function cars(DB, rows) {
       seller_type: v.seller, source: v.src, url: v.url, title: v.title, listing_id: v.id,
       detail: v.src === "quick_add" ? "brief" : "full", sightings: rs.length,
       first_day: rs[0].d, last_day: last.d, moved, clash, starred: DB.stars.has(key),
-      change: moved && fp ? pyRound((lp - fp) / fp * 100, 1) : null, ph: firstPhoto(v) };
+      change: moved && fp ? pyRound((lp - fp) / fp * 100, 1) : null, ph: firstPhoto(v),
+      // explore._spec: what the listing stated, from its latest sighting
+      condition: v.cond == null ? null : v.cond, gearbox: v.gear == null ? null : v.gear,
+      engine: v.eng == null ? null : v.eng, fuel: v.fuel == null ? null : v.fuel,
+      price_type: last.pt, rating: last.rat, just_listed: !!(last.fl & 1), suggested: !!(last.fl & 2) };
     vehicles.push(o);
     if (moved) movers.push({ key, year: o.year, variant: o.variant, first_price: fp, price: lp,
       change: o.change, first_day: o.first_day, last_day: o.last_day, url: o.url, title: o.title,
@@ -741,6 +807,7 @@ function compareCols(DB, labels) {
 
 const VS = { pyRound, num, quantile, median, mean, fmt0, index, rowsOf, labelOf, prep,
   latestPerVehicle, liveKeys, collidedKeys, zOf, curveGrid, dupSigs, applyFilters, head,
+  facetOptions, FACETS,
   splits, byday, supply, bymonth, hist, scatter, cars, standouts, rankIn, parsePrice,
   parseOdometer, normState, normSeller, normYear, carCard, normPath, findLink, compareCols };
 if (typeof module !== "undefined" && module.exports) module.exports = VS;

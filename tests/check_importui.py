@@ -197,7 +197,7 @@ def check_chrome() -> None:
                                         for p in ui.PALETTES.values() for m in ("light", "dark")),
           ", ".join(p["label"] for p in ui.PALETTES.values()))
     check("every page carries every dash theme, chosen before the first paint",
-          all(p.count("data-palette-set=") == len(ui.PALETTES)
+          all(p.count('role="menuitemradio" data-palette-set=') == len(ui.PALETTES)
               and all(f":root[data-palette={k}][data-theme=dark]{{" in p
                       and f":root[data-palette={k}]:not([data-theme=dark]){{" in p for k in ui.PALETTES)
               and 0 < p.find("window.vpaPalette=") < p.find("<style>")

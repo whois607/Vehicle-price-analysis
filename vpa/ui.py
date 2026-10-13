@@ -226,7 +226,7 @@ def write_phone_palettes() -> bool:
         anchor = "*{box-sizing:border-box"
         new = text.replace(anchor, block + "\n" + anchor, 1)
     if new != text:
-        css.write_text(new, encoding="utf-8")
+        css.write_bytes(new.encode("utf-8"))           # keep LF line ends
     return new != text
 
 #: (slug, href, label, icon) - the pages you can be ON. Four, not six:

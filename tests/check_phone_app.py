@@ -318,7 +318,13 @@ def laptop_answers(source) -> tuple[dict, str]:
                       {"price": "negotiable"},
                       # no price: the expected range on its own, on each basis
                       {"odometer": "120000"}, {"odometer": "900,000 km"}, {"odometer": "3000"},
-                      {"year": "2013", "seller": "dealer"}, {"odometer": "75k", "state": "VIC"}):
+                      {"year": "2013", "seller": "dealer"}, {"odometer": "75k", "state": "VIC"},
+                      # condition, gearbox and price type (details.py words)
+                      {"price": "25000", "odometer": "120000", "year": "2014", "condition": "used",
+                       "gearbox": "manual", "price_type": "drive away"},
+                      {"price": "30000", "condition": "new", "gearbox": "Automatic"},
+                      {"odometer": "90000", "year": "2015", "condition": "used"},
+                      {"price": "21000 drive away", "condition": "demo", "price_type": "Excl. Govt. Charges"}):
             cards.append({"mk": mk, "mo": mo, "va": va, "opts": typed})
     # a model with no trim picked: stored cars captured without a trim, and
     # typed cars with and without a year (explore.CAR_NEAR_YEARS fallback)

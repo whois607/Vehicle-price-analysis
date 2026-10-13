@@ -781,13 +781,36 @@ def _subject_from_row(row) -> dict:
                             else str(row["seller_type"])),
             "variant": None if pd.isna(row["variant"]) else str(row["variant"]),
             "gearbox": None if pd.isna(row.get("gearbox")) else str(row["gearbox"]),
+            # what its page stated (details.py), blank where it said nothing
+            "condition": _txt(row.get("condition")),
+            "price_type": _txt(row.get("price_type")),
             "title": None if pd.isna(row["raw_title"]) else str(row["raw_title"]),
             "url": links.ad_url(row["url"], row.get("source")),
             "source": str(row["source"]),
             "day": str(row["day"])}
 
 
-def _subject_typed(price, odometer, year, seller, state) -> dict:
+#: conditions a used car is NOT ranked against when you say it is used
+NEWISH = ("new", "new to order", "demo")
+
+
+def _typed_extras(note, condition, gearbox, price_type) -> dict:
+    """Condition, gearbox and price type as typed (the phone's price check
+    and the laptop's "type one I've seen"), in the words the saved pages
+    use (details.py). A price typed as "31000 drive away" is a drive-away
+    price even when the price-type box is left empty."""
+    from . import details
+    cond = str(condition or "").strip().casefold()
+    pt = details._price_type(price_type)
+    if pt is None and note:
+        pt = ("drive away" if "drive_away" in note else
+              "excl. charges" if "excl_gov" in note else None)
+    return {"condition": cond if cond in details.CONDITIONS else None,
+            "gearbox": details._gearbox(gearbox), "price_type": pt}
+
+
+def _subject_typed(price, odometer, year, seller, state,
+                   condition=None, gearbox=None, price_type=None) -> dict:
     """A car the user has SEEN but not imported. Normalised by the same
     functions the importer uses, so '$18,990', '98k' and 'New South Wales'
     mean here exactly what they would mean in the database - and the page
@@ -800,8 +823,9 @@ def _subject_typed(price, odometer, year, seller, state) -> dict:
             "odometer_km": _num(parse_odometer(odometer)),
             "year": norm_year(year), "state": norm_state(state),
             "seller_type": norm_seller(seller),
-            "variant": None, "gearbox": None, "title": None, "url": None,
-            "source": None, "day": None}
+            "variant": None, "title": None, "url": None,
+            "source": None, "day": None,
+            **_typed_extras(note, condition, gearbox, price_type)}
 
 
 def _classic_reason(year) -> str:
@@ -1023,7 +1047,8 @@ def _timeline(sub: pd.DataFrame, key: str, db_path) -> dict:
 def car_payload(db_path: str | Path = DEFAULT_DB, make: str | None = None,
                 model: str | None = None, variant: str | None = None,
                 key: str | None = None, price=None, odometer=None,
-                year=None, seller=None, state=None) -> dict:
+                year=None, seller=None, state=None, condition=None,
+                gearbox=None, price_type=None) -> dict:
     """Judge ONE car against the others of its trim. Read-only.
 
     Two entry paths, ONE implementation, deliberately: `key` names a car
@@ -1149,9 +1174,25 @@ def car_payload(db_path: str | Path = DEFAULT_DB, make: str | None = None,
     else:
         # no price is a question too: "what should this car be asking?" -
         # answered by `estimate`; the rank parts below then say nothing
-        subject = _subject_typed(price, odometer, year, seller, state)
+        subject = _subject_typed(price, odometer, year, seller, state,
+                                 condition, gearbox, price_type)
         peers = pool
         fit_rows = prepped
+    # A car you say is USED is ranked against used cars (and those whose ad
+    # did not say), not against new-to-order and demo stock - as long as
+    # enough are left. The mileage curve keeps the whole pool: it measures
+    # wear, and the phone ships it precomputed.
+    left_out, drop_new = None, False
+    if not key and subject.get("condition") == "used" and "condition" in pool.columns:
+        newish = pool["condition"].isin(NEWISH)
+        n_out, n_left = int(newish.sum()), int((~newish & pool["price_aud"].notna()).sum())
+        if n_out and n_left >= CAR_MIN_PEERS:
+            peers, drop_new = pool[~newish], True
+            left_out = (f"{n_out} car(s) listed as new or demo left out: this car is used, so it "
+                        f"is ranked against used cars and ones whose ad did not say")
+        elif n_out:
+            left_out = (f"only {n_left} priced car(s) here are not listed as new or demo, so the "
+                        f"{n_out} new or demo car(s) are kept in")
     subject["label"] = label
     from datetime import date as _date
     subject["classic"] = bool(subject.get("year")
@@ -1167,6 +1208,8 @@ def car_payload(db_path: str | Path = DEFAULT_DB, make: str | None = None,
     pool_stats = _pool_stats(peer_prices)
 
     unavailable, notes = [], []
+    if left_out:
+        notes.append(left_out)
 
     # ---- odometer percentile: 20th on price at the 90th on odometer is not
     # a bargain, and this is the misreading the card most invites
@@ -1313,6 +1356,12 @@ def car_payload(db_path: str | Path = DEFAULT_DB, make: str | None = None,
         # trims.py), so a manual is judged against the other manuals here
         "gearbox": _split_median(peers, "gearbox", subject.get("gearbox"),
                                  CAR_SPLIT_MIN_N),
+        # what the ads stated (details.py): a drive-away price carries on-road
+        # costs, a demo or new car is not a used one
+        "condition": _split_median(peers, "condition", subject.get("condition"),
+                                   CAR_SPLIT_MIN_N),
+        "price_type": _split_median(peers, "price_type", subject.get("price_type"),
+                                    CAR_SPLIT_MIN_N),
     }
 
     # ---- the same car ranked against its whole model line.
@@ -1331,6 +1380,8 @@ def car_payload(db_path: str | Path = DEFAULT_DB, make: str | None = None,
         analyze.prep(_select(df, make, model, None), freq="MS"))
     if key:
         line_pool = line_pool[line_pool["key"] != key]
+    if drop_new:
+        line_pool = line_pool[~line_pool["condition"].isin(NEWISH)]
     line_prices = [float(p) for p in line_pool["price_aud"].dropna()]
     line_rank = _rank_in(line_prices, subject["price"])
     line_check = {"label": f"{make} {model}", "rank": line_rank,
@@ -1854,6 +1905,13 @@ __NAV__
     <option value="">unknown</option><option value="dealer">dealer</option>
     <option value="private">private</option></select></div>
   <div><label>state</label><input type="text" id="sState" class="w6" placeholder="NSW"></div>
+  <div><label>condition</label><select id="sCond" class="w6"><option value="">unknown</option>
+    <option value="used">used</option><option value="demo">demo</option><option value="new">new</option>
+    <option value="new to order">new to order</option></select></div>
+  <div><label>gearbox</label><select id="sGear" class="w6"><option value="">unknown</option>
+    <option value="auto">auto</option><option value="manual">manual</option></select></div>
+  <div><label>price is</label><select id="sPt" class="w6"><option value="">not stated</option>
+    <option value="excl. charges">excl. charges</option><option value="drive away">drive away</option></select></div>
   <div><label>your note (colour, where)</label><input type="text" id="sNote"
     class="w8" style="width:170px" placeholder="blue, Parramatta"></div>
   <div><label>your target price</label><input type="text" id="sTarget" class="w8"
@@ -2533,6 +2591,8 @@ function likeHtml(d){
   return `<div class="mini-h" style="margin-top:14px">like for like</div><div class="kv">
     <div><span class="k">all ${d.pool.n} ${ofPool(d)}</span><b>${money(d.pool.median)}</b></div>
     ${splitRow("same seller type",sp.seller)}${splitRow("same state",sp.state)}
+    ${sp.condition&&sp.condition.value?splitRow("same condition",sp.condition):""}
+    ${sp.price_type&&sp.price_type.value?splitRow("same price type",sp.price_type):""}
     ${splitRow("same model year",sp.year)}${gearRow(sp.gearbox,splitRow)}</div>`;
 }
 function cmpHtml(d){
@@ -2729,7 +2789,7 @@ async function openCar(opts){
   CAR=got;
   renderCar();renderVehicles();
   const u=new URLSearchParams(location.search);
-  ["car","price","odo","year","seller","state","note"].forEach(k=>u.delete(k));
+  ["car","price","odo","year","seller","state","note","ccond","cgear","cpt"].forEach(k=>u.delete(k));
   Object.entries(opts).forEach(([k,v])=>{if(v!=null&&v!=="")u.set(k,v);});
   u.set("make",c.make);u.set("model",c.model);
   // the URL keeps the POOLED selection, not the one trim being judged, so
@@ -2741,7 +2801,7 @@ async function openCar(opts){
 function clearCar(){CAR=null;TARGET=null;FIX=null;
   $("fixpanel").style.display="none";renderCar();renderVehicles();
   const u=new URLSearchParams(location.search);
-  ["car","price","odo","year","seller","state","note"].forEach(k=>u.delete(k));
+  ["car","price","odo","year","seller","state","note","ccond","cgear","cpt"].forEach(k=>u.delete(k));
   history.replaceState(null,"","/explore?"+u);}
 $("fixBtn").onclick=openFix;
 $("carClose").onclick=clearCar;
@@ -2890,6 +2950,7 @@ $("sGo").onclick=()=>{
   TARGET=t?Number(String(t).replace(/[^0-9.]/g,""))||null:null;
   openCar({price:$("sPrice").value,odo:$("sOdo").value,year:$("sYear").value,
            seller:$("sSeller").value,state:$("sState").value,
+           ccond:$("sCond").value,cgear:$("sGear").value,cpt:$("sPt").value,
            note:$("sNote").value});};
 ["sPrice","sOdo","sYear","sState","sTarget"].forEach(id=>
   $(id).onkeydown=e=>{if(e.key==="Enter")$("sGo").click();});
@@ -3944,13 +4005,14 @@ async function checkFresh(){
   // a verdict is bookmarkable: restore whichever subject the URL names
   if(p.get("car"))await openCar({car:p.get("car")});
   else if(p.get("price")||p.get("odo")||p.get("year")){
-    ["price","odo","year","seller","state","note"].forEach(k=>{
+    ["price","odo","year","seller","state","note","ccond","cgear","cpt"].forEach(k=>{
       const f={price:"sPrice",odo:"sOdo",year:"sYear",seller:"sSeller",
-               state:"sState",note:"sNote"}[k];
+               state:"sState",note:"sNote",ccond:"sCond",cgear:"sGear",cpt:"sPt"}[k];
       if(p.get(k))$(f).value=p.get(k);});
     $("seencard").style.display="block";
     await openCar({price:p.get("price"),odo:p.get("odo"),year:p.get("year"),
-                   seller:p.get("seller"),state:p.get("state"),note:p.get("note")});
+                   seller:p.get("seller"),state:p.get("state"),ccond:p.get("ccond"),
+                   cgear:p.get("cgear"),cpt:p.get("cpt"),note:p.get("note")});
   }
   // pick up imports made in another tab
   window.addEventListener("focus",checkFresh);

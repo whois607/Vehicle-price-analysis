@@ -787,7 +787,8 @@ class _Handler(BaseHTTPRequestHandler):
                 self.db_path, make=one("make"), model=one("model"),
                 variant=one("variant"), key=one("car"), price=one("price"),
                 odometer=one("odo"), year=one("year"), seller=one("seller"),
-                state=one("state")))
+                state=one("state"), condition=one("ccond"), gearbox=one("cgear"),
+                price_type=one("cpt")))
         elif self.path == "/api/quick/models":
             from . import quickadd
             self._json(quickadd.models_payload(self.db_path))

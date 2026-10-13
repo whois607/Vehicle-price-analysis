@@ -543,6 +543,28 @@ function fallbackNote(level, va, trimN, mk, mo, yrs, n, stored, gen, tb) {
   return `${first} - compared with all ${n} ${mk} ${mo} cars from ${yrs[0]} to ${yrs[1]} ` +
     "instead. That pools different trims, so treat it as a rough guide.";
 }
+// explore.NEWISH: what a car you say is used is not ranked against
+const NEWISH = ["new", "new to order", "demo"];
+const CONDITIONS = ["used", "demo", "new", "new to order"];
+// explore._typed_extras (details._gearbox / _price_type, word for word)
+function gearboxOf(t) {
+  const low = String(t == null ? "" : t).toLowerCase();
+  if (low.includes("manual")) return "manual";
+  if (low.includes("auto") || low.includes("cvt") || low.includes("dct")) return "auto";
+  return null;
+}
+function priceTypeOf(t) {
+  const low = String(t == null ? "" : t).replace(/\s+/g, " ").toLowerCase();
+  if (low.includes("drive away") || low.includes("driveaway")) return "drive away";
+  if (low.includes("excl") && (low.includes("gov") || low.includes("charge"))) return "excl. charges";
+  return null;
+}
+function typedExtras(note, condition, gearbox, priceType) {
+  const cond = String(condition == null ? "" : condition).trim().toLowerCase();
+  let pt = priceTypeOf(priceType);
+  if (pt == null && note) pt = note.includes("drive_away") ? "drive away" : note.includes("excl_gov") ? "excl. charges" : null;
+  return { condition: CONDITIONS.includes(cond) ? cond : null, gearbox: gearboxOf(gearbox), price_type: pt };
+}
 function carCard(DB, mk, mo, va, opts, now) {
   const C = DB.consts;
   let label = labelOf(mk, mo, va);
@@ -603,6 +625,7 @@ function carCard(DB, mk, mo, va, opts, now) {
     const v = own.v;
     subject = { key, stored: true, price: num(own.p), odometer_km: num(own.km), year: v.year,
       state: v.state, seller_type: v.seller, variant: v.variant, gearbox: v.gear == null ? null : v.gear,
+      condition: v.cond == null ? null : v.cond, price_type: own.pt == null ? null : own.pt,
       title: v.title, url: v.url, source: v.src, day: own.d };
     subject.photos = (v.ph || []).slice();
     peers = pool.filter(r => r.v.k !== key);
@@ -613,9 +636,22 @@ function carCard(DB, mk, mo, va, opts, now) {
     subject = { key: null, stored: false, price: num(p), price_note: note,
       odometer_km: num(parseOdometer(opts.odometer)), year: normYear(opts.year),
       state: normState(opts.state), seller_type: normSeller(opts.seller),
-      variant: null, gearbox: null, title: null, url: null, source: null, day: null };
+      variant: null, title: null, url: null, source: null, day: null,
+      ...typedExtras(note, opts.condition, opts.gearbox, opts.price_type) };
     // no price: "what should it be asking?" - answered by `estimate`
     peers = pool; fitRows = prepped; fitT = K.fit;
+  }
+  // a car you say is used: ranked against used cars and ones whose ad did
+  // not say, while enough are left (explore.car_payload, same words)
+  let leftOut = null, dropNew = false;
+  if (!key && subject.condition === "used") {
+    const isNew = r => NEWISH.includes(r.v.cond);
+    const nOut = pool.filter(isNew).length, nLeft = pool.filter(r => !isNew(r) && r.p != null).length;
+    if (nOut && nLeft >= C.CAR_MIN_PEERS) {
+      peers = pool.filter(r => !isNew(r)); dropNew = true;
+      leftOut = `${nOut} car(s) listed as new or demo left out: this car is used, so it is ranked against used cars and ones whose ad did not say`;
+    } else if (nOut)
+      leftOut = `only ${nLeft} priced car(s) here are not listed as new or demo, so the ${nOut} new or demo car(s) are kept in`;
   }
   subject.label = label;
   // a classic: no mileage curve and no expected price (explore.CAR_CLASSIC_AGE)
@@ -624,6 +660,7 @@ function carCard(DB, mk, mo, va, opts, now) {
   const peerP = peers.map(r => r.p);
   const raw = rankIn(peerP, subject.price, C);
   const unavailable = [], notes = [];
+  if (leftOut) notes.push(leftOut);
   let odoPct = null;
   const peerOdo = peers.map(r => r.km).filter(v => v != null);
   if (subject.odometer_km != null && peerOdo.length >= C.CAR_MIN_PEERS)
@@ -690,9 +727,12 @@ function carCard(DB, mk, mo, va, opts, now) {
     state: splitMedian(peers, r => r.v.state, subject.state, C.CAR_SPLIT_MIN_N),
     year: splitMedian(peers, r => r.v.year, subject.year, C.CAR_YEAR_MIN_N),
     gearbox: splitMedian(peers, r => r.v.gear, subject.gearbox, C.CAR_SPLIT_MIN_N),
+    condition: splitMedian(peers, r => r.v.cond, subject.condition, C.CAR_SPLIT_MIN_N),
+    price_type: splitMedian(peers, r => r.pt, subject.price_type, C.CAR_SPLIT_MIN_N),
   };
   let linePool = latestPerVehicle(prep(rowsOf(DB, mk, mo, null)));
   if (key) linePool = linePool.filter(r => r.v.k !== key);
+  if (dropNew) linePool = linePool.filter(r => !NEWISH.includes(r.v.cond));
   const lineP = linePool.map(r => r.p), lineRank = rankIn(lineP, subject.price, C);
   const lineCheck = { label: `${mk} ${mo}`, rank: lineRank, median: num(median(lineP)) };
   if (raw.percentile != null && lineRank.percentile != null) {

@@ -868,7 +868,9 @@ function cardHtml(c, v) {
       ${c.band.median ? `<div class="note">Their median is ${money(c.band.median)}${c.band.vs != null ? `; this car is <b>${pct(c.band.vs, true)}</b> against it` : ""}.</div>` : ""}</div>`;
   }
   const sp = c.splits, spRow = (t, s) => `<tr><td>${t}${s.value ? ` <span class="muted">(${esc(s.value)})</span>` : ""}</td><td>${s.median != null ? `<b>${money(s.median)}</b>` : `<span class="muted" style="white-space:normal">${esc(s.reason)}</span>`}</td><td>${s.n || ""}</td></tr>`;
-  h += `<div class="card"><h2>Like for like</h2><table class="tbl"><tr><th>same</th><th>median</th><th>n</th></tr>${spRow("Seller", sp.seller)}${spRow("State", sp.state)}${spRow("Year", sp.year)}${sp.gearbox && sp.gearbox.value ? spRow("Gearbox", sp.gearbox) : ""}</table></div>`;
+  h += `<div class="card"><h2>Like for like</h2><table class="tbl"><tr><th>same</th><th>median</th><th>n</th></tr>${spRow("Seller", sp.seller)}${spRow("State", sp.state)}${spRow("Year", sp.year)}${sp.gearbox && sp.gearbox.value ? spRow("Gearbox", sp.gearbox) : ""}${
+    sp.condition && sp.condition.value ? spRow("Condition", sp.condition) : ""}${
+    sp.price_type && sp.price_type.value ? spRow("Price type", sp.price_type) : ""}</table></div>`;
   const fit = c.fit;
   h += `<div class="card flat"><h2>How this was worked out</h2><ul class="notes">${fit.usable ? `<li>Mileage: about ${pct(Math.abs(fit.pct_per_10k_km))} per 10,000 km, fitted on ${n0(fit.n)} other listings${fit.covers ? `, valid ${kmK(fit.covers[0])}–${kmK(fit.covers[1])}` : ""}.</li>` : ""}${
     (c.unavailable || []).map(u => `<li>${esc(u)}</li>`).join("")}${(c.caveats || []).map(u => `<li>${esc(u)}</li>`).join("")}
@@ -933,9 +935,12 @@ route("/check", { tab: "check", titleText: "Price check" }, q => {
     <label class="field"><span>Kilometres</span><input type="text" inputmode="decimal" id="cK" value="${esc(q.k || "")}" placeholder="98,000"></label>
     <label class="field"><span>Year</span><input type="number" inputmode="numeric" id="cY" value="${esc(q.y || "")}"></label>
     <label class="field"><span>State</span><select id="cS"><option value="">–</option>${["NSW", "VIC", "QLD", "WA", "SA", "TAS", "ACT", "NT"].map(s => `<option ${q.s === s ? "selected" : ""}>${s}</option>`).join("")}</select></label></div>
-    <label class="field"><span>Seller</span><select id="cW"><option value="">–</option><option value="dealer" ${q.w === "dealer" ? "selected" : ""}>Dealer</option><option value="private" ${q.w === "private" ? "selected" : ""}>Private</option></select></label>
+    <div class="grid2"><label class="field"><span>Seller</span><select id="cW"><option value="">–</option><option value="dealer" ${q.w === "dealer" ? "selected" : ""}>Dealer</option><option value="private" ${q.w === "private" ? "selected" : ""}>Private</option></select></label>
+    <label class="field"><span>Condition</span><select id="cC"><option value="">–</option>${[["used", "Used"], ["demo", "Demo"], ["new", "New"], ["new to order", "New to order"]].map(([v, t]) => `<option value="${v}" ${q.c === v ? "selected" : ""}>${t}</option>`).join("")}</select></label>
+    <label class="field"><span>Gearbox</span><select id="cG"><option value="">–</option><option value="auto" ${q.g === "auto" ? "selected" : ""}>Auto</option><option value="manual" ${q.g === "manual" ? "selected" : ""}>Manual</option></select></label>
+    <label class="field"><span>Price is</span><select id="cPT"><option value="">–</option><option value="excl. charges" ${q.pt === "excl. charges" ? "selected" : ""}>Excl. charges</option><option value="drive away" ${q.pt === "drive away" ? "selected" : ""}>Drive away</option></select></label></div>
     <button class="btn primary block" id="cGo">Check</button>
-    <div class="note">Leave the price empty to see what a car with these details is expected to ask.</div></div><div id="cOut"></div>`;
+    <div class="note">Leave the price empty to see what a car with these details is expected to ask. Say it is <b>used</b> and it is ranked against used cars only, not new or demo stock.</div></div><div id="cOut"></div>`;
   return h;
 });
 ROUTES["/check"].after = q => {
@@ -959,11 +964,14 @@ ROUTES["/check"].after = q => {
     const out = $("cOut");
     if (!l) { out.innerHTML = ""; return; }
     if (!e || (e.lv !== "trim" && e.lv !== "line")) { out.innerHTML = `<div class="card"><span class="bad">Pick a trim from the list</span> - a price is judged against cars of one trim (or, given the year, a model's cars of nearby years).</div>`; return; }
-    const opts = { price: $("cP").value, odometer: $("cK").value, year: $("cY").value, state: $("cS").value, seller: $("cW").value };
-    if (push) history.replaceState(null, "", "#/check?" + new URLSearchParams(Object.entries({ l, p: opts.price, k: opts.odometer, y: opts.year, s: opts.state, w: opts.seller }).filter(x => x[1])).toString());
+    const opts = { price: $("cP").value, odometer: $("cK").value, year: $("cY").value, state: $("cS").value, seller: $("cW").value,
+      condition: $("cC").value, gearbox: $("cG").value, price_type: $("cPT").value };
+    if (push) history.replaceState(null, "", "#/check?" + new URLSearchParams(Object.entries({ l, p: opts.price, k: opts.odometer, y: opts.year, s: opts.state, w: opts.seller,
+      c: opts.condition, g: opts.gearbox, pt: opts.price_type }).filter(x => x[1])).toString());
     const c = VS.carCard(DB, e.mk, e.mo, e.lv === "trim" ? e.va : null, opts);
     const S = c.subject;
-    out.innerHTML = c.ok && S ? `<div class="card"><div class="sub">You entered</div><b>${S.price != null ? money(S.price) : "no price"}</b>${S.price_note ? ` <span class="tag">${esc(S.price_note.replace(/_/g, " "))}</span>` : ""} · ${S.odometer_km != null ? km(S.odometer_km) : "no km"}${S.year ? " · " + S.year : ""}${S.state ? " · " + S.state : ""}${S.seller_type ? " · " + S.seller_type : ""}</div>` + cardHtml(c)
+    out.innerHTML = c.ok && S ? `<div class="card"><div class="sub">You entered</div><b>${S.price != null ? money(S.price) : "no price"}</b>${S.price_note ? ` <span class="tag">${esc(S.price_note.replace(/_/g, " "))}</span>` : ""} · ${S.odometer_km != null ? km(S.odometer_km) : "no km"}${S.year ? " · " + S.year : ""}${S.state ? " · " + S.state : ""}${S.seller_type ? " · " + S.seller_type : ""}${
+      [S.condition, S.gearbox, S.price_type].filter(Boolean).map(x => " · " + esc(x)).join("")}</div>` + cardHtml(c)
       : cardHtml(c);
   };
   $("cGo").onclick = () => run(true);

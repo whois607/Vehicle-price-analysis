@@ -1116,9 +1116,13 @@ Keep these — each one was a bug that took a while to find.
   identical apart from the new fields.
 
 **Dash themes (13/10/2026)** - `vpa/ui.py` PALETTES
-* Four colour sets, each with a light and a dark face: Classic (green
-  glow, the default), XR (Falcon blue, red needles), M (violet, M-stripe
-  logo, Sao Paulo yellow digits in dark, a multi-paint heatmap) and Amber.
+* Eight colour sets, each with a light and a dark face: Classic (green
+  glow, the default), Standard (the original blue, no needle, no glow), XR
+  (Falcon blue, red needles), M (violet, M-stripe logo, Sao Paulo yellow
+  digits in dark, a multi-paint heatmap), Amber, SS (Commodore red - note
+  it shares its hue with "bad"), EV (cyan, white needle) and Digital
+  (magenta, cyan digits). Classic's dark surfaces were toned down to a
+  near-neutral grey after the first version read as too green.
   Light / dark / Match Windows is still its own choice; the dash recolours
   both. Kept in the browser (localStorage "vpa-palette"; the phone
   "vpa.palette"), set as data-palette on <html> before the first paint.
@@ -1128,8 +1132,10 @@ Keep these — each one was a bug that took a while to find.
   `:not([data-theme=dark])` so source order can never let them leak into
   dark. Semantic colours (good / bad / warn) and chart series are not
   themed.
-* The phone's app.css holds a generated copy between markers
-  (ui.write_phone_palettes); check_importui fails if it falls behind.
+* The phone holds generated copies: the tokens in app.css (between
+  markers), the bar colours in index.html (TC), the names in app.js
+  (DASHES). ui.write_phone_palettes() rewrites all three; check_importui
+  fails if any falls behind.
 
 **Listing details and listing filters (13/10/2026)** - `vpa/details.py`
 * What saved pages state beyond the price, kept in data/details.json

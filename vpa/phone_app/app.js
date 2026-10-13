@@ -466,7 +466,7 @@ function vehicleAsItem(v) {
 const notes = arr => arr && arr.length ? `<ul class="notes">${arr.map(n => `<li>${esc(n)}</li>`).join("")}</ul>` : "";
 
 // the dash themes, as vpa/ui.py PALETTES names them (key, name, what it is)
-const DASHES = [["classic", "Classic", "green instrument glow"], ["xr", "XR", "Falcon blue, red needles"], ["m", "M", "M stripes and loud paint"], ["amber", "Amber", "old-school orange gauges"]];
+const DASHES = [["classic", "Classic", "green instrument glow"], ["standard", "Standard", "the original, plain blue"], ["xr", "XR", "Falcon blue, red needles"], ["m", "M", "M stripes and loud paint"], ["amber", "Amber", "old-school orange gauges"], ["ss", "SS", "Commodore red"], ["ev", "EV", "clean cyan, modern screens"], ["digital", "Digital", "80s digital dash, magenta and cyan"]];
 
 /* ------------------------------------------------------------ Home */
 route("/", { tab: "home", titleText: "VPA" }, q => {
@@ -1090,7 +1090,7 @@ route("/sync", { tab: null, back: true, titleText: "Sync & settings", needsData:
   const th = window.vpaTheme ? vpaTheme() : "auto", pal = window.vpaPalette ? vpaPalette() : "";
   h += `<div class="card"><h2>Appearance</h2><div class="seg">${[["auto", "Auto"], ["light", "Light"], ["dark", "Dark"]].map(([k, l]) =>
     `<button data-theme-set="${k}" class="${th === k ? "on" : ""}" aria-pressed="${th === k}">${l}</button>`).join("")}</div>
-    <h2 style="margin-top:14px">Dash</h2><div class="seg">${DASHES.map(([k, l]) =>
+    <h2 style="margin-top:14px">Dash</h2><div class="seg wrap">${DASHES.map(([k, l]) =>
     `<button data-palette-set="${k}" class="${pal === k ? "on" : ""}" aria-pressed="${pal === k}">${l}</button>`).join("")}</div>
     <div class="note">Auto follows the phone's own light or dark setting. The dash recolours both: ${
       DASHES.map(([, l, b]) => `<b>${l}</b> ${b}`).join(", ")}. Kept on this phone only.</div></div>`;

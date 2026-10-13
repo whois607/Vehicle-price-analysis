@@ -84,16 +84,39 @@ PALETTES = {
             "glow": "0 0 0 transparent", "glow-text": "none", "chart": "#1d7a45",
             "heat0": "#e6ebe7", "heat1": "#c9e6c9", "heat2": "#8fcb8f", "heat3": "#4d9e4d", "heat4": "#256e25"},
         "dark": {
-            "bg": "#070c09", "card": "#0f1612", "head": "#131c17", "line": "#1f2c24", "line-2": "#18221c",
-            "tile-a": "#111a15", "tile-b": "#0f1612", "topbar": "rgba(15,22,18,.85)",
-            "topbar-line": "rgba(44,64,52,.9)", "field-bg": "#131c17", "seg-on": "#1e2c24",
+            "bg": "#0c0e0d", "card": "#151817", "head": "#1a1d1c", "line": "#282d2b", "line-2": "#1f2422",
+            "tile-a": "#171b19", "tile-b": "#151817", "topbar": "rgba(21,24,23,.85)",
+            "topbar-line": "rgba(56,64,60,.9)", "field-bg": "#1a1d1c", "seg-on": "#262c29",
             "accent": "#4ee08a", "accent-2": "#8af0b3", "accent-soft": "#0f2e1c", "accent-line": "#22603c",
             "ring": "0 0 0 3px rgba(78,224,138,.3)", "fill": "#1f8a4c", "fill-2": "#27a05a",
-            "sel": "#1d5534", "row-hover": "#142019", "help-a": "#0f2418", "needle": "#4ee08a",
+            "sel": "#1d4d31", "row-hover": "#1b201e", "help-a": "#15201a", "needle": "#4ee08a",
             "logo": "linear-gradient(135deg,#2fd07a,#0b4a27)", "digits": "#9ef5c2",
             "glow": "0 0 14px rgba(78,224,138,.45)", "glow-text": "0 0 10px rgba(78,224,138,.55)",
             "chart": "#4ee08a",
-            "heat0": "#17211b", "heat1": "#14462a", "heat2": "#1f7a44", "heat3": "#35b866", "heat4": "#7dffb0"},
+            "heat0": "#1e2321", "heat1": "#14462a", "heat2": "#1f7a44", "heat3": "#35b866", "heat4": "#7dffb0"},
+    },
+    "standard": {
+        "label": "Standard", "blurb": "the original, plain blue",
+        "light": {
+            "bg": "#f4f5f8", "card": "#fff", "head": "#f7f8fa", "line": "#e4e7ed", "line-2": "#eff1f5",
+            "tile-a": "#fff", "tile-b": "#fafbfc", "topbar": "rgba(255,255,255,.86)",
+            "topbar-line": "rgba(214,219,228,.9)", "field-bg": "#fff", "seg-on": "#fff",
+            "accent": "#2b5fc4", "accent-2": "#224ea5", "accent-soft": "#edf2fc", "accent-line": "#c8d7f3",
+            "ring": "0 0 0 3px rgba(43,95,196,.18)", "fill": "#2b5fc4", "fill-2": "#224ea5",
+            "sel": "#cfdcf6", "row-hover": "#f7f9fe", "help-a": "#f8fbff", "needle": "transparent",
+            "logo": "linear-gradient(135deg,#3a6fd8,#1f3f8f)", "digits": "var(--ink)",
+            "glow": "0 0 0 transparent", "glow-text": "none", "chart": "#2e7d32",
+            "heat0": "#e8eaee", "heat1": "#c9e6c9", "heat2": "#8fcb8f", "heat3": "#4d9e4d", "heat4": "#256e25"},
+        "dark": {
+            "bg": "#0f1218", "card": "#181c24", "head": "#1d222b", "line": "#2a303b", "line-2": "#222833",
+            "tile-a": "#1b2029", "tile-b": "#181c24", "topbar": "rgba(24,28,36,.84)",
+            "topbar-line": "rgba(58,66,80,.9)", "field-bg": "#1d222b", "seg-on": "#2c3340",
+            "accent": "#7ea6f4", "accent-2": "#a3c0f8", "accent-soft": "#1d2a44", "accent-line": "#34507f",
+            "ring": "0 0 0 3px rgba(126,166,244,.32)", "fill": "#3d6fd6", "fill-2": "#4c7de2",
+            "sel": "#2d4a80", "row-hover": "#1e2431", "help-a": "#1a2233", "needle": "transparent",
+            "logo": "linear-gradient(135deg,#3a6fd8,#1f3f8f)", "digits": "var(--ink)",
+            "glow": "0 0 0 transparent", "glow-text": "none", "chart": "#5cc28c",
+            "heat0": "#232934", "heat1": "#1f4a2c", "heat2": "#2c7040", "heat3": "#42a05c", "heat4": "#7fdc98"},
     },
     "xr": {
         "label": "XR", "blurb": "Falcon blue, red needles",
@@ -167,6 +190,78 @@ PALETTES = {
             "chart": "#ffa53a",
             "heat0": "#1e170f", "heat1": "#4a2c0d", "heat2": "#8a4f12", "heat3": "#d27a1c", "heat4": "#ffb347"},
     },
+    "ss": {
+        "label": "SS", "blurb": "Commodore red",
+        "light": {
+            "bg": "#f8f4f4", "card": "#fff", "head": "#fbf7f7", "line": "#ece2e2", "line-2": "#f5eeee",
+            "tile-a": "#fff", "tile-b": "#fdf9f9", "topbar": "rgba(255,255,255,.86)",
+            "topbar-line": "rgba(232,214,214,.9)", "field-bg": "#fff", "seg-on": "#fff",
+            "accent": "#c0182b", "accent-2": "#9a1222", "accent-soft": "#fceaec", "accent-line": "#f2c4ca",
+            "ring": "0 0 0 3px rgba(192,24,43,.18)", "fill": "#c0182b", "fill-2": "#9a1222",
+            "sel": "#f6cdd2", "row-hover": "#fdf6f7", "help-a": "#fff5f6", "needle": "#c0182b",
+            "logo": "linear-gradient(135deg,#e8394d,#7a0b17)", "digits": "var(--ink)",
+            "glow": "0 0 0 transparent", "glow-text": "none", "chart": "#c0182b",
+            "heat0": "#efe7e8", "heat1": "#f6c6cc", "heat2": "#ec8592", "heat3": "#d33a4c", "heat4": "#8e0d1c"},
+        "dark": {
+            "bg": "#0e0b0c", "card": "#181314", "head": "#1e1819", "line": "#2f2628", "line-2": "#241d1f",
+            "tile-a": "#1b1517", "tile-b": "#181314", "topbar": "rgba(24,19,20,.86)",
+            "topbar-line": "rgba(70,52,56,.9)", "field-bg": "#1e1819", "seg-on": "#30262a",
+            "accent": "#ff4d5e", "accent-2": "#ff8c97", "accent-soft": "#3a1218", "accent-line": "#7a2230",
+            "ring": "0 0 0 3px rgba(255,77,94,.32)", "fill": "#c8202f", "fill-2": "#e02a3a",
+            "sel": "#5c1a24", "row-hover": "#211a1c", "help-a": "#26181b", "needle": "#ff4d5e",
+            "logo": "linear-gradient(135deg,#ff5a6a,#8a0f1c)", "digits": "#ff9aa4",
+            "glow": "0 0 14px rgba(255,77,94,.45)", "glow-text": "0 0 10px rgba(255,77,94,.5)",
+            "chart": "#ff4d5e",
+            "heat0": "#1e1617", "heat1": "#4a1219", "heat2": "#8a1a27", "heat3": "#d42f42", "heat4": "#ff8c97"},
+    },
+    "ev": {
+        "label": "EV", "blurb": "clean cyan, modern screens",
+        "light": {
+            "bg": "#f3f6f7", "card": "#fff", "head": "#f6f9fa", "line": "#e1e8ea", "line-2": "#edf2f3",
+            "tile-a": "#fff", "tile-b": "#f9fbfc", "topbar": "rgba(255,255,255,.88)",
+            "topbar-line": "rgba(210,222,226,.9)", "field-bg": "#fff", "seg-on": "#fff",
+            "accent": "#0b7f8c", "accent-2": "#086570", "accent-soft": "#e3f4f6", "accent-line": "#b9e0e5",
+            "ring": "0 0 0 3px rgba(11,127,140,.18)", "fill": "#0b7f8c", "fill-2": "#086570",
+            "sel": "#c4e9ee", "row-hover": "#f3fafb", "help-a": "#f1fafb", "needle": "#0b7f8c",
+            "logo": "linear-gradient(135deg,#22c3d6,#0a5a66)", "digits": "var(--ink)",
+            "glow": "0 0 0 transparent", "glow-text": "none", "chart": "#0b7f8c",
+            "heat0": "#e6ecee", "heat1": "#c4e9ee", "heat2": "#7fd0da", "heat3": "#2aa5b5", "heat4": "#0a6a76"},
+        "dark": {
+            "bg": "#0a0d0f", "card": "#12171a", "head": "#171d21", "line": "#252e33", "line-2": "#1c2428",
+            "tile-a": "#151b1f", "tile-b": "#12171a", "topbar": "rgba(18,23,26,.86)",
+            "topbar-line": "rgba(50,64,70,.9)", "field-bg": "#171d21", "seg-on": "#253035",
+            "accent": "#3fd8e8", "accent-2": "#8cebf4", "accent-soft": "#0e2c31", "accent-line": "#1d5f68",
+            "ring": "0 0 0 3px rgba(63,216,232,.3)", "fill": "#13909e", "fill-2": "#18a6b6",
+            "sel": "#1b4a52", "row-hover": "#182024", "help-a": "#10242a", "needle": "#e8f6f8",
+            "logo": "linear-gradient(135deg,#5ce6f2,#0b4f5a)", "digits": "#e6fbfd",
+            "glow": "0 0 14px rgba(63,216,232,.35)", "glow-text": "0 0 10px rgba(63,216,232,.4)",
+            "chart": "#3fd8e8",
+            "heat0": "#182024", "heat1": "#123e45", "heat2": "#17707c", "heat3": "#2ab3c3", "heat4": "#8cebf4"},
+    },
+    "digital": {
+        "label": "Digital", "blurb": "80s digital dash, magenta and cyan",
+        "light": {
+            "bg": "#f6f4f8", "card": "#fff", "head": "#f9f7fb", "line": "#e6e1ec", "line-2": "#f1edf5",
+            "tile-a": "#fff", "tile-b": "#fbf9fd", "topbar": "rgba(255,255,255,.86)",
+            "topbar-line": "rgba(222,214,232,.9)", "field-bg": "#fff", "seg-on": "#fff",
+            "accent": "#c0177e", "accent-2": "#990f63", "accent-soft": "#fbe8f3", "accent-line": "#f0c2de",
+            "ring": "0 0 0 3px rgba(192,23,126,.18)", "fill": "#c0177e", "fill-2": "#990f63",
+            "sel": "#f5cce5", "row-hover": "#fdf6fa", "help-a": "#fdf3f9", "needle": "#0891b2",
+            "logo": "linear-gradient(135deg,#ff3fa4 0 50%,#16c6e8 50%)", "digits": "var(--ink)",
+            "glow": "0 0 0 transparent", "glow-text": "none", "chart": "#c0177e",
+            "heat0": "#ece7f0", "heat1": "#bfe9f5", "heat2": "#5fcde6", "heat3": "#e05aa8", "heat4": "#a8106c"},
+        "dark": {
+            "bg": "#0b0a0f", "card": "#14121b", "head": "#1a1722", "line": "#2a2536", "line-2": "#211d2b",
+            "tile-a": "#17141f", "tile-b": "#14121b", "topbar": "rgba(20,18,27,.86)",
+            "topbar-line": "rgba(62,54,82,.9)", "field-bg": "#1a1722", "seg-on": "#2b2538",
+            "accent": "#ff4fb4", "accent-2": "#ff94d0", "accent-soft": "#3a1230", "accent-line": "#7a2260",
+            "ring": "0 0 0 3px rgba(255,79,180,.32)", "fill": "#c8238a", "fill-2": "#e0309c",
+            "sel": "#5a1d4a", "row-hover": "#1d1a27", "help-a": "#24152a", "needle": "#2ee6ff",
+            "logo": "linear-gradient(135deg,#ff4fb4 0 50%,#2ee6ff 50%)", "digits": "#2ee6ff",
+            "glow": "0 0 14px rgba(255,79,180,.4)", "glow-text": "0 0 10px rgba(46,230,255,.55)",
+            "chart": "#2ee6ff",
+            "heat0": "#1c1926", "heat1": "#3a1650", "heat2": "#2a5fa8", "heat3": "#2ee6ff", "heat4": "#ff4fb4"},
+    },
 }
 DEFAULT_PALETTE = next(iter(PALETTES))
 
@@ -214,20 +309,47 @@ PHONE_MARK = ("/* dash themes: generated from vpa/ui.py PALETTES (ui.write_phone
               "/* end of dash themes */")
 
 
+def phone_theme_colours() -> str:
+    """index.html's browser-bar colour per dash: the accent in light, the
+    card in dark (a JSON object literal)."""
+    return json.dumps({k: {"light": p["light"]["accent"], "dark": p["dark"]["card"]}
+                       for k, p in PALETTES.items()}, separators=(",", ":"))
+
+
+def phone_dashes() -> str:
+    """app.js's list of dashes: [key, name, what it is], menu order."""
+    return json.dumps([[k, p["label"], p["blurb"]] for k, p in PALETTES.items()])
+
+
 def write_phone_palettes() -> bool:
-    """Bring app.css's copy of the dash themes up to date. True if changed."""
-    css = Path(__file__).resolve().parent / "phone_app" / "app.css"
-    text = css.read_text(encoding="utf-8")
+    """Bring the phone app's copies of the dash themes up to date: the
+    tokens in app.css, the bar colours in index.html, the names in app.js.
+    True if anything changed."""
+    import re
+    app = Path(__file__).resolve().parent / "phone_app"
+    changed = False
+
+    def put(name, fix):
+        nonlocal changed
+        f = app / name
+        text = f.read_text(encoding="utf-8")
+        new = fix(text)
+        if new != text:
+            f.write_bytes(new.encode("utf-8"))           # keep LF line ends
+            changed = True
+
     a, b = PHONE_MARK
     block = f"{a}\n{palette_css('phone')}\n{b}"
-    if a in text:
-        new = text[:text.index(a)] + block + text[text.index(b) + len(b):]
-    else:
+
+    def css(text):
+        if a in text:
+            return text[:text.index(a)] + block + text[text.index(b) + len(b):]
         anchor = "*{box-sizing:border-box"
-        new = text.replace(anchor, block + "\n" + anchor, 1)
-    if new != text:
-        css.write_bytes(new.encode("utf-8"))           # keep LF line ends
-    return new != text
+        return text.replace(anchor, block + "\n" + anchor, 1)
+    put("app.css", css)
+    put("index.html", lambda t: re.sub(r"TC = \{.*?\}\},", lambda m: f"TC = {phone_theme_colours()},", t, 1))
+    put("app.js", lambda t: re.sub(r"const DASHES = \[.*?\]\];", lambda m: f"const DASHES = {phone_dashes()};", t, 1))
+    return changed
 
 #: (slug, href, label, icon) - the pages you can be ON. Four, not six:
 #: Import, Bulk and Quick add were three tabs for one job, and are now the
@@ -280,7 +402,8 @@ def nav(active: str) -> str:
     th_items += '<div class="tmh">Dash</div>' + "".join(
         f'<button type="button" class="pal" role="menuitemradio" data-palette-set="{k}">'
         f'<i class="sw" style="background:linear-gradient(135deg,{p["dark"]["bg"]} 0 45%,'
-        f'{p["dark"]["accent"]} 45% 78%,{p["dark"]["needle"]} 78%)"></i>'
+        f'{p["dark"]["accent"]} 45% 78%,'
+        f'{p["dark"]["accent-line"] if p["dark"]["needle"] == "transparent" else p["dark"]["needle"]} 78%)"></i>'
         f'<span>{p["label"]}<small>{p["blurb"]}</small></span></button>'
         for k, p in PALETTES.items())
     return f"""<div id="vpaload" aria-hidden="true"><i></i></div>

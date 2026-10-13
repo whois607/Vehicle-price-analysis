@@ -20,7 +20,7 @@
   function ok(x) { return x === "light" || x === "dark" ? x : "auto"; }
   function now() { return p === "auto" ? (m && m.matches ? "dark" : "light") : p; }
   /* the dash theme (vpa/ui.py PALETTES): a colour set for light and dark alike */
-  var PK = "vpa.palette", TC = {"classic":{"light":"#1d7a45","dark":"#0f1612"},"xr":{"light":"#1a4fd6","dark":"#0c1224"},"m":{"light":"#6d28d9","dark":"#121018"},"amber":{"light":"#b45309","dark":"#17110a"}},
+  var PK = "vpa.palette", TC = {"classic":{"light":"#1d7a45","dark":"#151817"},"standard":{"light":"#2b5fc4","dark":"#181c24"},"xr":{"light":"#1a4fd6","dark":"#0c1224"},"m":{"light":"#6d28d9","dark":"#121018"},"amber":{"light":"#b45309","dark":"#17110a"},"ss":{"light":"#c0182b","dark":"#181314"},"ev":{"light":"#0b7f8c","dark":"#12171a"},"digital":{"light":"#c0177e","dark":"#14121b"}},
       PS = Object.keys(TC), pal = PS[0];
   try { pal = localStorage.getItem(PK) || PS[0]; } catch (e) {}
   function apply() {

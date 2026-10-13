@@ -66,9 +66,11 @@ you the file isn't a listings page and skips it.
   excluding charges; the site's own price rating) is kept beside the
   database. Explore and the phone filter by any of it, and by state,
   seller and body, with how many cars each choice holds.
-- **Dash themes**: Classic (green glow), XR (Falcon blue with red needles),
-  M (M stripes and loud paint) and Amber (old-school orange gauges), each in
-  light and dark, on the laptop and the phone.
+- **Dash themes**: Classic (green glow), Standard (the original plain blue),
+  XR (Falcon blue with red needles), M (M stripes and loud paint), Amber
+  (old-school orange gauges), SS (Commodore red), EV (clean cyan) and
+  Digital (80s magenta and cyan), each in light and dark, on the laptop and
+  the phone.
 - **Watchlist**: star cars and see how their prices move against their trim.
 - **Trim grouping**: "Auto quattro MY18" and "quattro", or "Mk II" and
   "MkII", count as the same trim. Stored names are never changed. BMW,

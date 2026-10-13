@@ -192,8 +192,8 @@ def check_chrome() -> None:
           "index.html script, dark tokens in app.css, Auto/Light/Dark on Sync & settings")
     from vpa import ui
     keys = {m: set(ui.PALETTES[ui.DEFAULT_PALETTE][m]) for m in ("light", "dark")}
-    check("dash themes: four, each setting the same colours in light and dark",
-          len(ui.PALETTES) == 4 and all(set(p[m]) == keys[m] == keys["light"]
+    check("dash themes: eight, each setting the same colours in light and dark",
+          len(ui.PALETTES) == 8 and all(set(p[m]) == keys[m] == keys["light"]
                                         for p in ui.PALETTES.values() for m in ("light", "dark")),
           ", ".join(p["label"] for p in ui.PALETTES.values()))
     check("every page carries every dash theme, chosen before the first paint",
@@ -206,8 +206,10 @@ def check_chrome() -> None:
     a, b = ui.PHONE_MARK
     check("the phone app carries the same dash themes (generated copy up to date)",
           css[css.index(a) + len(a):css.index(b)].strip() == ui.palette_css("phone")
-          and "window.vpaPalette" in idx and "data-palette-set" in (app / "app.js").read_text(encoding="utf-8"),
-          "app.css matches ui.palette_css('phone'); if not, run ui.write_phone_palettes()")
+          and "window.vpaPalette" in idx and "data-palette-set" in (app / "app.js").read_text(encoding="utf-8")
+          and f"TC = {ui.phone_theme_colours()}," in idx
+          and f"const DASHES = {ui.phone_dashes()};" in (app / "app.js").read_text(encoding="utf-8"),
+          "app.css, index.html and app.js match ui.PALETTES; if not, run ui.write_phone_palettes()")
     check("Shut down is styled apart from navigation, not identical to it",
           all('class="navbtn danger" id="quitBtn"' in p for p in pages.values()),
           "danger styling on the quit button only")
